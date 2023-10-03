@@ -1,0 +1,23 @@
+{
+    "name": "gitui",
+    "version": "1.0.0",
+    "description": "",
+    "scripts": {
+        "vite": "vite",
+        "start": "dotnet fable watch src/Client --run npm run vite",
+        "build": "dotnet fable",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "devDependencies": {
+        "autoprefixer": "^10.4.15",
+        "postcss": "^8.4.29",
+        "tailwindcss": "^3.3.3",
+        "vite": "^4.4.9"
+    }
+}
