@@ -1,0 +1,14 @@
+{
+    "files.exclude": {
+        "**/*.fs.js": true,
+        "**/*.fs.js.map": true,
+        "**/.fable": true,
+        "**/bin": true,
+        "**/obj": true,
+        "**/.idea": true,
+        "**/.ionide": true,
+        "**/.vs": true,
+        "**/node_modules": true,
+        "**/fable_modules": true
+    }
+}
