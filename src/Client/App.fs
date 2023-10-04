@@ -332,7 +332,7 @@ module GitResponse =
 
 [<ReactComponent>]
 let App () =
-    let entries, setEntries = React.useState ([||])
+    // let entries, setEntries = React.useState ([||])
     let status, setStatus = React.useState ([||])
 
     React.useEffectOnce (fun () ->
