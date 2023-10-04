@@ -1,12 +1,14 @@
 {
-    "name": "gitui",
+    "name": "arnold",
     "version": "1.0.0",
     "description": "",
     "scripts": {
         "vite": "vite",
-        "start": "dotnet fable watch src/Client --run npm run vite",
-        "build": "dotnet fable",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "start": "concurrently \"dotnet watch --project src/Server\" \"dotnet fable watch src/Client --run npm run vite\"",
+        "build": "dotnet fable src/Client",
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "preprod": "npm run build",
+        "prod": "concurrently \"dotnet run --project src/Server\" \"npm run vite\""
     },
     "author": "",
     "license": "ISC",
@@ -16,6 +18,7 @@
     },
     "devDependencies": {
         "autoprefixer": "^10.4.15",
+        "concurrently": "^8.2.1",
         "postcss": "^8.4.29",
         "tailwindcss": "^3.3.3",
         "vite": "^4.4.9"
