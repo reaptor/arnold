@@ -4,7 +4,7 @@
         "**/*.fs.js.map": true,
         "**/.fable": true,
         "**/bin": true,
-        "**/obj": true,
+        // "**/obj": true,
         "**/.idea": true,
         "**/.ionide": true,
         "**/.vs": true,

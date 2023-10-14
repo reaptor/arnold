@@ -4,3 +4,4 @@
 **/obj
 **/*.fs.js
 .fake
+.idea/
