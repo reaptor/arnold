@@ -3,6 +3,8 @@ module Git
 open Browser
 open System
 open FSharp.Core
+open Thoth.Json
+open Thoth.Fetch
 
 type GitLogEntry =
     {
@@ -79,9 +81,6 @@ type GitStatusEntry = { Filename: string; Status: GitStatus }
 module GitStatus =
     let parsePorcelain (s: string) =
         s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
-        |> fun x ->
-            console.log (x)
-            x
         |> Array.map (
             function
             // https://git-scm.com/docs/git-status#_short_format
@@ -111,3 +110,92 @@ module GitStatus =
             | unsupported -> failwithf "Unsupported git status output %s" unsupported
             >> fun (status, filename) -> { Filename = filename; Status = status }
         )
+        
+
+type GitRequest = { Path: string }
+
+type GitResponse<'a> =
+    { Error: string option; Data: 'a array }
+
+module GitResponse =
+    // let LogDecoder =
+    //     Decode.object (fun get ->
+    //         {
+    //             Error = get.Optional.Field "error" Decode.string
+    //             Data =
+    //                 get.Optional.Field
+    //                     "data"
+    //                     (Decode.array (
+    //                         Decode.object (fun get ->
+    //                             {
+    //                                 Commit = get.Required.Field "commit" Decode.string
+    //                                 AbbreviatedCommit = get.Required.Field "abbreviated_commit" Decode.string
+    //                                 Tree = get.Required.Field "tree" Decode.string
+    //                                 AbbreviatedTree = get.Required.Field "abbreviated_tree" Decode.string
+    //                                 Parent = get.Required.Field "parent" Decode.string
+    //                                 AbbreviatedParent = get.Required.Field "abbreviated_parent" Decode.string
+    //                                 Refs = get.Required.Field "refs" Decode.string
+    //                                 Encoding = get.Required.Field "encoding" Decode.string
+    //                                 Subject = get.Required.Field "subject" Decode.string
+    //                                 SanitizedSubjectLine = get.Required.Field "sanitized_subject_line" Decode.string
+    //                                 Body = get.Required.Field "body" Decode.string
+    //                                 CommitNotes = get.Required.Field "commit_notes" Decode.string
+    //                                 VerificationFlags = get.Required.Field "verification_flags" Decode.string
+    //                                 Signer = get.Required.Field "signer" Decode.string
+    //                                 SignerKey = get.Required.Field "signer_key" Decode.string
+    //                                 Author =
+    //                                     get.Required.Field
+    //                                         "author"
+    //                                         (Decode.object (fun get ->
+    //                                             {|
+    //                                                 Name = get.Required.Field "name" Decode.string
+    //                                                 Email = get.Required.Field "email" Decode.string
+    //                                                 Date = get.Required.Field "date" Decode.string
+    //                                             |}
+    //                                         ))
+    //                                 Commiter =
+    //                                     get.Required.Field
+    //                                         "commiter"
+    //                                         (Decode.object (fun get ->
+    //                                             {|
+    //                                                 Name = get.Required.Field "name" Decode.string
+    //                                                 Email = get.Required.Field "email" Decode.string
+    //                                                 Date = get.Required.Field "date" Decode.string
+    //                                             |}
+    //                                         ))
+    //                             }
+    //                         )
+    //                     ))
+    //                 |> Option.toArray
+    //                 |> Array.concat
+    //         }
+    //     )
+
+    let StatusDecoder =
+        Decode.object (fun get ->
+            {
+                Error = get.Optional.Field "error" Decode.string
+                Data =
+                    get.Optional.Field "data" Decode.string
+                    |> Option.map GitStatus.parsePorcelain
+                    |> Option.toArray
+                    |> Array.concat
+            }
+        )
+
+let loadStatusEntries () =
+    promise {
+        let! response =
+            Fetch.post (
+                url = "http://localhost:5000/git/status",
+                data =
+                    {
+                        Path = "/Users/kristofferlofberg/Projects/foo"
+                    },
+                decoder = GitResponse.StatusDecoder
+            )
+        return
+            match response.Error with
+            | None -> response.Data
+            | Some e -> failwith e
+    } 

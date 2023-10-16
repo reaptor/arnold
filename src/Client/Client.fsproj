@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Util.fs" />
     <Compile Include="Git.fs" />
     <Compile Include="UI.fs" />
     <Compile Include="GitComponents.fs" />
