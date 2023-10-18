@@ -53,16 +53,14 @@ let (|Y|_|) (y: string) (input: string) =
 let (|Filename|) (input: string) = input[3..].Trim(' ').Trim('"')
 
 type GitStatus =
-    | NotUpdated // Not staged, modified
-    | UpdatedInIndex // Staged, modified
+    | ModifiedInIndex
     | TypeChangedInIndex
-    | AddedToIndex // Staged, new file
+    | AddedToIndex
     | DeletedFromIndex
     | RenamedInIndex
     | CopiedInIndex
-    | IndexAndWorkTreeMatches
-    | WorkTreeChangedSinceIndex
-    | TypeChangedInWorkTreeSinceIndex
+    | ModifiedInWorkTree
+    | TypeChangedInWorkTree
     | DeletedInWorkTree
     | RenamedInWorkTree
     | CopiedInWorkTree
@@ -76,26 +74,37 @@ type GitStatus =
     | Untracked
     | Ignored
 
+
 type GitStatusEntry = { Filename: string; Status: GitStatus }
 
 module GitStatus =
+    let isStaged =
+        function
+        | ModifiedInIndex
+        | TypeChangedInIndex
+        | AddedToIndex
+        | DeletedFromIndex
+        | RenamedInIndex
+        | CopiedInIndex -> true
+        | _ -> false
+        
     let parsePorcelain (s: string) =
         s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
         |> Array.map (
             function
             // https://git-scm.com/docs/git-status#_short_format
             // https://git-scm.com/docs/git-status#_porcelain_format_version_1
-            | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
-            | X " " & Y "AMD" & Filename filename -> NotUpdated, filename
-            | X "M" & Y " MTD" & Filename filename -> UpdatedInIndex, filename
-            | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
-            | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
+            // | X " " & Y "AMD" & Filename filename -> NotUpdated, filename
+            | X "M" & Y " " & Filename filename -> ModifiedInIndex, filename
+            | X "T" & Y " " & Filename filename -> TypeChangedInIndex, filename
+            | X "A" & Y " " & Filename filename -> AddedToIndex, filename
             | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
-            | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
-            | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename
-            | X "MTARC" & Y " " & Filename filename -> IndexAndWorkTreeMatches, filename
-            | X " MTARC" & Y "M" & Filename filename -> WorkTreeChangedSinceIndex, filename
-            | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
+            | X "R" & Y " " & Filename filename -> RenamedInIndex, filename
+            | X "C" & Y " " & Filename filename -> CopiedInIndex, filename
+            // | X "MTARC" & Y " " & Filename filename -> IndexAndWorkTreeMatches, filename
+            | X " " & Y "M" & Filename filename -> ModifiedInWorkTree, filename
+            | X " " & Y "T" & Filename filename -> TypeChangedInWorkTree, filename
+            | X " " & Y "D" & Filename filename -> DeletedInWorkTree, filename
             | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
             | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename
             | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
@@ -190,7 +199,7 @@ let loadStatusEntries () =
                 url = "http://localhost:5000/git/status",
                 data =
                     {
-                        Path = "/Users/kristofferlofberg/Projects/foo"
+                        Path = "/Users/kristofferlofberg/Projects/arnold"
                     },
                 decoder = GitResponse.StatusDecoder
             )

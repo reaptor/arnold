@@ -33,7 +33,7 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         setIsShiftActive e.shiftKey
         setIsCtrlActive (isCtrlKey e)
         let setSelectedIndex newIndex =
-            if not (e.shiftKey || isCtrlKey e) then
+            if not e.shiftKey then
                 setSelectedIndex (Some newIndex)
         
         let step addIndex =

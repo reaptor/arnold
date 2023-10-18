@@ -31,8 +31,8 @@ type UI with
                     [
                         let imgName =
                             match entry.Status with
-                            | NotUpdated
-                            | UpdatedInIndex -> "pencil"
+                            | ModifiedInWorkTree
+                            | ModifiedInIndex -> "pencil"
                             | AddedToIndex
                             | Untracked -> "plus"
                             | DeletedInWorkTree

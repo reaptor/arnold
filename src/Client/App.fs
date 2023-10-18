@@ -69,11 +69,7 @@ let view (model: Model) _dispatch =
                     entries =
                         Array.filter
                             (fun entry ->
-                                match entry.Status with
-                                | NotUpdated
-                                | Untracked
-                                | DeletedInWorkTree -> true
-                                | _ -> false
+                                not (GitStatus.isStaged entry.Status)
                             )
                             model.Status
                 )
@@ -81,11 +77,7 @@ let view (model: Model) _dispatch =
                     entries =
                         Array.filter
                             (fun entry ->
-                                match entry.Status with
-                                | AddedToIndex
-                                | UpdatedInIndex
-                                | DeletedFromIndex -> true
-                                | _ -> false
+                                GitStatus.isStaged entry.Status
                             )
                             model.Status
                 )
