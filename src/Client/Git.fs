@@ -53,14 +53,15 @@ let (|Y|_|) (y: string) (input: string) =
 let (|Filename|) (input: string) = input[3..].Trim(' ').Trim('"')
 
 type GitStatus =
+    | NotUpdated
     | ModifiedInIndex
     | TypeChangedInIndex
     | AddedToIndex
     | DeletedFromIndex
     | RenamedInIndex
     | CopiedInIndex
-    | ModifiedInWorkTree
-    | TypeChangedInWorkTree
+    | ModifiedInWorkTreeSinceIndex
+    | TypeChangedInWorkTreeSinceIndex
     | DeletedInWorkTree
     | RenamedInWorkTree
     | CopiedInWorkTree
@@ -89,24 +90,25 @@ module GitStatus =
         | _ -> false
         
     let parsePorcelain (s: string) =
+        console.log (s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries))
         s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.map (
-            function
+        |> Array.collect (fun s -> [|
             // https://git-scm.com/docs/git-status#_short_format
             // https://git-scm.com/docs/git-status#_porcelain_format_version_1
-            // | X " " & Y "AMD" & Filename filename -> NotUpdated, filename
-            | X "M" & Y " " & Filename filename -> ModifiedInIndex, filename
-            | X "T" & Y " " & Filename filename -> TypeChangedInIndex, filename
-            | X "A" & Y " " & Filename filename -> AddedToIndex, filename
+            match s with
+            | X "M" & Y " MTD" & Filename filename -> ModifiedInIndex, filename
+            | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
+            | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
             | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
-            | X "R" & Y " " & Filename filename -> RenamedInIndex, filename
-            | X "C" & Y " " & Filename filename -> CopiedInIndex, filename
-            // | X "MTARC" & Y " " & Filename filename -> IndexAndWorkTreeMatches, filename
-            | X " " & Y "M" & Filename filename -> ModifiedInWorkTree, filename
-            | X " " & Y "T" & Filename filename -> TypeChangedInWorkTree, filename
-            | X " " & Y "D" & Filename filename -> DeletedInWorkTree, filename
+            | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
+            | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename            
+            | _ -> ()            
+            match s with            
+            | X " MTARC" & Y "M" & Filename filename -> ModifiedInWorkTreeSinceIndex, filename
+            | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
+            | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
             | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
-            | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename
+            | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename            
             | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
             | X "A" & Y "U" & Filename filename -> UnmergedAddedByUs, filename
             | X "U" & Y "D" & Filename filename -> UnmergedDeletedByThem, filename
@@ -116,11 +118,11 @@ module GitStatus =
             | X "U" & Y "U" & Filename filename -> UnmergedBothModified, filename
             | X "?" & Y "?" & Filename filename -> Untracked, filename
             | X "!" & Y "!" & Filename filename -> Ignored, filename
-            | unsupported -> failwithf "Unsupported git status output %s" unsupported
-            >> fun (status, filename) -> { Filename = filename; Status = status }
+            | _ -> ()            
+            |]
         )
+        |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
         
-
 type GitRequest = { Path: string }
 
 type GitResponse<'a> =
@@ -199,7 +201,7 @@ let loadStatusEntries () =
                 url = "http://localhost:5000/git/status",
                 data =
                     {
-                        Path = "/Users/kristofferlofberg/Projects/arnold"
+                        Path = "/Users/kristofferlofberg/Projects/foo"
                     },
                 decoder = GitResponse.StatusDecoder
             )

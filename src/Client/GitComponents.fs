@@ -24,20 +24,20 @@ type UI with
     [<ReactComponent>]
     static member StatusEntries(entries: GitStatusEntry array) =
         UI.List(
-            items = entries,
+            items = Array.sortBy (fun x -> x.Filename) entries,
             multiSelect = true,
             itemTemplate =
                 (fun entry ->
                     [
                         let imgName =
                             match entry.Status with
-                            | ModifiedInWorkTree
+                            | ModifiedInWorkTreeSinceIndex
                             | ModifiedInIndex -> "pencil"
                             | AddedToIndex
                             | Untracked -> "plus"
                             | DeletedInWorkTree
                             | DeletedFromIndex -> "minus"
-                            | _ -> ""
+                            | _ -> "question-mark-circle"
 
                         Html.img
                             [
