@@ -6,7 +6,8 @@ open FSharp.Core
 open Git
 open UI
 
-type UI with        
+type UI with
+
     [<ReactComponent>]
     static member CommitLog(entries: GitLogEntry array) =
         UI.List(
@@ -19,7 +20,7 @@ type UI with
                         Html.span [ prop.className "select-none"; prop.text entry.AbbreviatedCommit ]
                     ]
                 )
-            )
+        )
 
     [<ReactComponent>]
     static member StatusEntries(entries: GitStatusEntry array) =
@@ -39,14 +40,20 @@ type UI with
                             | DeletedFromIndex -> Icon.Minus
                             | _ -> Icon.QuestionMarkCircle
 
-                        Html.img
+                        Html.div
                             [
-                                prop.className "inline-block text-white mx-1 w-4"
-                                prop.src (Icon.asFilepath icon)
-                            ]
+                                prop.className "flex"
+                                prop.children
+                                    [
+                                        Html.img
+                                            [
+                                                prop.className "inline-block text-white mx-1 w-4"
+                                                prop.src (Icon.asFilepath icon)
+                                            ]
 
-                        Html.span [ prop.className "select-none"; prop.text entry.Filename ]
+                                        Html.span [ prop.className "select-none mr-2"; prop.text entry.Filename ]
+                                    ]
+                            ]
                     ]
                 )
-            )
-        
+        )

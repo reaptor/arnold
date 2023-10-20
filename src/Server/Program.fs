@@ -72,22 +72,14 @@ let main args =
     app.MapPost(
         "/git/status",
         Func<GitRequest, HttpContext, Task>(fun req ctx ->
-            git "status --porcelain -z" req.Path
+            if not (Directory.Exists req.Path) then
+                Error $"Path not found. Got '%s{req.Path}'"
+            else
+                git "status --porcelain -z" req.Path
             |> function
                 | Ok output ->
                     ctx.Response.ContentType <- "application/json"
                     let data = output.Replace(char 0, '\n').Replace("\n", "\\n").Replace("\"", "\\\"")
-                    // let data = output.ReplaceLineEndings("\\n").Replace("\"", "\\\"")
-
-                    // let data =
-                    //     GitStatus.parsePorcelain output
-                    //     |> Array.map (fun (status, filename) ->
-                    //         {|
-                    //             status = GitStatus.asString status
-                    //             filename = filename
-                    //         |}
-                    //     )
-                    //     |> System.Text.Json.JsonSerializer.Serialize
 
                     """{ "error": null, "data": "{{data}}" }""".Replace("{{data}}", data)
                     |> ctx.Response.WriteAsync

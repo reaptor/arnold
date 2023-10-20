@@ -8,11 +8,8 @@ open FSharp.Core
 open UI
 open Git
 open GitComponents
-  
-type Model =
-    {
-        Status: GitStatusEntry array
-    }
+
+type Model = { Status: GitStatusEntry array }
 
 type Msg =
     | LoadStatusEntries
@@ -21,86 +18,96 @@ type Msg =
 
 let init () =
     { Status = [||] }, Cmd.ofMsg LoadStatusEntries
-    
+
 let update (msg: Msg) (model: Model) =
+    let searchParams = URLSearchParams.Create(window.location.search)
+    let gitFilepath = searchParams.get ("path")
+
     match msg with
-    | LoadStatusEntries -> model, Cmd.OfPromise.either loadStatusEntries () LoadStatusEntriesSucceeded LoadStatusEntriesFailed
+    | LoadStatusEntries ->
+        model,
+        match gitFilepath with
+        | Some gitFilepath' ->
+            let repoName =
+                gitFilepath'.Substring(gitFilepath'.Replace('\\', '/').LastIndexOf('/') + 1)
+
+            document.title <- $"Git %s{repoName}"
+            Cmd.OfPromise.either loadStatusEntries gitFilepath' LoadStatusEntriesSucceeded LoadStatusEntriesFailed
+        | None ->
+            document.title <- "Arnold"
+            Cmd.none
     | LoadStatusEntriesSucceeded status -> { model with Status = status }, Cmd.none
     | LoadStatusEntriesFailed ex ->
-        console.log(ex)
+        console.log (ex)
         model, Cmd.none
-    
+
 let view (model: Model) _dispatch =
-    // let _entries, _setEntries = React.useState ([||])
-    // let status, setStatus = React.useState ([||])
+    let unstaged =
+        model.Status
+        |> Array.filter (fun entry -> not (GitStatus.isStaged entry.Status))
 
-    // React.useEffectOnce (fun () ->
-    //     promise {
-    //         // let! response =
-    //         //     Fetch.post (
-    //         //         url = "http://localhost:5000/git/log",
-    //         //         data =
-    //         //             {
-    //         //                 Path = "/Users/kristofferlofberg/Projects/foo"
-    //         //             },
-    //         //         decoder = GitResponse.LogDecoder
-    //         //     )
-    //
-    //         let! response =
-    //             Fetch.post (
-    //                 url = "http://localhost:5000/git/status",
-    //                 data =
-    //                     {
-    //                         Path = "/Users/kristofferlofberg/Projects/foo"
-    //                     },
-    //                 decoder = GitResponse.StatusDecoder
-    //             )
-    //
-    //         setStatus (response.Data)
-    //     }
-    //     |> ignore<Promise<unit>>
-    // )
+    let staged =
+        model.Status |> Array.filter (fun entry -> GitStatus.isStaged entry.Status)
 
-    Html.div [
-        prop.children [
-            Html.div
+    Html.div
+        [
+            prop.className "select-none m-2 text-sm"
+            prop.children
                 [
-                    prop.className "select-none m-2 text-sm"
-                    prop.children [                
-                        UI.StatusEntries(
-                            entries =
-                                Array.filter
-                                    (fun entry ->
-                                        not (GitStatus.isStaged entry.Status)
-                                    )
-                                    model.Status
-                        )
-                        Html.div [
-                            prop.children [                        
-                                Html.div [
-                                    prop.className "my-2 flex gap-1"
-                                    prop.children [
-                                        UI.Button(icon = Icon.ArrowUpOnSquareStack)
-                                        UI.Button("Unstage", Icon.ArrowUpOnSquare)
-                                        UI.Button("Stage", Icon.ArrowDownOnSquare)
-                                        UI.Button(icon = Icon.ArrowDownOnSquareStack)                                        
-                                    ]
+                    Html.div
+                        [
+                            prop.className "flex gap-2"
+                            prop.children
+                                [
+                                    Html.div
+                                        [
+                                            prop.className ""
+                                            prop.children
+                                                [
+                                                    if unstaged.Length > 0 then
+                                                        UI.StatusEntries(entries = unstaged)
+                                                    Html.div
+                                                        [
+                                                            prop.children
+                                                                [
+                                                                    Html.div
+                                                                        [
+                                                                            prop.className "my-2 flex gap-1"
+                                                                            prop.children
+                                                                                [
+                                                                                    UI.Button(
+                                                                                        icon = Icon.ArrowUpOnSquareStack
+                                                                                    )
+                                                                                    UI.Button(
+                                                                                        "Unstage",
+                                                                                        Icon.ArrowUpOnSquare
+                                                                                    )
+                                                                                    UI.Button(
+                                                                                        "Stage",
+                                                                                        Icon.ArrowDownOnSquare
+                                                                                    )
+                                                                                    UI.Button(
+                                                                                        icon =
+                                                                                            Icon.ArrowDownOnSquareStack
+                                                                                    )
+                                                                                ]
+                                                                        ]
+                                                                    if staged.Length > 0 then
+                                                                        UI.StatusEntries(entries = staged)
+                                                                ]
+                                                        ]
+                                                ]
+                                        ]
+                                    Html.div
+                                        [
+                                            prop.className
+                                                "text-neutral-300 grow border border-black bg-neutral-800 rounded p-2"
+                                            prop.children [ Html.div "asdasd" ]
+                                        ]
                                 ]
-                                UI.StatusEntries(
-                                    entries =
-                                        Array.filter
-                                            (fun entry ->
-                                                GitStatus.isStaged entry.Status
-                                            )
-                                            model.Status
-                                )
-                            ]
                         ]
-                    ]
                 ]
-            
         ]
-    ]
 
 Program.mkProgram init update view
 |> Program.withReactBatched "root"

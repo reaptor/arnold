@@ -88,41 +88,41 @@ module GitStatus =
         | RenamedInIndex
         | CopiedInIndex -> true
         | _ -> false
-        
+
     let parsePorcelain (s: string) =
-        console.log (s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries))
         s.Split([| '\n' |], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.collect (fun s -> [|
-            // https://git-scm.com/docs/git-status#_short_format
-            // https://git-scm.com/docs/git-status#_porcelain_format_version_1
-            match s with
-            | X "M" & Y " MTD" & Filename filename -> ModifiedInIndex, filename
-            | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
-            | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
-            | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
-            | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
-            | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename            
-            | _ -> ()            
-            match s with            
-            | X " MTARC" & Y "M" & Filename filename -> ModifiedInWorkTreeSinceIndex, filename
-            | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
-            | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
-            | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
-            | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename            
-            | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
-            | X "A" & Y "U" & Filename filename -> UnmergedAddedByUs, filename
-            | X "U" & Y "D" & Filename filename -> UnmergedDeletedByThem, filename
-            | X "U" & Y "A" & Filename filename -> UnmergedAddedByThem, filename
-            | X "D" & Y "U" & Filename filename -> UnmergedDeletedByUs, filename
-            | X "A" & Y "A" & Filename filename -> UnmergedBothAdded, filename
-            | X "U" & Y "U" & Filename filename -> UnmergedBothModified, filename
-            | X "?" & Y "?" & Filename filename -> Untracked, filename
-            | X "!" & Y "!" & Filename filename -> Ignored, filename
-            | _ -> ()            
+        |> Array.collect (fun s ->
+            [|
+                // https://git-scm.com/docs/git-status#_short_format
+                // https://git-scm.com/docs/git-status#_porcelain_format_version_1
+                match s with
+                | X "M" & Y " MTD" & Filename filename -> ModifiedInIndex, filename
+                | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
+                | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
+                | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
+                | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
+                | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename
+                | _ -> ()
+                match s with
+                | X " MTARC" & Y "M" & Filename filename -> ModifiedInWorkTreeSinceIndex, filename
+                | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
+                | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
+                | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
+                | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename
+                | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
+                | X "A" & Y "U" & Filename filename -> UnmergedAddedByUs, filename
+                | X "U" & Y "D" & Filename filename -> UnmergedDeletedByThem, filename
+                | X "U" & Y "A" & Filename filename -> UnmergedAddedByThem, filename
+                | X "D" & Y "U" & Filename filename -> UnmergedDeletedByUs, filename
+                | X "A" & Y "A" & Filename filename -> UnmergedBothAdded, filename
+                | X "U" & Y "U" & Filename filename -> UnmergedBothModified, filename
+                | X "?" & Y "?" & Filename filename -> Untracked, filename
+                | X "!" & Y "!" & Filename filename -> Ignored, filename
+                | _ -> ()
             |]
         )
         |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
-        
+
 type GitRequest = { Path: string }
 
 type GitResponse<'a> =
@@ -194,19 +194,17 @@ module GitResponse =
             }
         )
 
-let loadStatusEntries () =
+let loadStatusEntries filepath =
     promise {
         let! response =
             Fetch.post (
                 url = "http://localhost:5000/git/status",
-                data =
-                    {
-                        Path = "/Users/kristofferlofberg/Projects/foo"
-                    },
+                data = { Path = filepath },
                 decoder = GitResponse.StatusDecoder
             )
+
         return
             match response.Error with
             | None -> response.Data
             | Some e -> failwith e
-    } 
+    }

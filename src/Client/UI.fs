@@ -22,40 +22,43 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
     let isCtrlActive, setIsCtrlActive = React.useState false
 
     let isCtrlKey (e: Types.KeyboardEvent) = e.metaKey || e.ctrlKey
-    
-    let updateSelectedIndexes newSelectedIndexes =       
+
+    let updateSelectedIndexes newSelectedIndexes =
         selectionChanged newSelectedIndexes
         setSelectedIndexes newSelectedIndexes
-        
-    let addSorted x xs = xs |> Array.append [| x |] |> Array.sort
-    let removeSorted x xs = xs |> Array.filter (fun y -> x <> y) |> Array.sort   
-            
-    let onKeyDown (e: Types.KeyboardEvent) index =        
+
+    let addSorted x xs =
+        xs |> Array.append [| x |] |> Array.sort
+
+    let removeSorted x xs =
+        xs |> Array.filter (fun y -> x <> y) |> Array.sort
+
+    let onKeyDown (e: Types.KeyboardEvent) index =
         setIsShiftActive e.shiftKey
         setIsCtrlActive (isCtrlKey e)
+
         let setSelectedIndex newIndex =
             if not e.shiftKey then
                 setSelectedIndex (Some newIndex)
-        
+
         let step addIndex =
             refs.current[index].Value.tabIndex <- -1
             let newSelectedIndex = index + addIndex
             setSelectedIndex newSelectedIndex
             refs.current[newSelectedIndex].Value.tabIndex <- 0
             refs.current[newSelectedIndex].Value.focus ()
+
             let newSelectedIndexes =
                 if multiSelection && isShiftActive then
                     match selectedIndex with
-                    | Some x when newSelectedIndex <= x ->                                       
-                        [| newSelectedIndex..x |]
-                    | Some x -> 
-                        [| x..newSelectedIndex |]
-                    | None ->
-                        [| newSelectedIndex |]
+                    | Some x when newSelectedIndex <= x -> [| newSelectedIndex..x |]
+                    | Some x -> [| x..newSelectedIndex |]
+                    | None -> [| newSelectedIndex |]
                 else
                     [| newSelectedIndex |]
+
             updateSelectedIndexes newSelectedIndexes
-            
+
         match isCtrlKey e, e.key with
         | _, "ArrowUp" ->
             if index > 0 then
@@ -64,51 +67,56 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
             if index < elementCount - 1 then
                 step 1
         | true, "a" when multiSelection ->
-            let newSelectedIndexes = [| for i = 0 to elementCount do i |]
+            let newSelectedIndexes =
+                [|
+                    for i = 0 to elementCount do
+                        i
+                |]
+
             updateSelectedIndexes newSelectedIndexes
         | _ -> ()
-    
+
     let onKeyUp (e: Types.KeyboardEvent) =
         setIsCtrlActive (isCtrlKey e)
         setIsShiftActive e.shiftKey
-        
-    let onMouseDown (e: Types.MouseEvent) index =
-    
+
+    let onMouseDown (_e: Types.MouseEvent) index =
+
         if not (isCtrlActive || isShiftActive) then
             setSelectedIndex (Some index)
-            
+
         for ref in refs.current do
             ref |> Option.iter (fun ref -> ref.tabIndex <- -1)
 
         refs.current[index].Value.tabIndex <- 0
         refs.current[index].Value.focus ()
+
         if multiSelection && isCtrlActive then
-            if Array.contains index selectedIndexes then 
+            if Array.contains index selectedIndexes then
                 removeSorted index selectedIndexes
             else
                 addSorted index selectedIndexes
         elif multiSelection && isShiftActive then
             match selectedIndex with
-            | Some x when index < x ->                                       
-                [| index..x |]
-            | Some x -> 
-                [| x..index |]
-            | None ->
-                [| index |]
+            | Some x when index < x -> [| index..x |]
+            | Some x -> [| x..index |]
+            | None -> [| index |]
         else
             [| index |]
         |> updateSelectedIndexes
-        
+
     {|
         Refs = refs
-        SetupEvents = fun i -> [
-            prop.onKeyDown (fun e -> onKeyDown e i)
-            prop.onKeyUp (fun e -> onKeyUp e)
-            prop.onMouseDown (fun e -> onMouseDown e i)
-        ]
+        SetupEvents =
+            fun i ->
+                [
+                    prop.onKeyDown (fun e -> onKeyDown e i)
+                    prop.onKeyUp (fun e -> onKeyUp e)
+                    prop.onMouseDown (fun e -> onMouseDown e i)
+                ]
         SelectedIndexes = selectedIndexes
     |}
-    
+
 type Icon =
     | ArrowDownOnSquare
     | ArrowDownOnSquareStack
@@ -118,7 +126,7 @@ type Icon =
     | Plus
     | Pencil
     | QuestionMarkCircle
-    
+
 module Icon =
     let asFilepath =
         function
@@ -130,28 +138,25 @@ module Icon =
         | Plus -> "svg/plus.svg"
         | Pencil -> "svg/pencil.svg"
         | QuestionMarkCircle -> "svg/question-mark-circle.svg"
-    
+
 type UI with
-    static member Button
-        (
-            ?text: string,
-            ?icon: Icon            
-        ) =
-        Html.button [
-            prop.className "border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded-sm cursor-default py-1 px-2"
-            prop.children [                                                
-                match icon with
-                | Some i ->
-                    Html.img [
-                        prop.className "inline-block w-5 h-5"
-                        prop.src (Icon.asFilepath i)
+
+    static member Button(?text: string, ?icon: Icon) =
+        Html.button
+            [
+                prop.className
+                    "border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2"
+                prop.children
+                    [
+                        match icon with
+                        | Some i ->
+                            Html.img [ prop.className "inline-block w-5 h-5 pb-[3px]"; prop.src (Icon.asFilepath i) ]
+                        | None -> ()
+                        match text with
+                        | Some t -> Html.text t
+                        | None -> ()
                     ]
-                | None -> ()
-                match text with
-                | Some t -> Html.text t
-                | None -> ()
             ]
-        ]
 
     [<ReactComponent>]
     static member List<'a>
@@ -166,19 +171,16 @@ type UI with
                 items.Length
                 (fun indexes ->
                     itemsSelected
-                    |> Option.iter (fun f ->                        
-                        indexes
-                        |> Array.map (fun i -> items[i])
-                        |> f
-                    )
+                    |> Option.iter (fun f -> indexes |> Array.map (fun i -> items[i]) |> f)
                 )
                 (defaultArg multiSelect false)
+
         let isActiveElement, setIsActiveElement = React.useState false
         let mouseIndex, setMouseIndex = React.useState None
-        
+
         Html.div
             [
-                prop.className "bg-neutral-900 text-neutral-300 border border-black rounded-sm"
+                prop.className "bg-neutral-900 text-neutral-300 border border-black rounded"
                 prop.children (
                     items
                     |> Array.mapi (fun i item ->
@@ -211,4 +213,4 @@ type UI with
                             ]
                     )
                 )
-            ] 
+            ]
