@@ -1,5 +1,6 @@
 module UI
 
+open Fable.React
 open Feliz
 open Browser
 open Elmish
@@ -72,33 +73,31 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         setIsShiftActive e.shiftKey
         
     let onMouseDown (e: Types.MouseEvent) index =
-        if e.button = 0 then
-            if not (isCtrlActive || isShiftActive) then
-                setSelectedIndex (Some index)
-                
-            for ref in refs.current do
-                ref |> Option.iter (fun ref -> ref.tabIndex <- -1)
+    
+        if not (isCtrlActive || isShiftActive) then
+            setSelectedIndex (Some index)
+            
+        for ref in refs.current do
+            ref |> Option.iter (fun ref -> ref.tabIndex <- -1)
 
-            refs.current[index].Value.tabIndex <- 0
-            refs.current[index].Value.focus ()
-            if multiSelection && isCtrlActive then
-                if Array.contains index selectedIndexes then 
-                    removeSorted index selectedIndexes
-                else
-                    addSorted index selectedIndexes
-            elif multiSelection && isShiftActive then
-                match selectedIndex with
-                | Some x when index < x ->                                       
-                    [| index..x |]
-                | Some x -> 
-                    [| x..index |]
-                | None ->
-                    [| index |]
+        refs.current[index].Value.tabIndex <- 0
+        refs.current[index].Value.focus ()
+        if multiSelection && isCtrlActive then
+            if Array.contains index selectedIndexes then 
+                removeSorted index selectedIndexes
             else
+                addSorted index selectedIndexes
+        elif multiSelection && isShiftActive then
+            match selectedIndex with
+            | Some x when index < x ->                                       
+                [| index..x |]
+            | Some x -> 
+                [| x..index |]
+            | None ->
                 [| index |]
-            |> updateSelectedIndexes
         else
-            e.preventDefault ()  
+            [| index |]
+        |> updateSelectedIndexes
         
     {|
         Refs = refs
@@ -110,7 +109,50 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         SelectedIndexes = selectedIndexes
     |}
     
+type Icon =
+    | ArrowDownOnSquare
+    | ArrowDownOnSquareStack
+    | ArrowUpOnSquare
+    | ArrowUpOnSquareStack
+    | Minus
+    | Plus
+    | Pencil
+    | QuestionMarkCircle
+    
+module Icon =
+    let asFilepath =
+        function
+        | ArrowDownOnSquare -> "svg/arrow-down-on-square.svg"
+        | ArrowDownOnSquareStack -> "svg/arrow-down-on-square-stack.svg"
+        | ArrowUpOnSquare -> "svg/arrow-up-on-square.svg"
+        | ArrowUpOnSquareStack -> "svg/arrow-up-on-square-stack.svg"
+        | Minus -> "svg/minus.svg"
+        | Plus -> "svg/plus.svg"
+        | Pencil -> "svg/pencil.svg"
+        | QuestionMarkCircle -> "svg/question-mark-circle.svg"
+    
 type UI with
+    static member Button
+        (
+            ?text: string,
+            ?icon: Icon            
+        ) =
+        Html.button [
+            prop.className "border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded-sm cursor-default py-1 px-2"
+            prop.children [                                                
+                match icon with
+                | Some i ->
+                    Html.img [
+                        prop.className "inline-block w-5 h-5"
+                        prop.src (Icon.asFilepath i)
+                    ]
+                | None -> ()
+                match text with
+                | Some t -> Html.text t
+                | None -> ()
+            ]
+        ]
+
     [<ReactComponent>]
     static member List<'a>
         (
@@ -132,10 +174,11 @@ type UI with
                 )
                 (defaultArg multiSelect false)
         let isActiveElement, setIsActiveElement = React.useState false
+        let mouseIndex, setMouseIndex = React.useState None
         
         Html.div
             [
-                prop.className "text-neutral-300 m-5 border border-black"
+                prop.className "bg-neutral-900 text-neutral-300 border border-black rounded-sm"
                 prop.children (
                     items
                     |> Array.mapi (fun i item ->
@@ -151,14 +194,18 @@ type UI with
                                 )
                                 prop.classes
                                     [
-                                        "outline-none border-black p-0.5"
+                                        "outline-none border-black p-[3px]"
                                         if i > 0 then
                                             "border-t"
-                                        if  Array.contains i keyboardNavigation.SelectedIndexes && isActiveElement then
+                                        if Array.contains i keyboardNavigation.SelectedIndexes && isActiveElement then
                                             "bg-neutral-700"
+                                        elif mouseIndex = Some i then
+                                            "bg-neutral-800"
                                     ]
                                 prop.onBlur (fun _ -> setIsActiveElement false)
                                 prop.onFocus (fun _ -> setIsActiveElement true)
+                                prop.onMouseEnter (fun _ -> setMouseIndex (Some i))
+                                prop.onMouseLeave (fun _ -> setMouseIndex None)
                                 yield! keyboardNavigation.SetupEvents i
                                 prop.children (itemTemplate item)
                             ]

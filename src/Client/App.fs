@@ -61,28 +61,46 @@ let view (model: Model) _dispatch =
     //     |> ignore<Promise<unit>>
     // )
 
-    Html.div
-        [
-            prop.className "select-none"
-            prop.children [                
-                UI.StatusEntries(
-                    entries =
-                        Array.filter
-                            (fun entry ->
-                                not (GitStatus.isStaged entry.Status)
-                            )
-                            model.Status
-                )
-                UI.StatusEntries(
-                    entries =
-                        Array.filter
-                            (fun entry ->
-                                GitStatus.isStaged entry.Status
-                            )
-                            model.Status
-                )
-            ]
+    Html.div [
+        prop.children [
+            Html.div
+                [
+                    prop.className "select-none m-2 text-sm"
+                    prop.children [                
+                        UI.StatusEntries(
+                            entries =
+                                Array.filter
+                                    (fun entry ->
+                                        not (GitStatus.isStaged entry.Status)
+                                    )
+                                    model.Status
+                        )
+                        Html.div [
+                            prop.children [                        
+                                Html.div [
+                                    prop.className "my-2 flex gap-1"
+                                    prop.children [
+                                        UI.Button(icon = Icon.ArrowUpOnSquareStack)
+                                        UI.Button("Unstage", Icon.ArrowUpOnSquare)
+                                        UI.Button("Stage", Icon.ArrowDownOnSquare)
+                                        UI.Button(icon = Icon.ArrowDownOnSquareStack)                                        
+                                    ]
+                                ]
+                                UI.StatusEntries(
+                                    entries =
+                                        Array.filter
+                                            (fun entry ->
+                                                GitStatus.isStaged entry.Status
+                                            )
+                                            model.Status
+                                )
+                            ]
+                        ]
+                    ]
+                ]
+            
         ]
+    ]
 
 Program.mkProgram init update view
 |> Program.withReactBatched "root"

@@ -29,20 +29,20 @@ type UI with
             itemTemplate =
                 (fun entry ->
                     [
-                        let imgName =
+                        let icon =
                             match entry.Status with
                             | ModifiedInWorkTreeSinceIndex
-                            | ModifiedInIndex -> "pencil"
+                            | ModifiedInIndex -> Icon.Pencil
                             | AddedToIndex
-                            | Untracked -> "plus"
+                            | Untracked -> Icon.Plus
                             | DeletedInWorkTree
-                            | DeletedFromIndex -> "minus"
-                            | _ -> "question-mark-circle"
+                            | DeletedFromIndex -> Icon.Minus
+                            | _ -> Icon.QuestionMarkCircle
 
                         Html.img
                             [
                                 prop.className "inline-block text-white mx-1 w-4"
-                                prop.src $"svg/%s{imgName}.svg"
+                                prop.src (Icon.asFilepath icon)
                             ]
 
                         Html.span [ prop.className "select-none"; prop.text entry.Filename ]
