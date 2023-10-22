@@ -139,7 +139,7 @@ let main args =
                                         )
                                     )
                                 then
-                                    printfn $"file changed {e.FullPath}"
+                                    printfn $"{e.ChangeType} {e.FullPath}"
                                     sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
 
                             watcher.Changed.Add(f)
