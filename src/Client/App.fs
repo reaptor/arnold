@@ -73,8 +73,8 @@ let update (msg: Msg) (model: Model) =
                 },
                 []
             | Ok FileChanged ->
-                // model, Cmd.ofMsg (SendClientMessage GitStatus)
-                model, []
+                console.log ("file changed")
+                model, Cmd.ofMsg (SendClientMessage GitStatus)
             | Ok(GitStatusResponse(Error e))
             | Ok(GetFileContentResponse(Error e))
             | Error e ->

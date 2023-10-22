@@ -37,30 +37,61 @@ let startProcess fileName args workingDir =
 let repositories =
     ConcurrentDictionary<string, FileSystemWatcher * ResizeArray<WebSocket>>()
 
+let removeSocket socket =
+    let respositoriesToRemove =
+        repositories
+        |> Seq.choose (
+            function
+            | KeyValue(repoPath, (watcher, sockets)) ->
+                if sockets.Remove socket && sockets.Count = 0 then
+                    Some(repoPath, watcher)
+                else
+                    None
+        )
+
+    for repoPath, watcher in respositoriesToRemove do
+        printfn "Disposing watcher"
+        watcher.Dispose()
+        repositories.TryRemove(repoPath) |> ignore
+
+let removeClosedSockets () =
+    let closedSockets =
+        repositories
+        |> Seq.collect (
+            function
+            | KeyValue(_, (_, sockets)) ->
+                sockets
+                |> Seq.filter (fun socket ->
+                    socket.State = WebSocketState.Closed || socket.State = WebSocketState.Aborted
+                )
+        )
+        |> Seq.toArray
+
+    for socket in closedSockets do
+        removeSocket socket
+
 let sendServerMessage repoPath (msg: ServerMessage) =
     task {
-        for repository in
+        removeClosedSockets ()
+
+        let sockets =
             repositories
-            |> Seq.filter (
+            |> Seq.collect (
                 function
-                | KeyValue(p, _) -> p = repoPath
-            ) do
-            let sockets = snd repository.Value
+                | KeyValue(p, (_, sockets)) -> if p = repoPath then Array.ofSeq sockets else Array.empty
+            )
 
-            for socket in sockets do
-                if socket.State <> WebSocketState.Open then
-                    sockets.Remove(socket) |> ignore
-                else
-                    let json = msg |> Encode.Auto.toString
-                    let buffer = json |> Encoding.UTF8.GetBytes
+        for socket in sockets do
+            let json = msg |> Encode.Auto.toString
+            let buffer = json |> Encoding.UTF8.GetBytes
 
-                    do!
-                        socket.SendAsync(
-                            ArraySegment<byte>(buffer, 0, buffer.Length),
-                            WebSocketMessageType.Text,
-                            true,
-                            CancellationToken.None
-                        )
+            do!
+                socket.SendAsync(
+                    ArraySegment<byte>(buffer, 0, buffer.Length),
+                    WebSocketMessageType.Text,
+                    true,
+                    CancellationToken.None
+                )
     }
 
 [<EntryPoint>]
@@ -100,13 +131,21 @@ let main args =
                                     EnableRaisingEvents = true
                                 )
 
-                            let f () =
-                                sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
+                            let f (e: FileSystemEventArgs) =
+                                if
+                                    not (
+                                        e.FullPath.Contains(
+                                            $"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}"
+                                        )
+                                    )
+                                then
+                                    printfn $"file changed {e.FullPath}"
+                                    sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
 
-                            watcher.Changed.Add(fun _e -> f ())
-                            watcher.Created.Add(fun _e -> f ())
-                            watcher.Deleted.Add(fun _e -> f ())
-                            watcher.Renamed.Add(fun _e -> f ())
+                            watcher.Changed.Add(f)
+                            watcher.Created.Add(f)
+                            watcher.Deleted.Add(f)
+                            watcher.Renamed.Add(f)
                             watcher
 
                         let _, sockets = repositories.GetOrAdd(repoPath, (setupWatcher (), ResizeArray()))
@@ -138,6 +177,10 @@ let main args =
                                         |> sendServerMessage repoPath
                                     | Error e -> sendServerMessage repoPath (GitStatusResponse(Error e))
 
+                            removeSocket socket
+
+                            printfn $"Closing socket for {repoPath}"
+
                             do!
                                 socket.CloseAsync(
                                     socket.CloseStatus.Value,
@@ -148,7 +191,7 @@ let main args =
                         | :? TaskCanceledException -> ()
                         | ex ->
                             printfn "%A" ex
-                            sockets.Remove(socket) |> ignore
+                            removeSocket socket
                     }
                 else
                     ctx.Response.StatusCode <- 400
