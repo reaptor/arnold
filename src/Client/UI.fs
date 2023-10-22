@@ -14,7 +14,17 @@ type UI =
     class
     end
 
-let useKeyboardNavigation elementCount selectionChanged multiSelection =
+type SelectionMode<'a> =
+    | Single of selectionChanged: ('a -> unit)
+    | Multi of selectionChanged: ('a * 'a array -> unit)
+
+module SelectionMode =
+    let isMulti =
+        function
+        | Single _ -> false
+        | Multi _ -> true
+
+let useKeyboardNavigation elementCount (selectionMode: SelectionMode<int>) =
     let refs = React.useRef (ResizeArray<Types.HTMLElement option>())
     let selectedIndexes, setSelectedIndexes = React.useState Array.empty
     let selectedIndex, setSelectedIndex = React.useState None
@@ -23,9 +33,14 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
 
     let isCtrlKey (e: Types.KeyboardEvent) = e.metaKey || e.ctrlKey
 
-    let updateSelectedIndexes newSelectedIndexes =
-        selectionChanged newSelectedIndexes
-        setSelectedIndexes newSelectedIndexes
+    let updateSelectedIndexes selectedIndex selectedIndexes =
+        match selectionMode with
+        | Single selectionChanged ->
+            selectionChanged selectedIndex
+            setSelectedIndexes selectedIndexes
+        | Multi selectionChanged ->
+            selectionChanged (selectedIndex, selectedIndexes)
+            setSelectedIndexes selectedIndexes
 
     let addSorted x xs =
         xs |> Array.append [| x |] |> Array.sort
@@ -49,7 +64,7 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
             refs.current[newSelectedIndex].Value.focus ()
 
             let newSelectedIndexes =
-                if multiSelection && isShiftActive then
+                if SelectionMode.isMulti selectionMode && isShiftActive then
                     match selectedIndex with
                     | Some x when newSelectedIndex <= x -> [| newSelectedIndex..x |]
                     | Some x -> [| x..newSelectedIndex |]
@@ -57,7 +72,7 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
                 else
                     [| newSelectedIndex |]
 
-            updateSelectedIndexes newSelectedIndexes
+            updateSelectedIndexes newSelectedIndex newSelectedIndexes
 
         match isCtrlKey e, e.key with
         | _, "ArrowUp" ->
@@ -66,13 +81,13 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         | _, "ArrowDown" ->
             if index < elementCount - 1 then
                 step 1
-        | true, "a" when multiSelection ->
+        | true, "a" when SelectionMode.isMulti selectionMode ->
             let newSelectedIndexes = [|
                 for i = 0 to elementCount do
                     i
             |]
 
-            updateSelectedIndexes newSelectedIndexes
+            updateSelectedIndexes 0 newSelectedIndexes
         | _ -> ()
 
     let onKeyUp (e: Types.KeyboardEvent) =
@@ -80,7 +95,6 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         setIsShiftActive e.shiftKey
 
     let onMouseDown (_e: Types.MouseEvent) index =
-
         if not (isCtrlActive || isShiftActive) then
             setSelectedIndex (Some index)
 
@@ -90,19 +104,19 @@ let useKeyboardNavigation elementCount selectionChanged multiSelection =
         refs.current[index].Value.tabIndex <- 0
         refs.current[index].Value.focus ()
 
-        if multiSelection && isCtrlActive then
+        if SelectionMode.isMulti selectionMode && isCtrlActive then
             if Array.contains index selectedIndexes then
                 removeSorted index selectedIndexes
             else
                 addSorted index selectedIndexes
-        elif multiSelection && isShiftActive then
+        elif SelectionMode.isMulti selectionMode && isShiftActive then
             match selectedIndex with
             | Some x when index < x -> [| index..x |]
             | Some x -> [| x..index |]
             | None -> [| index |]
         else
             [| index |]
-        |> updateSelectedIndexes
+        |> updateSelectedIndexes index
 
     {|
         Refs = refs
@@ -154,21 +168,15 @@ type UI with
         ]
 
     [<ReactComponent>]
-    static member List<'a>
-        (
-            items: 'a array,
-            itemTemplate: 'a -> ReactElement list,
-            ?itemsSelected: 'a array -> unit,
-            ?multiSelect: bool
-        ) =
+    static member List<'a>(items: 'a array, itemTemplate: 'a -> ReactElement list, ?selectionMode: SelectionMode<'a>) =
         let keyboardNavigation =
             useKeyboardNavigation
                 items.Length
-                (fun indexes ->
-                    itemsSelected
-                    |> Option.iter (fun f -> indexes |> Array.map (fun i -> items[i]) |> f)
-                )
-                (defaultArg multiSelect false)
+                (match selectionMode with
+                 | Some(Single selectionChanged) -> Single(fun ix -> selectionChanged items[ix])
+                 | Some(Multi selectionChanged) ->
+                     Multi(fun (ix, ixs) -> selectionChanged (items[ix], (Array.map (fun i -> items[i]) ixs)))
+                 | None -> Single ignore)
 
         let isActiveElement, setIsActiveElement = React.useState false
         let mouseIndex, setMouseIndex = React.useState None

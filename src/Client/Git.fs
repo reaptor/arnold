@@ -116,11 +116,6 @@ module GitStatus =
         |])
         |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
 
-module GitCommand =
-    let asCommandArgs (command: GitCommand) =
-        match command with
-        | Status -> "status --porcelain -z"
-
 // module GitResponse =
 // let LogDecoder =
 //     Decode.object (fun get ->

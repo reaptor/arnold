@@ -8,23 +8,27 @@ open UI
 
 type UI with
 
-    [<ReactComponent>]
-    static member CommitLog(entries: GitLogEntry array) =
-        UI.List(
-            items = entries,
-            multiSelect = true,
-            itemTemplate =
-                (fun entry -> [
-                    Html.span [ prop.className "select-none"; prop.text entry.Subject ]
-                    Html.span [ prop.className "select-none"; prop.text entry.AbbreviatedCommit ]
-                ])
-        )
+    // [<ReactComponent>]
+    // static member CommitLog(entries: GitLogEntry array) =
+    //     UI.List(
+    //         items = entries,
+    //         selectionMode = Multi ignore,
+    //         itemTemplate =
+    //             (fun entry -> [
+    //                 Html.span [ prop.className "select-none"; prop.text entry.Subject ]
+    //                 Html.span [ prop.className "select-none"; prop.text entry.AbbreviatedCommit ]
+    //             ])
+    //     )
 
     [<ReactComponent>]
-    static member StatusEntries(entries: GitStatusEntry array) =
+    static member StatusEntries
+        (
+            entries: GitStatusEntry array,
+            selectionChanged: GitStatusEntry * GitStatusEntry array -> unit
+        ) =
         UI.List(
             items = Array.sortBy (fun x -> x.Filename) entries,
-            multiSelect = true,
+            selectionMode = Multi selectionChanged,
             itemTemplate =
                 (fun entry -> [
                     let icon =

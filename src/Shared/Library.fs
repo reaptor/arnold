@@ -1,16 +1,10 @@
 ﻿namespace Shared
 
-type GitCommand = | Status
+type ClientMessage =
+    | GitStatus
+    | GetFileContent of fileName: string
 
-type ProcessRequestType = Git of GitCommand
-
-type ProcessRequest = {
-    Type: ProcessRequestType
-    FileName: string
-    Args: string
-    WorkingDir: string
-}
-
-type ProcessResponse =
-    | Output of string
-    | Failure of string
+type ServerMessage =
+    | GitStatusResponse of Result<string, string>
+    | GetFileContentResponse of Result<string, string>
+    | FileChanged

@@ -27,70 +27,63 @@ let socket =
     repoInfo
     |> Option.map (fun x -> WebSocket.Create($"ws://localhost:5000/?repoPath={x.Directory}"))
 
-type Model = { Status: GitStatusEntry array }
+type Model = {
+    Status: GitStatusEntry array
+    FileContent: string option
+}
 
 type Msg =
     | WebSocketOpened of Event
     | WebSocketErrored of Event
-    | ProcessRequestMsg of ProcessRequestType
-    | ProcessRequestSucceeded of unit
-    | ProcessRequestFailed of exn
-    | ProcessResponseMsg of MessageEvent
+    | SendClientMessage of ClientMessage
+    | SendClientMessageSucceeded of unit
+    | SendClientMessageFailed of exn
+    | ServerMessageReceived of MessageEvent
     | StatusEntriesLoaded of GitStatusEntry array
 
-let processRequest type' fileName workingDir args = {
-    Type = type'
-    FileName = fileName
-    Args = args
-    WorkingDir = workingDir
-}
-
-let sendProcessRequest (type': ProcessRequestType) =
+let sendClientMessage (msg: ClientMessage) =
     promise {
         match socket with
-        | Some socket' ->
-            match type' with
-            | Git command ->
-                match repoInfo with
-                | Some repoInfo' ->
-                    GitCommand.asCommandArgs command
-                    |> processRequest type' "git" repoInfo'.Directory
-                    |> Encode.Auto.toString
-                    |> socket'.send
-                | None -> ()
+        | Some socket' -> msg |> Encode.Auto.toString |> socket'.send
         | None -> ()
     }
 
-let handleProcessResponse (req: ProcessRequest, response: string) =
-    match req.Type with
-    | Git Status -> Cmd.ofMsg (StatusEntriesLoaded(GitStatus.parsePorcelain response))
-
-let init () = { Status = [||] }, Cmd.none
+let init () =
+    { Status = [||]; FileContent = None }, Cmd.none
 
 let update (msg: Msg) (model: Model) =
     match msg with
-    | WebSocketOpened _ -> model, Cmd.ofMsg (ProcessRequestMsg(Git Status))
+    | WebSocketOpened _ -> model, Cmd.ofMsg (SendClientMessage GitStatus)
     | WebSocketErrored _ -> model, []
-    | ProcessRequestMsg cmd ->
-        model, Cmd.OfPromise.either sendProcessRequest cmd ProcessRequestSucceeded ProcessRequestFailed
-    | ProcessRequestSucceeded() -> model, Cmd.none
-    | ProcessRequestFailed ex ->
-        console.log (ex)
+    | SendClientMessage cmd ->
+        model, Cmd.OfPromise.either sendClientMessage cmd SendClientMessageSucceeded SendClientMessageFailed
+    | SendClientMessageSucceeded() -> model, Cmd.none
+    | SendClientMessageFailed ex ->
+        console.log ex
         model, Cmd.none
-    | ProcessResponseMsg e ->
-        let cmd =
-            Decode.Auto.fromString<Result<ProcessRequest * string, string>> (string e.data)
-            |> Result.bind id
-            |> function
-                | Ok x -> handleProcessResponse x
-                | Error e ->
-                    console.log (e)
-                    []
+    | ServerMessageReceived e ->
+        Decode.Auto.fromString<ServerMessage> (string e.data)
+        |> function
+            | Ok(GitStatusResponse(Ok response)) ->
+                model, Cmd.ofMsg (StatusEntriesLoaded(GitStatus.parsePorcelain response))
+            | Ok(GetFileContentResponse(Ok response)) ->
+                {
+                    model with
+                        FileContent = Some response
+                },
+                []
+            | Ok FileChanged ->
+                // model, Cmd.ofMsg (SendClientMessage GitStatus)
+                model, []
+            | Ok(GitStatusResponse(Error e))
+            | Ok(GetFileContentResponse(Error e))
+            | Error e ->
+                console.log e
+                model, Cmd.Empty
 
-        model, cmd
     | StatusEntriesLoaded status -> { model with Status = status }, Cmd.none
 
-let view (model: Model) _dispatch =
+let view (model: Model) dispatch =
     let unstaged =
         model.Status
         |> Array.filter (fun entry -> not (GitStatus.isStaged entry.Status))
@@ -99,18 +92,25 @@ let view (model: Model) _dispatch =
         model.Status |> Array.filter (fun entry -> GitStatus.isStaged entry.Status)
 
     Html.div [
-        prop.className "select-none m-2 text-sm"
+        prop.className "select-none m-2 text-sm flex flex-col grow"
         prop.children [
             Html.div [
-                prop.className "flex gap-2"
+                prop.className "flex grow gap-2"
                 prop.children [
                     Html.div [
-                        prop.className ""
                         prop.children [
                             if unstaged.Length > 0 then
                                 Html.div [
                                     prop.className "mb-2"
-                                    prop.children [ UI.StatusEntries(entries = unstaged) ]
+                                    prop.children [
+                                        UI.StatusEntries(
+                                            entries = unstaged,
+                                            selectionChanged =
+                                                (fun (entry, _) ->
+                                                    entry.Filename |> GetFileContent |> SendClientMessage |> dispatch
+                                                )
+                                        )
+                                    ]
                                 ]
                             Html.div [
                                 prop.className "flex flex-col gap-2"
@@ -125,14 +125,25 @@ let view (model: Model) _dispatch =
                                         ]
                                     ]
                                     if staged.Length > 0 then
-                                        UI.StatusEntries(entries = staged)
+                                        UI.StatusEntries(
+                                            entries = staged,
+                                            selectionChanged =
+                                                (fun (entry, _) ->
+                                                    entry.Filename |> GetFileContent |> SendClientMessage |> dispatch
+                                                )
+                                        )
                                 ]
                             ]
                         ]
                     ]
-                    Html.div [
-                        prop.className "text-neutral-300 grow border border-black bg-neutral-800 rounded p-2"
-                        prop.children [ Html.div "asdasd" ]
+                    Html.textarea [
+                        prop.className
+                            "font-mono text-neutral-300 grow outline-none border border-black bg-neutral-800 rounded p-2"
+                        prop.value (
+                            match model.FileContent with
+                            | Some fileContent -> fileContent
+                            | None -> ""
+                        )
                     ]
                 ]
             ]
@@ -149,7 +160,7 @@ let connectWs dispatch =
     | Some ws' ->
         ws'.onopen <- fun e -> dispatch (WebSocketOpened e)
         ws'.onerror <- fun e -> dispatch (WebSocketErrored e)
-        ws'.onmessage <- fun e -> dispatch (ProcessResponseMsg e)
+        ws'.onmessage <- fun e -> dispatch (ServerMessageReceived e)
         mkDisposable (fun () -> ws'.close ())
     | None -> mkDisposable ignore
 

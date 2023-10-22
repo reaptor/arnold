@@ -6,28 +6,24 @@ open System.Threading
 open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.DependencyInjection
-open System.IO
 open System.Diagnostics
 open Microsoft.AspNetCore.Http
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Cors.Infrastructure
 open Microsoft.FSharp.Core
 open Shared
-open Thoth.Json
 open Thoth.Json.Net
+open System.IO
 
-type GitRequest = { Path: string }
-type GitResponse = { Error: string; Data: string }
-
-let startProcess (req: ProcessRequest) =
+let startProcess fileName args workingDir =
     try
         let p =
             ProcessStartInfo(
-                req.FileName,
-                req.Args,
+                fileName,
+                args,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                WorkingDirectory = req.WorkingDir
+                WorkingDirectory = workingDir
             )
             |> Process.Start
 
@@ -38,54 +34,45 @@ let startProcess (req: ProcessRequest) =
     with ex ->
         Error ex.Message
 
-// let git commandWithArgs path = runCommand "git" commandWithArgs path
+let repositories =
+    ConcurrentDictionary<string, FileSystemWatcher * ResizeArray<WebSocket>>()
 
-let sockets = ConcurrentDictionary<WebSocket, string>()
-
-let sendProccessResponse repoPath (response: Result<ProcessRequest * string, string>) =
+let sendServerMessage repoPath (msg: ServerMessage) =
     task {
-        for KeyValue(socket, p) in
-            sockets
+        for repository in
+            repositories
             |> Seq.filter (
                 function
-                | KeyValue(_, p) -> p = repoPath
+                | KeyValue(p, _) -> p = repoPath
             ) do
-            if socket.State = WebSocketState.Closed then
-                sockets.TryRemove(socket, ref p) |> ignore
-            else
-                let json = response |> Encode.Auto.toString
-                let buffer = json |> Encoding.UTF8.GetBytes
+            let sockets = snd repository.Value
 
-                do!
-                    socket.SendAsync(
-                        ArraySegment<byte>(buffer, 0, buffer.Length),
-                        WebSocketMessageType.Text,
-                        true,
-                        CancellationToken.None
-                    )
+            for socket in sockets do
+                if socket.State <> WebSocketState.Open then
+                    sockets.Remove(socket) |> ignore
+                else
+                    let json = msg |> Encode.Auto.toString
+                    let buffer = json |> Encoding.UTF8.GetBytes
+
+                    do!
+                        socket.SendAsync(
+                            ArraySegment<byte>(buffer, 0, buffer.Length),
+                            WebSocketMessageType.Text,
+                            true,
+                            CancellationToken.None
+                        )
     }
-
-type Worker() =
-    inherit BackgroundService()
-
-    override _.ExecuteAsync(stoppingToken) =
-        task {
-            while not stoppingToken.IsCancellationRequested do
-                do! Task.Delay(5000)
-        }
 
 [<EntryPoint>]
 let main args =
     let builder = WebApplication.CreateBuilder(args)
 
-    builder.Services
-        .AddHostedService<Worker>()
-        .AddCors(fun options ->
-            options.AddDefaultPolicy(fun policy ->
-                policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()
-                |> ignore<CorsPolicyBuilder>
-            )
+    builder.Services.AddCors(fun options ->
+        options.AddDefaultPolicy(fun policy ->
+            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()
+            |> ignore<CorsPolicyBuilder>
         )
+    )
     |> ignore<IServiceCollection>
 
     let app = builder.Build()
@@ -105,11 +92,27 @@ let main args =
                         printfn "Web socket connect requested"
                         let! socket = ctx.WebSockets.AcceptWebSocketAsync()
 
-                        sockets.AddOrUpdate(socket, (fun _ -> repoPath), (fun _ _ -> repoPath))
-                        |> ignore
+                        let setupWatcher () =
+                            let watcher =
+                                new FileSystemWatcher(
+                                    repoPath,
+                                    IncludeSubdirectories = true,
+                                    EnableRaisingEvents = true
+                                )
+
+                            let f () =
+                                sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
+
+                            watcher.Changed.Add(fun _e -> f ())
+                            watcher.Created.Add(fun _e -> f ())
+                            watcher.Deleted.Add(fun _e -> f ())
+                            watcher.Renamed.Add(fun _e -> f ())
+                            watcher
+
+                        let _, sockets = repositories.GetOrAdd(repoPath, (setupWatcher (), ResizeArray()))
+                        sockets.Add(socket)
 
                         let buffer = Array.zeroCreate<byte> (4096)
-                        printfn "Receiving from socket..."
 
                         try
                             while not socket.CloseStatus.HasValue do
@@ -118,15 +121,22 @@ let main args =
 
                                 do!
                                     match
-                                        Decode.Auto.fromString<ProcessRequest> (
+                                        Decode.Auto.fromString<ClientMessage> (
                                             Encoding.UTF8.GetString(buffer, 0, receiveResult.Count)
                                         )
                                     with
-                                    | Ok req ->
-                                        startProcess req
-                                        |> Result.map (fun response -> req, response)
-                                        |> sendProccessResponse repoPath
-                                    | Error e -> sendProccessResponse repoPath (Error e)
+                                    | Ok GitStatus ->
+                                        startProcess "git" "status --porcelain -z" repoPath
+                                        |> GitStatusResponse
+                                        |> sendServerMessage repoPath
+                                    | Ok(GetFileContent fileName) ->
+                                        try
+                                            Ok(File.ReadAllText(Path.Combine(repoPath, fileName)))
+                                        with ex ->
+                                            Error(ex.ToString())
+                                        |> GetFileContentResponse
+                                        |> sendServerMessage repoPath
+                                    | Error e -> sendServerMessage repoPath (GitStatusResponse(Error e))
 
                             do!
                                 socket.CloseAsync(
@@ -137,8 +147,8 @@ let main args =
                         with
                         | :? TaskCanceledException -> ()
                         | ex ->
-                            sockets.TryRemove(socket, ref (string repoPath)) |> ignore
-                            printfn $"Socket receive exception. %A{ex}"
+                            printfn "%A" ex
+                            sockets.Remove(socket) |> ignore
                     }
                 else
                     ctx.Response.StatusCode <- 400
@@ -172,26 +182,7 @@ let main args =
     //     )
     // )
     // |> ignore
-    //
-    // app.MapPost(
-    //     "/git/status",
-    //     Func<GitRequest, HttpContext, Task>(fun req ctx ->
-    //         if not (Directory.Exists req.Path) then
-    //             Error $"Path not found. Got '%s{req.Path}'"
-    //         else
-    //             git "status --porcelain -z" req.Path
-    //         |> function
-    //             | Ok output ->
-    //                 ctx.Response.ContentType <- "application/json"
-    //                 let data = output.Replace(char 0, '\n').Replace("\n", "\\n").Replace("\"", "\\\"")
-    //
-    //                 """{ "error": null, "data": "{{data}}" }""".Replace("{{data}}", data)
-    //                 |> ctx.Response.WriteAsync
-    //             | Error output -> { Error = output; Data = null } |> ctx.Response.WriteAsJsonAsync
-    //     )
-    // )
-    // |> ignore
 
     app.Run()
 
-    0 // Exit code
+    0
