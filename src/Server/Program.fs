@@ -132,13 +132,15 @@ let main args =
                                 )
 
                             let f (e: FileSystemEventArgs) =
-                                if
-                                    not (
-                                        e.FullPath.Contains(
-                                            $"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}"
-                                        )
+                                let pathParts =
+                                    e.FullPath.Split(
+                                        Path.DirectorySeparatorChar,
+                                        StringSplitOptions.RemoveEmptyEntries
                                     )
-                                then
+
+                                printfn "%A" pathParts
+
+                                if not (Array.contains ".git" pathParts) then
                                     printfn $"{e.ChangeType} {e.FullPath}"
                                     sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
 
