@@ -1,6 +1,5 @@
-﻿module App
+module App
 
-open System
 open Browser.Types
 open Feliz
 open Browser
@@ -8,13 +7,16 @@ open Elmish
 open Elmish.React
 open FSharp.Core
 open UI
-open Git
 open GitComponents
 open Shared
 open Thoth.Json
-open Fable.Core.JsInterop
 
-let monaco: obj = importAll "monaco-editor"
+// Warning icon
+// Do you want to save the changes you made to {filename}?
+// Your changes will be lost if you don't save them.
+// Save
+// Don't save
+// Cancel
 
 let repoInfo =
     let searchParams = URLSearchParams.Create(window.location.search)
@@ -32,7 +34,7 @@ let socket =
 
 type Model = {
     Status: GitStatusEntry array
-    FileContent: string option
+    CurrentFile: FileData option
 }
 
 type Msg =
@@ -42,7 +44,8 @@ type Msg =
     | SendClientMessageSucceeded of unit
     | SendClientMessageFailed of exn
     | ServerMessageReceived of MessageEvent
-    | StatusEntriesLoaded of GitStatusEntry array
+    | SaveCurrentFile
+    | UpdateModel of Model
 
 let sendClientMessage (msg: ClientMessage) =
     promise {
@@ -51,11 +54,11 @@ let sendClientMessage (msg: ClientMessage) =
             | Some socket' -> msg |> Encode.Auto.toString |> socket'.send
             | None -> ()
         with ex ->
-            console.log (ex)
+            console.log ($"Encode error: {ex}")
     }
 
 let init () =
-    { Status = [||]; FileContent = None }, Cmd.none
+    { Status = [||]; CurrentFile = None }, Cmd.none
 
 let update (msg: Msg) (model: Model) =
     match msg with
@@ -68,81 +71,39 @@ let update (msg: Msg) (model: Model) =
         console.log ex
         model, Cmd.none
     | ServerMessageReceived e ->
-        Decode.Auto.fromString<ServerMessage> (string e.data)
-        |> function
-            | Ok(GitStatusResponse(Ok entries)) -> model, Cmd.ofMsg (StatusEntriesLoaded(entries))
-            | Ok(GetFileContentResponse(Ok content)) -> { model with FileContent = content }, Cmd.none
-            | Ok FileChanged ->
-                console.log ("file changed")
-                model, Cmd.ofMsg (SendClientMessage GitStatus)
-            | Ok(GitStatusResponse(Error e))
-            | Ok(GetFileContentResponse(Error e)) ->
-                console.log e
-                { model with FileContent = Some e }, Cmd.Empty
-            | Error e ->
-                console.log e
-                model, Cmd.Empty
-    | StatusEntriesLoaded status -> { model with Status = status }, Cmd.none
+        try
+            Decode.Auto.fromString<ServerMessage> (string e.data)
+            |> function
+                | Ok(GitStatusResponse(Ok entries)) -> model, Cmd.ofMsg (UpdateModel({ model with Status = entries }))
+                | Ok(GetFileResponse(Ok content)) -> { model with CurrentFile = content }, Cmd.none
+                | Ok FileChanged ->
+                    console.log ("file changed.")
+                    model, Cmd.ofMsg (SendClientMessage GitStatus)
+                | Ok(SaveFileResponse(Ok())) -> model, Cmd.Empty
+                | Ok(GitStatusResponse(Error e))
+                | Ok(GetFileResponse(Error e))
+                | Ok(SaveFileResponse(Error e))
+                | Ok(UnknownServerError(e)) ->
+                    console.log ($"Response error: {e}")
 
-[<ReactComponent>]
-let CodeEditor (language: string) (content: string) =
-    let editor, setEditor = React.useStateWithUpdater None
-    let monacoEl = React.useInputRef ()
-
-    React.useEffect (
-        (fun () ->
-            let resizeEvent =
-                (fun _ ->
-                    match editor, monacoEl.current with
-                    | Some editor', Some el ->
-                        editor'?layout (
-                            {|
-                                height = el.offsetHeight - 5.
-                                width = el.offsetWidth - 2.
-                            |}
-                        )
-                    | _ -> ()
-                )
-
-            match monacoEl.current with
-            | Some monacoEl' ->
-                window.addEventListener ("resize", resizeEvent)
-
-                setEditor (fun e ->
-                    if e.IsSome then
-                        e
-                    else
-                        monaco?editor?create (
-                            monacoEl',
-                            {|
-                                value = content
-                                language = language
-                                theme = "vs-dark"
-                            |}
-                        )
-                        |> Some
-                )
-            | None -> ()
-
-            React.createDisposable (fun () ->
-                window.removeEventListener ("resize", resizeEvent)
-
-                match editor with
-                | Some editor' -> editor'?dispose ()
-                | None -> ()
-            )
-        ),
-        [| monacoEl.current |> Option.toObj |> box |]
-    )
-
-    match editor with
-    | Some editor' -> editor'?setValue (content)
-    | None -> ()
-
-    Html.div [
-        prop.ref monacoEl
-        prop.className "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-[#1e1e1e] rounded"
-    ]
+                    {
+                        model with
+                            CurrentFile = Some { Name = ""; Content = e }
+                    },
+                    Cmd.Empty
+                | Error e ->
+                    console.log e
+                    model, Cmd.Empty
+        with ex ->
+            console.log ($"Decode error: {ex}")
+            model, Cmd.none
+    | UpdateModel m -> m, Cmd.none
+    | SaveCurrentFile ->
+        match model.CurrentFile with
+        | Some data ->
+            console.log ("Saving")
+            model, Cmd.ofMsg (data |> SaveFile |> SendClientMessage)
+        | None -> model, Cmd.Empty
 
 let view (model: Model) dispatch =
     let unstaged =
@@ -167,9 +128,7 @@ let view (model: Model) dispatch =
                                         UI.StatusEntries(
                                             entries = unstaged,
                                             selectionChanged =
-                                                (fun (entry, _) ->
-                                                    GetFileContent entry |> SendClientMessage |> dispatch
-                                                )
+                                                (fun (entry, _) -> GetFile entry |> SendClientMessage |> dispatch)
                                         )
                                     ]
                                 ]
@@ -189,36 +148,31 @@ let view (model: Model) dispatch =
                                         UI.StatusEntries(
                                             entries = staged,
                                             selectionChanged =
-                                                (fun (entry, _) ->
-                                                    entry |> GetFileContent |> SendClientMessage |> dispatch
-                                                )
+                                                (fun (entry, _) -> entry |> GetFile |> SendClientMessage |> dispatch)
                                         )
                                 ]
                             ]
                         ]
                     ]
-                    match model.FileContent with
-                    | Some fileContent -> fileContent
-                    | None -> ""
-                    |> CodeEditor "fsharp"
-                // Html.textarea [
-                //     prop.className
-                //         "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-neutral-800 rounded p-2"
-                //     prop.value (
-                //         match model.FileContent with
-                //         | Some fileContent -> fileContent
-                //         | None -> ""
-                //     )
-                // ]
+                    match model.CurrentFile with
+                    | Some fileData ->
+                        UI.CodeEditor(
+                            fileData,
+                            onChange =
+                                (fun content ->
+                                    {
+                                        model with
+                                            CurrentFile = Some { fileData with Content = content }
+                                    }
+                                    |> UpdateModel
+                                    |> dispatch
+                                )
+                        )
+                    | None -> Html.none
                 ]
             ]
         ]
     ]
-
-let mkDisposable f =
-    { new IDisposable with
-        member _.Dispose() = f ()
-    }
 
 let connectWs dispatch =
     match socket with
@@ -226,10 +180,26 @@ let connectWs dispatch =
         ws'.onopen <- fun e -> dispatch (WebSocketOpened e)
         ws'.onerror <- fun e -> dispatch (WebSocketErrored e)
         ws'.onmessage <- fun e -> dispatch (ServerMessageReceived e)
-        mkDisposable (fun () -> ws'.close ())
-    | None -> mkDisposable ignore
+        React.createDisposable (fun () -> ws'.close ())
+    | None -> React.createDisposable ignore
+
+let keyDownSubscription dispatch =
+    let handler (e: Event) =
+        let e = e :?> KeyboardEvent
+
+        if (e.metaKey || e.ctrlKey) && e.key = "s" then
+            dispatch SaveCurrentFile
+            e.preventDefault ()
+        else
+            ()
+
+    window.addEventListener ("keydown", handler)
+    React.createDisposable (fun () -> window.removeEventListener ("keydown", handler))
 
 Program.mkProgram init update view
 |> Program.withReactBatched "root"
-|> Program.withSubscription (fun _model -> [ [ "ws" ], connectWs ])
+|> Program.withSubscription (fun _model -> [
+    [ "connectWs" ], connectWs
+    [ "keyDownSubscription" ], keyDownSubscription
+])
 |> Program.run

@@ -1,7 +1,6 @@
 <Project>
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-	<WarnOn>FS1182</WarnOn>
 	<NoWarn>NU1803</NoWarn>
   </PropertyGroup>
 </Project>

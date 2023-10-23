@@ -35,12 +35,16 @@ module GitStatus =
         | _ -> false
 
 type GitStatusEntry = { Filename: string; Status: GitStatus }
+type FileData = { Name: string; Content: string }
 
 type ClientMessage =
     | GitStatus
-    | GetFileContent of GitStatusEntry
+    | GetFile of GitStatusEntry
+    | SaveFile of FileData
 
 type ServerMessage =
     | GitStatusResponse of Result<GitStatusEntry array, string>
-    | GetFileContentResponse of Result<string option, string>
+    | GetFileResponse of Result<FileData option, string>
+    | SaveFileResponse of Result<unit, string>
     | FileChanged
+    | UnknownServerError of string

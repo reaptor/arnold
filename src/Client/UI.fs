@@ -5,7 +5,10 @@ open Feliz
 open Browser
 open Elmish
 open FSharp.Core
+open Feliz.style
 open Util
+open Shared
+open Monaco
 
 type Promise<'a> = Fable.Core.JS.Promise<'a>
 
@@ -213,4 +216,76 @@ type UI with
                     ]
                 )
             )
+        ]
+
+    [<ReactComponent>]
+    static member CodeEditor(fileData: FileData, ?onChange: string -> unit) =
+        let (editor: IStandaloneCodeEditor option), setEditor =
+            React.useStateWithUpdater None
+
+        let monacoEl = React.useInputRef ()
+
+        let createModel () =
+            let model =
+                monaco.editor.createModel (fileData.Content, uri = Uri.parse fileData.Name)
+
+            match onChange with
+            | Some f -> model.onDidChangeContent (fun _ -> f (model.getValue ())) |> ignore<IDisposable>
+            | None -> ()
+
+            model
+
+        React.useEffect (
+            (fun () ->
+                let resizeEvent =
+                    (fun _ ->
+                        match editor, monacoEl.current with
+                        | Some editor', Some el ->
+                            editor'.layout (Dimension(height = el.offsetHeight - 5., width = el.offsetWidth - 2.))
+                        | _ -> ()
+                    )
+
+                match monacoEl.current with
+                | Some monacoEl' ->
+                    window.addEventListener ("resize", resizeEvent)
+
+                    setEditor (fun e ->
+                        if e.IsSome then
+                            e
+                        else
+                            monaco.editor.create (
+                                monacoEl',
+                                StandaloneEditorConstructionOptions(model = createModel (), theme = "vs-dark")
+                            )
+                            |> Some
+                    )
+                | None -> ()
+
+                React.createDisposable (fun () ->
+                    window.removeEventListener ("resize", resizeEvent)
+
+                    match editor with
+                    | Some editor' ->
+                        editor'.getModel().dispose ()
+                        editor'.dispose ()
+                    | None -> ()
+                )
+            ),
+            [| monacoEl.current |> Option.toObj |> box |]
+        )
+
+        match editor with
+        | Some editor' ->
+            let model = editor'.getModel ()
+
+            if model.uri.path[1..] <> fileData.Name then
+                console.log ("creating new model")
+                model.dispose ()
+                editor'.setModel (createModel ())
+        | None -> ()
+
+        Html.div [
+            prop.ref monacoEl
+            prop.className
+                "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-[#1e1e1e] rounded"
         ]

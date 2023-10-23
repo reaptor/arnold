@@ -128,9 +128,10 @@ let sendServerMessage repoPath (msg: ServerMessage) =
                 | KeyValue(p, (_, sockets)) -> if p = repoPath then Array.ofSeq sockets else Array.empty
             )
 
+        let json = msg |> Encode.Auto.toString
+        let buffer = json |> Encoding.UTF8.GetBytes
+
         for socket in sockets do
-            let json = msg |> Encode.Auto.toString
-            let buffer = json |> Encoding.UTF8.GetBytes
 
             do!
                 socket.SendAsync(
@@ -139,6 +140,23 @@ let sendServerMessage repoPath (msg: ServerMessage) =
                     true,
                     CancellationToken.None
                 )
+    }
+
+let receiveAllText (socket: WebSocket) cancellationToken =
+    task {
+        let all = ResizeArray()
+        let buffer = Array.zeroCreate<byte> (4096)
+        let mutable result = null
+        let! res = socket.ReceiveAsync(ArraySegment<byte>(buffer), cancellationToken)
+        result <- res
+        all.AddRange(buffer[0 .. result.Count - 1])
+
+        while not result.EndOfMessage do
+            let! res = socket.ReceiveAsync(ArraySegment<byte>(buffer), cancellationToken)
+            result <- res
+            all.AddRange(buffer[0 .. result.Count - 1])
+
+        return Encoding.UTF8.GetString(all.ToArray())
     }
 
 [<EntryPoint>]
@@ -186,7 +204,6 @@ let main args =
                                     )
 
                                 if not (Array.contains ".git" pathParts) then
-                                    printfn $"{e.ChangeType} {e.FullPath}"
                                     sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
 
                             watcher.Changed.Add(f)
@@ -198,32 +215,38 @@ let main args =
                         let _, sockets = repositories.GetOrAdd(repoPath, (setupWatcher (), ResizeArray()))
                         sockets.Add(socket)
 
-                        let buffer = Array.zeroCreate<byte> (4096)
-
                         try
                             while not socket.CloseStatus.HasValue do
-                                let! receiveResult =
-                                    socket.ReceiveAsync(ArraySegment<byte>(buffer), ctx.RequestAborted)
+                                let! text = receiveAllText socket ctx.RequestAborted
 
                                 do!
-                                    match
-                                        Decode.Auto.fromString<ClientMessage> (
-                                            Encoding.UTF8.GetString(buffer, 0, receiveResult.Count)
-                                        )
-                                    with
+                                    match Decode.Auto.fromString<ClientMessage> text with
                                     | Ok GitStatus ->
                                         startProcess "git" "status --porcelain -z" repoPath
                                         |> Result.map GitStatus.parsePorcelain
                                         |> GitStatusResponse
                                         |> sendServerMessage repoPath
-                                    | Ok(GetFileContent entry) ->
+                                    | Ok(GetFile entry) ->
                                         try
-                                            File.ReadAllText(Path.Combine(repoPath, entry.Filename)) |> Some |> Ok
+                                            {
+                                                Name = entry.Filename
+                                                Content = File.ReadAllText(Path.Combine(repoPath, entry.Filename))
+                                            }
+                                            |> Some
+                                            |> Ok
                                         with ex ->
                                             Error(ex.ToString())
-                                        |> GetFileContentResponse
+                                        |> GetFileResponse
                                         |> sendServerMessage repoPath
-                                    | Error e -> sendServerMessage repoPath (GitStatusResponse(Error e))
+                                    | Ok(SaveFile data) ->
+                                        try
+                                            File.WriteAllText(Path.Combine(repoPath, data.Name), data.Content)
+                                            Ok()
+                                        with ex ->
+                                            Error(ex.ToString())
+                                        |> SaveFileResponse
+                                        |> sendServerMessage repoPath
+                                    | Error e -> sendServerMessage repoPath (UnknownServerError e)
 
                             removeSocket socket
 
