@@ -156,7 +156,7 @@ type UI with
     static member Button(?text: string, ?icon: Icon) =
         Html.button [
             prop.className
-                "border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2"
+                "shadow-lg border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2"
             prop.children [
                 match icon with
                 | Some i -> Html.img [ prop.className "inline-block w-5 h-5 pb-[3px]"; prop.src (Icon.asFilepath i) ]
@@ -182,7 +182,7 @@ type UI with
         let mouseIndex, setMouseIndex = React.useState None
 
         Html.div [
-            prop.className "bg-neutral-900 text-neutral-300 border border-black rounded"
+            prop.className "shadow-lg bg-neutral-900 text-neutral-300 border border-black rounded"
             prop.children (
                 items
                 |> Array.mapi (fun i item ->

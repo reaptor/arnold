@@ -32,89 +32,8 @@ type GitLogEntry = {
     |}
 }
 
-
-let (|X|_|) (x: string) (input: string) =
-    if String.exists (fun ch -> ch = input[0]) x then
-        Some()
-    else
-        None
-
-let (|Y|_|) (y: string) (input: string) =
-    if String.exists (fun ch -> ch = input[1]) y then
-        Some()
-    else
-        None
-
-let (|Filename|) (input: string) = input[3..].Trim(' ').Trim('"')
-
-type GitStatus =
-    | NotUpdated
-    | ModifiedInIndex
-    | TypeChangedInIndex
-    | AddedToIndex
-    | DeletedFromIndex
-    | RenamedInIndex
-    | CopiedInIndex
-    | ModifiedInWorkTreeSinceIndex
-    | TypeChangedInWorkTreeSinceIndex
-    | DeletedInWorkTree
-    | RenamedInWorkTree
-    | CopiedInWorkTree
-    | UnmergedBothDeleted
-    | UnmergedAddedByUs
-    | UnmergedDeletedByThem
-    | UnmergedAddedByThem
-    | UnmergedDeletedByUs
-    | UnmergedBothAdded
-    | UnmergedBothModified
-    | Untracked
-    | Ignored
-
-
 type GitStatusEntry = { Filename: string; Status: GitStatus }
 
-module GitStatus =
-    let isStaged =
-        function
-        | ModifiedInIndex
-        | TypeChangedInIndex
-        | AddedToIndex
-        | DeletedFromIndex
-        | RenamedInIndex
-        | CopiedInIndex -> true
-        | _ -> false
-
-    let parsePorcelain (s: string) =
-        s.Split([| char 0 |], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.collect (fun s -> [|
-            // https://git-scm.com/docs/git-status#_short_format
-            // https://git-scm.com/docs/git-status#_porcelain_format_version_1
-            match s with
-            | X "M" & Y " MTD" & Filename filename -> ModifiedInIndex, filename
-            | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
-            | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
-            | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
-            | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
-            | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename
-            | _ -> ()
-            match s with
-            | X " MTARC" & Y "M" & Filename filename -> ModifiedInWorkTreeSinceIndex, filename
-            | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
-            | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
-            | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
-            | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename
-            | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
-            | X "A" & Y "U" & Filename filename -> UnmergedAddedByUs, filename
-            | X "U" & Y "D" & Filename filename -> UnmergedDeletedByThem, filename
-            | X "U" & Y "A" & Filename filename -> UnmergedAddedByThem, filename
-            | X "D" & Y "U" & Filename filename -> UnmergedDeletedByUs, filename
-            | X "A" & Y "A" & Filename filename -> UnmergedBothAdded, filename
-            | X "U" & Y "U" & Filename filename -> UnmergedBothModified, filename
-            | X "?" & Y "?" & Filename filename -> Untracked, filename
-            | X "!" & Y "!" & Filename filename -> Ignored, filename
-            | _ -> ()
-        |])
-        |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
 
 // module GitResponse =
 // let LogDecoder =

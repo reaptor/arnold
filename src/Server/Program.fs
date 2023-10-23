@@ -34,6 +34,53 @@ let startProcess fileName args workingDir =
     with ex ->
         Error ex.Message
 
+module GitStatus =
+    let (|X|_|) (x: string) (input: string) =
+        if String.exists (fun ch -> ch = input[0]) x then
+            Some()
+        else
+            None
+
+    let (|Y|_|) (y: string) (input: string) =
+        if String.exists (fun ch -> ch = input[1]) y then
+            Some()
+        else
+            None
+
+    let (|Filename|) (input: string) = input[3..].Trim(' ').Trim('"')
+
+    let parsePorcelain (s: string) =
+        s.Split([| char 0 |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.collect (fun s -> [|
+            // https://git-scm.com/docs/git-status#_short_format
+            // https://git-scm.com/docs/git-status#_porcelain_format_version_1
+            match s with
+            | X "M" & Y " MTD" & Filename filename -> ModifiedInIndex, filename
+            | X "T" & Y " MTD" & Filename filename -> TypeChangedInIndex, filename
+            | X "A" & Y " MTD" & Filename filename -> AddedToIndex, filename
+            | X "D" & Y " " & Filename filename -> DeletedFromIndex, filename
+            | X "R" & Y " MTD" & Filename filename -> RenamedInIndex, filename
+            | X "C" & Y " MTD" & Filename filename -> CopiedInIndex, filename
+            | _ -> ()
+            match s with
+            | X " MTARC" & Y "M" & Filename filename -> ModifiedInWorkTreeSinceIndex, filename
+            | X " MTARC" & Y "T" & Filename filename -> TypeChangedInWorkTreeSinceIndex, filename
+            | X " MTARC" & Y "D" & Filename filename -> DeletedInWorkTree, filename
+            | X " " & Y "R" & Filename filename -> RenamedInWorkTree, filename
+            | X " " & Y "C" & Filename filename -> CopiedInWorkTree, filename
+            | X "D" & Y "D" & Filename filename -> UnmergedBothDeleted, filename
+            | X "A" & Y "U" & Filename filename -> UnmergedAddedByUs, filename
+            | X "U" & Y "D" & Filename filename -> UnmergedDeletedByThem, filename
+            | X "U" & Y "A" & Filename filename -> UnmergedAddedByThem, filename
+            | X "D" & Y "U" & Filename filename -> UnmergedDeletedByUs, filename
+            | X "A" & Y "A" & Filename filename -> UnmergedBothAdded, filename
+            | X "U" & Y "U" & Filename filename -> UnmergedBothModified, filename
+            | X "?" & Y "?" & Filename filename -> Untracked, filename
+            | X "!" & Y "!" & Filename filename -> Ignored, filename
+            | _ -> ()
+        |])
+        |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
+
 let repositories =
     ConcurrentDictionary<string, FileSystemWatcher * ResizeArray<WebSocket>>()
 
@@ -138,8 +185,6 @@ let main args =
                                         StringSplitOptions.RemoveEmptyEntries
                                     )
 
-                                printfn "%A" pathParts
-
                                 if not (Array.contains ".git" pathParts) then
                                     printfn $"{e.ChangeType} {e.FullPath}"
                                     sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
@@ -168,11 +213,12 @@ let main args =
                                     with
                                     | Ok GitStatus ->
                                         startProcess "git" "status --porcelain -z" repoPath
+                                        |> Result.map GitStatus.parsePorcelain
                                         |> GitStatusResponse
                                         |> sendServerMessage repoPath
-                                    | Ok(GetFileContent fileName) ->
+                                    | Ok(GetFileContent entry) ->
                                         try
-                                            Ok(File.ReadAllText(Path.Combine(repoPath, fileName)))
+                                            File.ReadAllText(Path.Combine(repoPath, entry.Filename)) |> Some |> Ok
                                         with ex ->
                                             Error(ex.ToString())
                                         |> GetFileContentResponse

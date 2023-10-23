@@ -12,6 +12,9 @@ open Git
 open GitComponents
 open Shared
 open Thoth.Json
+open Fable.Core.JsInterop
+
+let monaco: obj = importAll "monaco-editor"
 
 let repoInfo =
     let searchParams = URLSearchParams.Create(window.location.search)
@@ -43,9 +46,12 @@ type Msg =
 
 let sendClientMessage (msg: ClientMessage) =
     promise {
-        match socket with
-        | Some socket' -> msg |> Encode.Auto.toString |> socket'.send
-        | None -> ()
+        try
+            match socket with
+            | Some socket' -> msg |> Encode.Auto.toString |> socket'.send
+            | None -> ()
+        with ex ->
+            console.log (ex)
     }
 
 let init () =
@@ -64,24 +70,79 @@ let update (msg: Msg) (model: Model) =
     | ServerMessageReceived e ->
         Decode.Auto.fromString<ServerMessage> (string e.data)
         |> function
-            | Ok(GitStatusResponse(Ok response)) ->
-                model, Cmd.ofMsg (StatusEntriesLoaded(GitStatus.parsePorcelain response))
-            | Ok(GetFileContentResponse(Ok response)) ->
-                {
-                    model with
-                        FileContent = Some response
-                },
-                []
+            | Ok(GitStatusResponse(Ok entries)) -> model, Cmd.ofMsg (StatusEntriesLoaded(entries))
+            | Ok(GetFileContentResponse(Ok content)) -> { model with FileContent = content }, Cmd.none
             | Ok FileChanged ->
                 console.log ("file changed")
                 model, Cmd.ofMsg (SendClientMessage GitStatus)
             | Ok(GitStatusResponse(Error e))
-            | Ok(GetFileContentResponse(Error e))
+            | Ok(GetFileContentResponse(Error e)) ->
+                console.log e
+                { model with FileContent = Some e }, Cmd.Empty
             | Error e ->
                 console.log e
                 model, Cmd.Empty
-
     | StatusEntriesLoaded status -> { model with Status = status }, Cmd.none
+
+[<ReactComponent>]
+let CodeEditor (language: string) (content: string) =
+    let editor, setEditor = React.useStateWithUpdater None
+    let monacoEl = React.useInputRef ()
+
+    React.useEffect (
+        (fun () ->
+            let resizeEvent =
+                (fun _ ->
+                    match editor, monacoEl.current with
+                    | Some editor', Some el ->
+                        editor'?layout (
+                            {|
+                                height = el.offsetHeight - 5.
+                                width = el.offsetWidth - 2.
+                            |}
+                        )
+                    | _ -> ()
+                )
+
+            match monacoEl.current with
+            | Some monacoEl' ->
+                window.addEventListener ("resize", resizeEvent)
+
+                setEditor (fun e ->
+                    if e.IsSome then
+                        e
+                    else
+                        monaco?editor?create (
+                            monacoEl',
+                            {|
+                                value = content
+                                language = language
+                                theme = "vs-dark"
+                            |}
+                        )
+                        |> Some
+                )
+            | None -> ()
+
+            React.createDisposable (fun () ->
+                window.removeEventListener ("resize", resizeEvent)
+
+                match editor with
+                | Some editor' -> editor'?dispose ()
+                | None -> ()
+            )
+        ),
+        [| monacoEl.current |> Option.toObj |> box |]
+    )
+
+    match editor with
+    | Some editor' -> editor'?setValue (content)
+    | None -> ()
+
+    Html.div [
+        prop.ref monacoEl
+        prop.className "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-[#1e1e1e] rounded"
+    ]
 
 let view (model: Model) dispatch =
     let unstaged =
@@ -107,7 +168,7 @@ let view (model: Model) dispatch =
                                             entries = unstaged,
                                             selectionChanged =
                                                 (fun (entry, _) ->
-                                                    entry.Filename |> GetFileContent |> SendClientMessage |> dispatch
+                                                    GetFileContent entry |> SendClientMessage |> dispatch
                                                 )
                                         )
                                     ]
@@ -129,22 +190,26 @@ let view (model: Model) dispatch =
                                             entries = staged,
                                             selectionChanged =
                                                 (fun (entry, _) ->
-                                                    entry.Filename |> GetFileContent |> SendClientMessage |> dispatch
+                                                    entry |> GetFileContent |> SendClientMessage |> dispatch
                                                 )
                                         )
                                 ]
                             ]
                         ]
                     ]
-                    Html.textarea [
-                        prop.className
-                            "font-mono text-neutral-300 grow outline-none border border-black bg-neutral-800 rounded p-2"
-                        prop.value (
-                            match model.FileContent with
-                            | Some fileContent -> fileContent
-                            | None -> ""
-                        )
-                    ]
+                    match model.FileContent with
+                    | Some fileContent -> fileContent
+                    | None -> ""
+                    |> CodeEditor "fsharp"
+                // Html.textarea [
+                //     prop.className
+                //         "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-neutral-800 rounded p-2"
+                //     prop.value (
+                //         match model.FileContent with
+                //         | Some fileContent -> fileContent
+                //         | None -> ""
+                //     )
+                // ]
                 ]
             ]
         ]

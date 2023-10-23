@@ -5,6 +5,7 @@ open Browser
 open FSharp.Core
 open Git
 open UI
+open Shared
 
 type UI with
 
