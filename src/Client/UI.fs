@@ -159,7 +159,7 @@ type UI with
     static member Button(?text: string, ?icon: Icon) =
         Html.button [
             prop.className
-                "shadow-lg border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2"
+                "shadow-lg border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2 whitespace-nowrap"
             prop.children [
                 match icon with
                 | Some i -> Html.img [ prop.className "inline-block w-5 h-5 pb-[3px]"; prop.src (Icon.asFilepath i) ]
@@ -279,7 +279,6 @@ type UI with
             let model = editor'.getModel ()
 
             if model.uri.path[1..] <> fileData.Name then
-                console.log ("creating new model")
                 model.dispose ()
                 editor'.setModel (createModel ())
         | None -> ()

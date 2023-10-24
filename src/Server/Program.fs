@@ -81,58 +81,62 @@ module GitStatus =
         |])
         |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
 
-let repositories =
-    ConcurrentDictionary<string, FileSystemWatcher * ResizeArray<WebSocket>>()
+let sockets = ResizeArray<WebSocket>()
+let watchers = ConcurrentDictionary<RepositoryPath, FileSystemWatcher>()
 
 let removeSocket socket =
-    let respositoriesToRemove =
-        repositories
+    let watchersToRemove =
+        watchers
         |> Seq.choose (
             function
-            | KeyValue(repoPath, (watcher, sockets)) ->
+            | KeyValue(repoPath, watcher) ->
                 if sockets.Remove socket && sockets.Count = 0 then
                     Some(repoPath, watcher)
                 else
                     None
         )
 
-    for repoPath, watcher in respositoriesToRemove do
+    for repoPath, watcher in watchersToRemove do
         printfn "Disposing watcher"
         watcher.Dispose()
-        repositories.TryRemove(repoPath) |> ignore
+        watchers.TryRemove(repoPath) |> ignore
 
 let removeClosedSockets () =
     let closedSockets =
-        repositories
-        |> Seq.collect (
-            function
-            | KeyValue(_, (_, sockets)) ->
-                sockets
-                |> Seq.filter (fun socket ->
-                    socket.State = WebSocketState.Closed || socket.State = WebSocketState.Aborted
-                )
-        )
-        |> Seq.toArray
+        sockets
+        |> Seq.filter (fun socket -> socket.State = WebSocketState.Closed || socket.State = WebSocketState.Aborted)
 
     for socket in closedSockets do
         removeSocket socket
 
-let sendServerMessage repoPath (msg: ServerMessage) =
+let sendServerMessage (socket: WebSocket) (msg: ServerMessage) =
     task {
         removeClosedSockets ()
-
-        let sockets =
-            repositories
-            |> Seq.collect (
-                function
-                | KeyValue(p, (_, sockets)) -> if p = repoPath then Array.ofSeq sockets else Array.empty
-            )
 
         let json = msg |> Encode.Auto.toString
         let buffer = json |> Encoding.UTF8.GetBytes
 
-        for socket in sockets do
+        printfn $"Sending server message {json}"
 
+        do!
+            socket.SendAsync(
+                ArraySegment<byte>(buffer, 0, buffer.Length),
+                WebSocketMessageType.Text,
+                true,
+                CancellationToken.None
+            )
+    }
+
+let broadcastServerMessage (msg: ServerMessage) =
+    task {
+        removeClosedSockets ()
+
+        let json = msg |> Encode.Auto.toString
+        let buffer = json |> Encoding.UTF8.GetBytes
+
+        printfn $"Broadcasting server message {json}"
+
+        for socket in sockets do
             do!
                 socket.SendAsync(
                     ArraySegment<byte>(buffer, 0, buffer.Length),
@@ -180,94 +184,112 @@ let main args =
     app.Map(
         "/",
         Func<HttpContext, Task>(fun ctx ->
-            match ctx.Request.Query.TryGetValue("repoPath") with
-            | true, repoPath ->
-                if ctx.WebSockets.IsWebSocketRequest then
-                    task {
-                        let repoPath = string repoPath
-                        printfn "Web socket connect requested"
-                        let! socket = ctx.WebSockets.AcceptWebSocketAsync()
+            if
+                ctx.WebSockets.IsWebSocketRequest
+                && not (ctx.Request.Headers["Sec-WebSocket-Extensions"] |> Seq.contains "vite-hmr")
+            then
+                task {
+                    let! socket = ctx.WebSockets.AcceptWebSocketAsync()
+                    sockets.Add(socket)
+                    printfn "Web socket accepted"
 
-                        let setupWatcher () =
-                            let watcher =
-                                new FileSystemWatcher(
-                                    repoPath,
-                                    IncludeSubdirectories = true,
-                                    EnableRaisingEvents = true
-                                )
+                    try
+                        while not socket.CloseStatus.HasValue do
+                            let! text = receiveAllText socket ctx.RequestAborted
 
-                            let f (e: FileSystemEventArgs) =
-                                let pathParts =
-                                    e.FullPath.Split(
-                                        Path.DirectorySeparatorChar,
-                                        StringSplitOptions.RemoveEmptyEntries
-                                    )
-
-                                if not (Array.contains ".git" pathParts) then
-                                    sendServerMessage repoPath FileChanged |> ignore<Task<unit>>
-
-                            watcher.Changed.Add(f)
-                            watcher.Created.Add(f)
-                            watcher.Deleted.Add(f)
-                            watcher.Renamed.Add(f)
-                            watcher
-
-                        let _, sockets = repositories.GetOrAdd(repoPath, (setupWatcher (), ResizeArray()))
-                        sockets.Add(socket)
-
-                        try
-                            while not socket.CloseStatus.HasValue do
-                                let! text = receiveAllText socket ctx.RequestAborted
-
-                                do!
-                                    match Decode.Auto.fromString<ClientMessage> text with
-                                    | Ok GitStatus ->
-                                        startProcess "git" "status --porcelain -z" repoPath
-                                        |> Result.map GitStatus.parsePorcelain
-                                        |> GitStatusResponse
-                                        |> sendServerMessage repoPath
-                                    | Ok(GetFile entry) ->
-                                        try
-                                            {
-                                                Name = entry.Filename
-                                                Content = File.ReadAllText(Path.Combine(repoPath, entry.Filename))
-                                            }
-                                            |> Some
-                                            |> Ok
-                                        with ex ->
-                                            Error(ex.ToString())
-                                        |> GetFileResponse
-                                        |> sendServerMessage repoPath
-                                    | Ok(SaveFile data) ->
-                                        try
-                                            File.WriteAllText(Path.Combine(repoPath, data.Name), data.Content)
-                                            Ok()
-                                        with ex ->
-                                            Error(ex.ToString())
-                                        |> SaveFileResponse
-                                        |> sendServerMessage repoPath
-                                    | Error e -> sendServerMessage repoPath (UnknownServerError e)
-
-                            removeSocket socket
-
-                            printfn $"Closing socket for {repoPath}"
+                            printfn $"Received client message {text}"
 
                             do!
-                                socket.CloseAsync(
-                                    socket.CloseStatus.Value,
-                                    socket.CloseStatusDescription,
-                                    CancellationToken.None
-                                )
-                        with
-                        | :? TaskCanceledException -> ()
-                        | ex ->
-                            printfn "%A" ex
-                            removeSocket socket
-                    }
-                else
-                    ctx.Response.StatusCode <- 400
-                    Task.CompletedTask
-            | _ ->
+                                match Decode.Auto.fromString<ClientMessage> text with
+                                | Ok(ChangeRepository repositoryPath) ->
+                                    if not (watchers.ContainsKey(repositoryPath)) then
+                                        printfn $"Adding watcher for {repositoryPath}"
+
+                                        let watcher =
+                                            new FileSystemWatcher(
+                                                RepositoryPath.value repositoryPath,
+                                                IncludeSubdirectories = true,
+                                                EnableRaisingEvents = true
+                                            )
+
+                                        let f (e: FileSystemEventArgs) =
+                                            let pathParts =
+                                                e.FullPath.Split(
+                                                    Path.DirectorySeparatorChar,
+                                                    StringSplitOptions.RemoveEmptyEntries
+                                                )
+
+                                            if Array.contains ".git" pathParts then
+                                                broadcastServerMessage (RepositoryChanged repositoryPath)
+                                            else
+                                                broadcastServerMessage (FileChanged repositoryPath)
+                                            |> ignore<Task<unit>>
+
+                                        watcher.Changed.Add(f)
+                                        watcher.Created.Add(f)
+                                        watcher.Deleted.Add(f)
+                                        watcher.Renamed.Add(f)
+
+                                        watchers.TryAdd(repositoryPath, watcher) |> ignore<bool>
+
+                                    sendServerMessage socket (RepositoryChanged repositoryPath)
+                                | Ok(GitStatus repositoryPath) ->
+                                    match watchers.TryGetValue(repositoryPath) with
+                                    | true, watcher ->
+                                        try
+                                            watcher.EnableRaisingEvents <- false
+
+                                            startProcess
+                                                "git"
+                                                "status --porcelain -z"
+                                                (RepositoryPath.value repositoryPath)
+                                            |> Result.map GitStatus.parsePorcelain
+                                            |> GitStatusResponse
+                                            |> sendServerMessage socket
+                                        finally
+                                            watcher.EnableRaisingEvents <- true
+                                    | _ -> task { () }
+                                | Ok(GetFile(RepositoryPath repositoryPath, entry)) ->
+                                    printfn "%A" entry
+
+                                    try
+                                        {
+                                            Name = entry.Filename
+                                            Content = File.ReadAllText(Path.Combine(repositoryPath, entry.Filename))
+                                        }
+                                        |> Some
+                                        |> Ok
+                                    with ex ->
+                                        Error(ex.ToString())
+                                    |> GetFileResponse
+                                    |> sendServerMessage socket
+                                | Ok(SaveFile(RepositoryPath repositoryPath, data)) ->
+                                    try
+                                        File.WriteAllText(Path.Combine(repositoryPath, data.Name), data.Content)
+                                        Ok()
+                                    with ex ->
+                                        Error(ex.ToString())
+                                    |> SaveFileResponse
+                                    |> sendServerMessage socket
+                                | Error e -> sendServerMessage socket (UnknownServerError e)
+
+                        removeSocket socket
+
+                        printfn "Closing socket"
+
+                        do!
+                            socket.CloseAsync(
+                                socket.CloseStatus.Value,
+                                socket.CloseStatusDescription,
+                                CancellationToken.None
+                            )
+                    with
+                    | :? TaskCanceledException -> ()
+                    | ex ->
+                        printfn "%A" ex
+                        removeSocket socket
+                }
+            else
                 ctx.Response.StatusCode <- 400
                 Task.CompletedTask
         )

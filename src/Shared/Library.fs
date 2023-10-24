@@ -37,14 +37,21 @@ module GitStatus =
 type GitStatusEntry = { Filename: string; Status: GitStatus }
 type FileData = { Name: string; Content: string }
 
+type RepositoryPath = RepositoryPath of string
+
+module RepositoryPath =
+    let value (RepositoryPath p) = p
+
 type ClientMessage =
-    | GitStatus
-    | GetFile of GitStatusEntry
-    | SaveFile of FileData
+    | ChangeRepository of RepositoryPath
+    | GitStatus of RepositoryPath
+    | GetFile of RepositoryPath * GitStatusEntry
+    | SaveFile of RepositoryPath * FileData
 
 type ServerMessage =
     | GitStatusResponse of Result<GitStatusEntry array, string>
     | GetFileResponse of Result<FileData option, string>
     | SaveFileResponse of Result<unit, string>
-    | FileChanged
+    | FileChanged of RepositoryPath
+    | RepositoryChanged of RepositoryPath
     | UnknownServerError of string

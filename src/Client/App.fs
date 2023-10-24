@@ -10,6 +10,8 @@ open UI
 open GitComponents
 open Shared
 open Thoth.Json
+open Git
+open Util
 
 // Warning icon
 // Do you want to save the changes you made to {filename}?
@@ -18,67 +20,114 @@ open Thoth.Json
 // Don't save
 // Cancel
 
-let repoInfo =
-    let searchParams = URLSearchParams.Create(window.location.search)
-    let gitFilepath = searchParams.get "repoPath"
-
-    gitFilepath
-    |> Option.map (fun gitFilepath' -> {|
-        Directory = gitFilepath'
-        Name = gitFilepath'.Substring(gitFilepath'.Replace('\\', '/').LastIndexOf('/') + 1)
-    |})
-
-let socket =
-    repoInfo
-    |> Option.map (fun x -> WebSocket.Create($"ws://localhost:5000/?repoPath={x.Directory}"))
-
 type Model = {
     Status: GitStatusEntry array
     CurrentFile: FileData option
+    Socket: WebSocket option
+    CurrentRepository: RepositoryPath option
 }
 
 type Msg =
-    | WebSocketOpened of Event
-    | WebSocketErrored of Event
+    | ChangeRepository of RepositoryPath option
+    | WebSocketOpened of WebSocket
+    | WebSocketErrored of WebSocket
+    | ServerMessageReceived of WebSocket * MessageEvent
     | SendClientMessage of ClientMessage
     | SendClientMessageSucceeded of unit
     | SendClientMessageFailed of exn
-    | ServerMessageReceived of MessageEvent
     | SaveCurrentFile
     | UpdateModel of Model
 
-let sendClientMessage (msg: ClientMessage) =
+let getCurrentRepositoryPath () =
+    let searchParams = URLSearchParams.Create(window.location.search)
+    let gitFilepath = searchParams.get "repoPath"
+    gitFilepath |> Option.map RepositoryPath.ofUriEncoded
+
+let setCurrentRepositoryPath (repositoryPath: RepositoryPath option) =
+    let searchParams = URLSearchParams.Create(window.location.search)
+
+    console.log ("Settings repoPath=", repositoryPath)
+
+    searchParams.set (
+        "repoPath",
+        match repositoryPath with
+        | Some repositoryPath' -> RepositoryPath.asUriEncoded repositoryPath'
+        | None -> null
+    )
+
+    window.history.replaceState (null, url = searchParams.ToString())
+
+let sendClientMessage (socket: WebSocket) (msg: ClientMessage) =
     promise {
         try
-            match socket with
-            | Some socket' -> msg |> Encode.Auto.toString |> socket'.send
-            | None -> ()
+            msg |> Encode.Auto.toString |> socket.send
         with ex ->
             console.log ($"Encode error: {ex}")
     }
 
 let init () =
-    { Status = [||]; CurrentFile = None }, Cmd.none
+    {
+        Status = [||]
+        CurrentFile = None
+        Socket = None
+        CurrentRepository = None
+    },
+    Cmd.none
 
 let update (msg: Msg) (model: Model) =
     match msg with
-    | WebSocketOpened _ -> model, Cmd.ofMsg (SendClientMessage GitStatus)
-    | WebSocketErrored _ -> model, []
+    | WebSocketOpened socket ->
+        console.log "Socket opened"
+
+        { model with Socket = Some socket },
+        match getCurrentRepositoryPath () with
+        | Some repositoryPath -> Cmd.ofMsg (SendClientMessage(ClientMessage.ChangeRepository repositoryPath))
+        | None -> Cmd.none
+    | WebSocketErrored _ -> model, Cmd.Empty
+    | ChangeRepository repositoryPath ->
+        setCurrentRepositoryPath repositoryPath
+
+        {
+            model with
+                CurrentRepository = repositoryPath
+                CurrentFile = None
+        },
+        match repositoryPath with
+        | Some repositoryPath' ->
+            console.log ("sending ChangeRepository")
+            Cmd.ofMsg (SendClientMessage(ClientMessage.ChangeRepository repositoryPath'))
+        | None -> Cmd.none
     | SendClientMessage cmd ->
-        model, Cmd.OfPromise.either sendClientMessage cmd SendClientMessageSucceeded SendClientMessageFailed
+        console.log ("SendClientMessage", cmd)
+
+        match model.Socket with
+        | Some socket ->
+            model,
+            Cmd.OfPromise.either (sendClientMessage socket) cmd SendClientMessageSucceeded SendClientMessageFailed
+        | None ->
+            console.log ("Skipping SendClientMessage due to socket is not connected")
+            model, Cmd.Empty
     | SendClientMessageSucceeded() -> model, Cmd.none
     | SendClientMessageFailed ex ->
         console.log ex
         model, Cmd.none
-    | ServerMessageReceived e ->
+    | ServerMessageReceived(_, e) ->
+        console.log ($"Received server message {string e.data}")
+
         try
             Decode.Auto.fromString<ServerMessage> (string e.data)
             |> function
                 | Ok(GitStatusResponse(Ok entries)) -> model, Cmd.ofMsg (UpdateModel({ model with Status = entries }))
                 | Ok(GetFileResponse(Ok content)) -> { model with CurrentFile = content }, Cmd.none
-                | Ok FileChanged ->
+                | Ok(FileChanged repositoryPath) ->
                     console.log ("file changed.")
-                    model, Cmd.ofMsg (SendClientMessage GitStatus)
+                    model, Cmd.ofMsg (SendClientMessage(GitStatus repositoryPath))
+                | Ok(RepositoryChanged repositoryPath) ->
+                    {
+                        model with
+                            CurrentRepository = Some repositoryPath
+                    },
+                    Cmd.ofMsg (SendClientMessage(GitStatus repositoryPath))
                 | Ok(SaveFileResponse(Ok())) -> model, Cmd.Empty
                 | Ok(GitStatusResponse(Error e))
                 | Ok(GetFileResponse(Error e))
@@ -99,11 +148,11 @@ let update (msg: Msg) (model: Model) =
             model, Cmd.none
     | UpdateModel m -> m, Cmd.none
     | SaveCurrentFile ->
-        match model.CurrentFile with
-        | Some data ->
+        match model.CurrentRepository, model.CurrentFile with
+        | Some repositoryPath, Some data ->
             console.log ("Saving")
-            model, Cmd.ofMsg (data |> SaveFile |> SendClientMessage)
-        | None -> model, Cmd.Empty
+            model, Cmd.ofMsg (SaveFile(repositoryPath, data) |> SendClientMessage)
+        | _ -> model, Cmd.Empty
 
 let view (model: Model) dispatch =
     let unstaged =
@@ -120,38 +169,42 @@ let view (model: Model) dispatch =
                 prop.className "flex grow gap-2"
                 prop.children [
                     Html.div [
+                        prop.className "flex flex-col justify-stretch gap-2"
                         prop.children [
+                            UI.RecentRepositories(model.CurrentRepository, Some >> ChangeRepository >> dispatch)
                             if unstaged.Length > 0 then
                                 Html.div [
-                                    prop.className "mb-2"
                                     prop.children [
                                         UI.StatusEntries(
                                             entries = unstaged,
                                             selectionChanged =
-                                                (fun (entry, _) -> GetFile entry |> SendClientMessage |> dispatch)
+                                                (fun (entry, _) ->
+                                                    match model.CurrentRepository with
+                                                    | Some r -> GetFile(r, entry) |> SendClientMessage |> dispatch
+                                                    | None -> ()
+                                                )
                                         )
                                     ]
                                 ]
                             Html.div [
-                                prop.className "flex flex-col gap-2"
+                                prop.className "flex gap-2"
                                 prop.children [
-                                    Html.div [
-                                        prop.className "flex gap-1"
-                                        prop.children [
-                                            UI.Button(icon = Icon.ArrowUpOnSquareStack)
-                                            UI.Button("Unstage", Icon.ArrowUpOnSquare)
-                                            UI.Button("Stage", Icon.ArrowDownOnSquare)
-                                            UI.Button(icon = Icon.ArrowDownOnSquareStack)
-                                        ]
-                                    ]
-                                    if staged.Length > 0 then
-                                        UI.StatusEntries(
-                                            entries = staged,
-                                            selectionChanged =
-                                                (fun (entry, _) -> entry |> GetFile |> SendClientMessage |> dispatch)
-                                        )
+                                    UI.Button(icon = Icon.ArrowUpOnSquareStack)
+                                    UI.Button("Unstage", Icon.ArrowUpOnSquare)
+                                    UI.Button("Stage", Icon.ArrowDownOnSquare)
+                                    UI.Button(icon = Icon.ArrowDownOnSquareStack)
                                 ]
                             ]
+                            if staged.Length > 0 then
+                                UI.StatusEntries(
+                                    entries = staged,
+                                    selectionChanged =
+                                        (fun (entry, _) ->
+                                            match model.CurrentRepository with
+                                            | Some r -> GetFile(r, entry) |> SendClientMessage |> dispatch
+                                            | None -> ()
+                                        )
+                                )
                         ]
                     ]
                     match model.CurrentFile with
@@ -174,14 +227,13 @@ let view (model: Model) dispatch =
         ]
     ]
 
-let connectWs dispatch =
-    match socket with
-    | Some ws' ->
-        ws'.onopen <- fun e -> dispatch (WebSocketOpened e)
-        ws'.onerror <- fun e -> dispatch (WebSocketErrored e)
-        ws'.onmessage <- fun e -> dispatch (ServerMessageReceived e)
-        React.createDisposable (fun () -> ws'.close ())
-    | None -> React.createDisposable ignore
+let connectWs _ dispatch =
+    console.log "Connecting socket..."
+    let socket = WebSocket.Create("ws://localhost:5000/")
+    socket.onopen <- fun e -> dispatch (WebSocketOpened socket)
+    socket.onerror <- fun e -> dispatch (WebSocketErrored socket)
+    socket.onmessage <- fun e -> dispatch (ServerMessageReceived(socket, e))
+    React.createDisposable (fun () -> socket.close ())
 
 let keyDownSubscription dispatch =
     let handler (e: Event) =
@@ -198,8 +250,8 @@ let keyDownSubscription dispatch =
 
 Program.mkProgram init update view
 |> Program.withReactBatched "root"
-|> Program.withSubscription (fun _model -> [
-    [ "connectWs" ], connectWs
+|> Program.withSubscription (fun model -> [
+    [ "connectWs" ], connectWs model
     [ "keyDownSubscription" ], keyDownSubscription
 ])
 |> Program.run

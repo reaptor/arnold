@@ -32,8 +32,9 @@ type GitLogEntry = {
     |}
 }
 
-type GitStatusEntry = { Filename: string; Status: GitStatus }
-
+module RepositoryPath =
+    let name (RepositoryPath path) =
+        path.Substring(path.Replace('\\', '/').LastIndexOf('/') + 1)
 
 // module GitResponse =
 // let LogDecoder =
