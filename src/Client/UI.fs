@@ -159,7 +159,7 @@ type UI with
     static member Button(?text: string, ?icon: Icon) =
         Html.button [
             prop.className
-                "shadow-lg border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded cursor-default h-7 px-2 whitespace-nowrap"
+                "shadow-lg border border-black bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 focus:bg-neutral-700 text-neutral-300 text-sm outline-none rounded h-7 px-2 whitespace-nowrap"
             prop.children [
                 match icon with
                 | Some i -> Html.img [ prop.className "inline-block w-5 h-5 pb-[3px]"; prop.src (Icon.asFilepath i) ]
@@ -199,7 +199,7 @@ type UI with
                             )
                         )
                         prop.classes [
-                            "outline-none border-black p-[3px]"
+                            "outline-none border-black p-[3px] cursor-pointer"
                             if i > 0 then
                                 "border-t"
                             if Array.contains i keyboardNavigation.SelectedIndexes && isActiveElement then
@@ -219,7 +219,7 @@ type UI with
         ]
 
     [<ReactComponent>]
-    static member CodeEditor(fileData: FileData, ?onChange: string -> unit) =
+    static member CodeEditor(textFile: TextFile, ?onChange: string -> unit) =
         let (editor: IStandaloneCodeEditor option), setEditor =
             React.useStateWithUpdater None
 
@@ -227,7 +227,7 @@ type UI with
 
         let createModel () =
             let model =
-                monaco.editor.createModel (fileData.Content, uri = Uri.parse fileData.Name)
+                monaco.editor.createModel (textFile.Content, uri = Uri.parse textFile.Name)
 
             match onChange with
             | Some f -> model.onDidChangeContent (fun _ -> f (model.getValue ())) |> ignore<IDisposable>
@@ -278,13 +278,9 @@ type UI with
         | Some editor' ->
             let model = editor'.getModel ()
 
-            if model.uri.path[1..] <> fileData.Name then
+            if model.uri.path[1..] <> textFile.Name then
                 model.dispose ()
                 editor'.setModel (createModel ())
         | None -> ()
 
-        Html.div [
-            prop.ref monacoEl
-            prop.className
-                "shadow-lg font-mono text-neutral-300 grow outline-none border border-black bg-[#1e1e1e] rounded"
-        ]
+        Html.div [ prop.ref monacoEl; prop.className "grow" ]

@@ -1,5 +1,6 @@
 ﻿open System
 open System.Collections.Concurrent
+open System.Collections.Generic
 open System.Net.WebSockets
 open System.Text
 open System.Threading
@@ -81,30 +82,49 @@ module GitStatus =
         |])
         |> Array.map (fun (status, filename) -> { Filename = filename; Status = status })
 
-let sockets = ResizeArray<WebSocket>()
-let watchers = ConcurrentDictionary<RepositoryPath, FileSystemWatcher>()
+type SocketId = SocketId of Guid
 
-let removeSocket socket =
-    let watchersToRemove =
-        watchers
-        |> Seq.choose (
-            function
-            | KeyValue(repoPath, watcher) ->
-                if sockets.Remove socket && sockets.Count = 0 then
-                    Some(repoPath, watcher)
-                else
-                    None
-        )
+module SocketId =
+    let create () = SocketId(Guid.NewGuid())
 
-    for repoPath, watcher in watchersToRemove do
-        printfn "Disposing watcher"
-        watcher.Dispose()
-        watchers.TryRemove(repoPath) |> ignore
+let sockets = ConcurrentDictionary<WebSocket, SocketId>()
+
+let watchers =
+    ConcurrentDictionary<RepositoryPath, FileSystemWatcher * SocketId list>()
+
+let removeSocket (socket: WebSocket) =
+    match sockets.TryRemove(socket) with
+    | true, socketId ->
+        let repositoryPathsToStopWatch =
+            watchers
+            |> Seq.choose (
+                function
+                | KeyValue(repositoryPath, (_, socketIds)) ->
+                    if List.forall (fun sid -> sid <> socketId) socketIds then
+                        Some repositoryPath
+                    else
+                        None
+            )
+
+        for repositoryPath in repositoryPathsToStopWatch do
+            printfn "Disposing watcher"
+
+            match watchers.TryRemove(repositoryPath) with
+            | true, (watcher, _) -> watcher.Dispose()
+            | _ -> ()
+    | _ -> ()
 
 let removeClosedSockets () =
     let closedSockets =
         sockets
-        |> Seq.filter (fun socket -> socket.State = WebSocketState.Closed || socket.State = WebSocketState.Aborted)
+        |> Seq.choose (
+            function
+            | KeyValue(socket, _) ->
+                if socket.State = WebSocketState.Closed || socket.State = WebSocketState.Aborted then
+                    Some socket
+                else
+                    None
+        )
 
     for socket in closedSockets do
         removeSocket socket
@@ -136,7 +156,7 @@ let broadcastServerMessage (msg: ServerMessage) =
 
         printfn $"Broadcasting server message {json}"
 
-        for socket in sockets do
+        for socket in sockets.Keys do
             do!
                 socket.SendAsync(
                     ArraySegment<byte>(buffer, 0, buffer.Length),
@@ -190,8 +210,9 @@ let main args =
             then
                 task {
                     let! socket = ctx.WebSockets.AcceptWebSocketAsync()
-                    sockets.Add(socket)
-                    printfn "Web socket accepted"
+                    let socketId = SocketId.create ()
+                    sockets.TryAdd(socket, socketId) |> ignore<bool>
+                    printfn $"Web socket accepted {socketId}"
 
                     try
                         while not socket.CloseStatus.HasValue do
@@ -202,7 +223,9 @@ let main args =
                             do!
                                 match Decode.Auto.fromString<ClientMessage> text with
                                 | Ok(ChangeRepository repositoryPath) ->
-                                    if not (watchers.ContainsKey(repositoryPath)) then
+                                    match watchers.TryGetValue(repositoryPath) with
+                                    | true, (watcher, socketIds) -> ()
+                                    | _ ->
                                         printfn $"Adding watcher for {repositoryPath}"
 
                                         let watcher =
@@ -230,12 +253,12 @@ let main args =
                                         watcher.Deleted.Add(f)
                                         watcher.Renamed.Add(f)
 
-                                        watchers.TryAdd(repositoryPath, watcher) |> ignore<bool>
+                                        watchers.TryAdd(repositoryPath, (watcher, [ socketId ])) |> ignore<bool>
 
                                     sendServerMessage socket (RepositoryChanged repositoryPath)
                                 | Ok(GitStatus repositoryPath) ->
                                     match watchers.TryGetValue(repositoryPath) with
-                                    | true, watcher ->
+                                    | true, (watcher, _) ->
                                         try
                                             watcher.EnableRaisingEvents <- false
 
@@ -253,19 +276,34 @@ let main args =
                                     printfn "%A" entry
 
                                     try
-                                        {
-                                            Name = entry.Filename
-                                            Content = File.ReadAllText(Path.Combine(repositoryPath, entry.Filename))
-                                        }
+                                        let filepath = Path.Combine(repositoryPath, entry.Filename)
+                                        use s = File.OpenRead(filepath)
+                                        let buff = Array.zeroCreate (2048)
+                                        let read = s.Read(buff, 0, buff.Length)
+                                        let isBinary = Array.exists (fun b -> b = 0uy) buff[0 .. read - 1]
+                                        printfn "Binary: %A" isBinary
+
+                                        if isBinary then
+                                            BinaryFile { Name = entry.Filename }
+                                        else
+                                            TextFile {
+                                                Name = entry.Filename
+                                                Content =
+                                                    File.ReadAllText(Path.Combine(repositoryPath, entry.Filename))
+                                            }
                                         |> Some
                                         |> Ok
                                     with ex ->
                                         Error(ex.ToString())
                                     |> GetFileResponse
                                     |> sendServerMessage socket
-                                | Ok(SaveFile(RepositoryPath repositoryPath, data)) ->
+                                | Ok(SaveFile(RepositoryPath repositoryPath, textFile)) ->
                                     try
-                                        File.WriteAllText(Path.Combine(repositoryPath, data.Name), data.Content)
+                                        File.WriteAllText(
+                                            Path.Combine(repositoryPath, textFile.Name),
+                                            textFile.Content
+                                        )
+
                                         Ok()
                                     with ex ->
                                         Error(ex.ToString())

@@ -35,7 +35,14 @@ module GitStatus =
         | _ -> false
 
 type GitStatusEntry = { Filename: string; Status: GitStatus }
-type FileData = { Name: string; Content: string }
+
+type TextFile = { Name: string; Content: string }
+
+type BinaryFile = { Name: string }
+
+type File =
+    | TextFile of TextFile
+    | BinaryFile of BinaryFile
 
 type RepositoryPath = RepositoryPath of string
 
@@ -46,11 +53,11 @@ type ClientMessage =
     | ChangeRepository of RepositoryPath
     | GitStatus of RepositoryPath
     | GetFile of RepositoryPath * GitStatusEntry
-    | SaveFile of RepositoryPath * FileData
+    | SaveFile of RepositoryPath * TextFile
 
 type ServerMessage =
     | GitStatusResponse of Result<GitStatusEntry array, string>
-    | GetFileResponse of Result<FileData option, string>
+    | GetFileResponse of Result<File option, string>
     | SaveFileResponse of Result<unit, string>
     | FileChanged of RepositoryPath
     | RepositoryChanged of RepositoryPath

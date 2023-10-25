@@ -22,7 +22,7 @@ open Util
 
 type Model = {
     Status: GitStatusEntry array
-    CurrentFile: FileData option
+    CurrentFile: Result<File option, string>
     Socket: WebSocket option
     CurrentRepository: RepositoryPath option
 }
@@ -46,8 +46,6 @@ let getCurrentRepositoryPath () =
 let setCurrentRepositoryPath (repositoryPath: RepositoryPath option) =
     let searchParams = URLSearchParams.Create(window.location.search)
 
-    console.log ("Settings repoPath=", repositoryPath)
-
     searchParams.set (
         "repoPath",
         match repositoryPath with
@@ -55,7 +53,7 @@ let setCurrentRepositoryPath (repositoryPath: RepositoryPath option) =
         | None -> null
     )
 
-    window.history.replaceState (null, url = searchParams.ToString())
+    window.history.replaceState (null, url = $"?{searchParams.ToString()}")
 
 let sendClientMessage (socket: WebSocket) (msg: ClientMessage) =
     promise {
@@ -68,7 +66,7 @@ let sendClientMessage (socket: WebSocket) (msg: ClientMessage) =
 let init () =
     {
         Status = [||]
-        CurrentFile = None
+        CurrentFile = Ok None
         Socket = None
         CurrentRepository = None
     },
@@ -90,7 +88,7 @@ let update (msg: Msg) (model: Model) =
         {
             model with
                 CurrentRepository = repositoryPath
-                CurrentFile = None
+                CurrentFile = Ok None
         },
         match repositoryPath with
         | Some repositoryPath' ->
@@ -118,7 +116,7 @@ let update (msg: Msg) (model: Model) =
             Decode.Auto.fromString<ServerMessage> (string e.data)
             |> function
                 | Ok(GitStatusResponse(Ok entries)) -> model, Cmd.ofMsg (UpdateModel({ model with Status = entries }))
-                | Ok(GetFileResponse(Ok content)) -> { model with CurrentFile = content }, Cmd.none
+                | Ok(GetFileResponse(Ok content)) -> { model with CurrentFile = Ok content }, Cmd.none
                 | Ok(FileChanged repositoryPath) ->
                     console.log ("file changed.")
                     model, Cmd.ofMsg (SendClientMessage(GitStatus repositoryPath))
@@ -135,11 +133,7 @@ let update (msg: Msg) (model: Model) =
                 | Ok(UnknownServerError(e)) ->
                     console.log ($"Response error: {e}")
 
-                    {
-                        model with
-                            CurrentFile = Some { Name = ""; Content = e }
-                    },
-                    Cmd.Empty
+                    { model with CurrentFile = Error e }, Cmd.Empty
                 | Error e ->
                     console.log e
                     model, Cmd.Empty
@@ -149,9 +143,9 @@ let update (msg: Msg) (model: Model) =
     | UpdateModel m -> m, Cmd.none
     | SaveCurrentFile ->
         match model.CurrentRepository, model.CurrentFile with
-        | Some repositoryPath, Some data ->
+        | Some repositoryPath, Ok(Some(TextFile textFile)) ->
             console.log ("Saving")
-            model, Cmd.ofMsg (SaveFile(repositoryPath, data) |> SendClientMessage)
+            model, Cmd.ofMsg (SaveFile(repositoryPath, textFile) |> SendClientMessage)
         | _ -> model, Cmd.Empty
 
 let view (model: Model) dispatch =
@@ -207,21 +201,38 @@ let view (model: Model) dispatch =
                                 )
                         ]
                     ]
-                    match model.CurrentFile with
-                    | Some fileData ->
-                        UI.CodeEditor(
-                            fileData,
-                            onChange =
-                                (fun content ->
-                                    {
-                                        model with
-                                            CurrentFile = Some { fileData with Content = content }
-                                    }
-                                    |> UpdateModel
-                                    |> dispatch
+                    Html.div [
+                        prop.className
+                            "shadow-lg font-mono text-neutral-300 overflow-auto flex grow border border-black bg-[#1e1e1e] rounded select-auto"
+                        prop.children [
+                            match model.CurrentFile with
+                            | Ok(Some(TextFile textFile)) ->
+                                UI.CodeEditor(
+                                    textFile,
+                                    onChange =
+                                        (fun content ->
+                                            {
+                                                model with
+                                                    CurrentFile =
+                                                        { textFile with Content = content } |> TextFile |> Some |> Ok
+                                            }
+                                            |> UpdateModel
+                                            |> dispatch
+                                        )
                                 )
-                        )
-                    | None -> Html.none
+                            | Ok(Some(BinaryFile _)) ->
+                                Html.span [
+                                    prop.className "text-neutral-300 p-2 cursor-text self-start"
+                                    prop.text "Binary file"
+                                ]
+                            | Error e ->
+                                Html.pre [
+                                    prop.className "text-xs text-red-400 p-2 cursor-text self-start"
+                                    prop.text e
+                                ]
+                            | _ -> Html.none
+                        ]
+                    ]
                 ]
             ]
         ]
