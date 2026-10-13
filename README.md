@@ -22,6 +22,32 @@ Arnold uses [FsAutoComplete](https://github.com/ionide/FsAutoComplete) (Apache-2
 - It needs the .NET SDK (8 or newer) on the machine. The SDK the repository selects (`global.json`) decides which build of the server runs.
 - The server runs in the checkout being reviewed, so errors reflect that code, and it stops when Arnold closes or you switch branch.
 
+## Install
+
+Download the installer from [Releases](https://github.com/reaptor/arnold/releases): the `.pkg` for macOS (Apple silicon), the `-setup.exe` or `.msi` for Windows (x64). The builds are not signed with a developer certificate:
+
+- **macOS:** try to open the `.pkg` once, then choose *Open Anyway* under *System Settings → Privacy & Security*.
+- **Windows:** choose *More info → Run anyway* in the SmartScreen prompt.
+
+## Start from a terminal
+
+The installers put two commands on the PATH, `arnold` and the shorter `ace`:
+
+```bash
+arnold path/to/repository
+```
+
+```bash
+ace .
+```
+
+Without a folder they open the current one. Terminals that were open during the installation have to be reopened first. Started from the Dock or the Start menu instead, Arnold reopens the last repository.
+
+| | Where the commands are | Uninstalling |
+|---|---|---|
+| macOS | links in `/usr/local/bin` to a script inside `Arnold.app` | delete `/Applications/Arnold.app`, `/usr/local/bin/arnold` and `/usr/local/bin/ace` |
+| Windows | `bin` inside the installation folder, which is added to PATH (the user's for the `-setup.exe`, the machine's for the `.msi`) | the uninstaller takes the folder off PATH again |
+
 ## Requirements
 
 - `git` on PATH
@@ -39,10 +65,16 @@ npm run tauri dev -- -- path/to/repository
 
 The path is optional; without it Arnold reopens the last repository, or use *Open repository…*.
 
-Build an installable app:
+Build the app, and on Windows its installers:
 
 ```bash
 npm run tauri build
+```
+
+On macOS the installer is a separate step:
+
+```bash
+src-tauri/installer/macos/build-pkg.sh target/release/bundle/macos/Arnold.app 0.1.0 Arnold.pkg
 ```
 
 ## Releases
@@ -50,8 +82,6 @@ npm run tauri build
 Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases).
 
 The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/tauri.conf.json` and the patch number is the number of commits on `main`, so the 57th commit is released as `v0.1.57`. To start a new minor or major version, change the version in `src-tauri/tauri.conf.json`. Local builds keep the version written in that file.
-
-The builds are not signed with a developer certificate. On macOS, try to open the app once, then choose *Open Anyway* under *System Settings → Privacy & Security* (or run `xattr -dr com.apple.quarantine /Applications/Arnold.app`); on Windows, choose *More info → Run anyway* in the SmartScreen prompt.
 
 ## Develop
 
@@ -70,5 +100,6 @@ The builds are not signed with a developer certificate. On macOS, try to open th
 |---|---|
 | `src/` | UI: SolidJS + CodeMirror 6 (`@codemirror/merge`) |
 | `src-tauri/` | Tauri shell: commands, file I/O, file watcher |
+| `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
 | `crates/arnold-git/` | Read-only git access through the `git` CLI |
 | `crates/arnold-lsp/` | Language servers: install/update, and the proxy between editor and server |

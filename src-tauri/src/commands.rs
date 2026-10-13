@@ -44,11 +44,15 @@ pub fn dev_trace(message: String) {
     }
 }
 
-/// Folder given on the command line (`arnold path/to/repo`), if any.
+/// Folder given on the command line (`arnold path/to/repo`), if any. The `arnold` command the
+/// installers set up passes `.` when it is run without a folder.
 #[tauri::command]
 pub fn startup_path() -> Option<String> {
     let argument = std::env::args().nth(1)?;
-    let path = Path::new(&argument).canonicalize().ok()?;
+    // PowerShell completes a folder with spaces as `'.\my repo\'`; on its way through
+    // `arnold.cmd` the backslash turns the closing quote into part of the argument.
+    let argument = argument.trim_end_matches('"');
+    let path = Path::new(argument).canonicalize().ok()?;
     path.is_dir().then(|| path.to_string_lossy().into_owned())
 }
 

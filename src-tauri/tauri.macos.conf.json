@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "targets": ["app"],
+    "resources": {
+      "installer/macos/arnold": "bin/arnold"
+    }
+  }
+}

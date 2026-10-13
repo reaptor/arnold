@@ -101,6 +101,21 @@ jobs:
           args: --target ${{ matrix.target }}
           uploadUpdaterJson: false
 
+      # macOS gets a .pkg instead of a disk image, because only an installer can put the
+      # `arnold` and `ace` commands on the PATH.
+      - name: Build and upload the macOS installer
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release-id }}
+        run: |
+          pkg="Arnold_${VERSION}_aarch64.pkg"
+          src-tauri/installer/macos/build-pkg.sh \
+            "target/${{ matrix.target }}/release/bundle/macos/Arnold.app" "$VERSION" "$pkg"
+          gh api -X POST -H "Content-Type: application/octet-stream" --input "$pkg" --jq .browser_download_url \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$pkg"
+
   publish-release:
     needs: [create-release, build]
     runs-on: ubuntu-latest

@@ -1,0 +1,21 @@
+#!/bin/sh
+# The `arnold` command (also installed as `ace`): opens a folder in Arnold from a terminal.
+#   arnold [folder]    without a folder, the current one
+# The installer links /usr/local/bin/arnold and /usr/local/bin/ace to this file.
+
+# Follow those links back to the app this file is part of.
+self=$0
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case $target in
+    /*) self=$target ;;
+    *) self=$(dirname "$self")/$target ;;
+  esac
+done
+contents=$(cd "$(dirname "$self")/../.." && pwd)
+
+[ $# -eq 0 ] && set -- .
+
+# Started directly rather than through `open`, so the app keeps this terminal's folder and
+# environment: PATH decides which git and dotnet it finds.
+nohup "$contents/MacOS/arnold" "$@" </dev/null >/dev/null 2>&1 &

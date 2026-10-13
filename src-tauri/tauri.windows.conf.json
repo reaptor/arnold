@@ -1,0 +1,18 @@
+{
+  "bundle": {
+    "resources": {
+      "installer/windows/arnold.cmd": "bin/arnold.cmd",
+      "installer/windows/ace.cmd": "bin/ace.cmd"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "installer/windows/hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["installer/windows/path.wxs"],
+        "componentRefs": ["ArnoldCliPath"]
+      }
+    }
+  }
+}

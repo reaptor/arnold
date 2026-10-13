@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- For the .msi installer: puts the folder holding the `arnold` and `ace` commands on the
+     machine's PATH; Windows Installer takes it off again on uninstall. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="ArnoldCliPath" Guid="5F67E1CE-4429-4114-A240-AA9CF101DB1D" KeyPath="yes" Win64="yes">
+        <CreateFolder />
+        <Environment Id="ArnoldCliPathEntry" Name="PATH" Value="[INSTALLDIR]bin" Part="last" Action="set" Permanent="no" System="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>
