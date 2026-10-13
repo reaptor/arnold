@@ -45,6 +45,12 @@ Build an installable app:
 npm run tauri build
 ```
 
+## Releases
+
+Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases) as `v<version>-build.<n>`. The version comes from `src-tauri/tauri.conf.json`.
+
+The builds are not signed with a developer certificate. On macOS, open the app once with right-click → *Open* (or allow it under *System Settings → Privacy & Security*); on Windows, choose *More info → Run anyway* in the SmartScreen prompt.
+
 ## Develop
 
 | Command | What it does |

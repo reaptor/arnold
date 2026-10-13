@@ -1,0 +1,101 @@
+name: Release
+
+# Every push to main builds the app for macOS (Apple silicon) and Windows (x64) and publishes it
+# as a GitHub release.
+# The release stays a draft until all builds have succeeded, so a failed build never leaves a
+# half-filled public release behind.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release-id: ${{ steps.create.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create draft release
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="v$version-build.$GITHUB_RUN_NUMBER" \
+            -f target_commitish="$GITHUB_SHA" \
+            -f name="Arnold $version (build $GITHUB_RUN_NUMBER)" \
+            -F draft=true \
+            -F generate_release_notes=true \
+            --jq .id)
+          echo "release-id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: Windows (x64)
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release-id }}
+          args: --target ${{ matrix.target }}
+          uploadUpdaterJson: false
+
+  publish-release:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ needs.create-release.outputs.release-id }}" -F draft=false --jq .html_url
+
+  discard-release:
+    needs: [create-release, build]
+    if: ${{ always() && needs.create-release.result == 'success' && needs.build.result != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/${{ needs.create-release.outputs.release-id }}"
