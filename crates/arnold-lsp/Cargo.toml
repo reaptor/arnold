@@ -1,0 +1,17 @@
+[package]
+name = "arnold-lsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+base64 = "0.22"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+tokio.workspace = true
+ureq = { version = "3", features = ["gzip"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
