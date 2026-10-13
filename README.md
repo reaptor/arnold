@@ -47,7 +47,9 @@ npm run tauri build
 
 ## Releases
 
-Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases) as `v<version>-build.<n>`. The version comes from `src-tauri/tauri.conf.json`.
+Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases).
+
+The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/tauri.conf.json` and the patch number is the number of commits on `main`, so the 57th commit is released as `v0.1.57`. To start a new minor or major version, change the version in `src-tauri/tauri.conf.json`. Local builds keep the version written in that file.
 
 The builds are not signed with a developer certificate. On macOS, open the app once with right-click → *Open* (or allow it under *System Settings → Privacy & Security*); on Windows, choose *More info → Run anyway* in the SmartScreen prompt.
 

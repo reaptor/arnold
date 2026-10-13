@@ -1,7 +1,8 @@
 name: Release
 
 # Every push to main builds the app for macOS (Apple silicon) and Windows (x64) and publishes it
-# as a GitHub release.
+# as a GitHub release. The version goes up with every commit: <major>.<minor> is taken from
+# src-tauri/tauri.conf.json and the patch number is the number of commits on main.
 # The release stays a draft until all builds have succeeded, so a failed build never leaves a
 # half-filled public release behind.
 
@@ -23,23 +24,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release-id: ${{ steps.create.outputs.release-id }}
+      version: ${{ steps.create.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the version counts the commits
 
       - name: Create draft release
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(jq -r .version src-tauri/tauri.conf.json)
+          # <major>.<minor> from tauri.conf.json, patch = number of commits on main.
+          base=$(jq -r .version src-tauri/tauri.conf.json | cut -d. -f1,2)
+          version="$base.$(git rev-list --count HEAD)"
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
-            -f tag_name="v$version-build.$GITHUB_RUN_NUMBER" \
+            -f tag_name="v$version" \
             -f target_commitish="$GITHUB_SHA" \
-            -f name="Arnold $version (build $GITHUB_RUN_NUMBER)" \
+            -f name="Arnold $version" \
             -F draft=true \
             -F generate_release_notes=true \
             --jq .id)
           echo "release-id=$id" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build:
     needs: create-release
@@ -72,6 +79,19 @@ jobs:
           key: ${{ matrix.target }}
 
       - run: npm ci
+
+      - name: Set version
+        shell: bash
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "src-tauri/tauri.conf.json";
+            const config = JSON.parse(fs.readFileSync(file, "utf8"));
+            config.version = process.env.VERSION;
+            fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+          '
 
       - uses: tauri-apps/tauri-action@v1
         env:
