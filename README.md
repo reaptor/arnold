@@ -51,7 +51,7 @@ Every push to `main` is built by [`.github/workflows/release.yml`](.github/workf
 
 The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/tauri.conf.json` and the patch number is the number of commits on `main`, so the 57th commit is released as `v0.1.57`. To start a new minor or major version, change the version in `src-tauri/tauri.conf.json`. Local builds keep the version written in that file.
 
-The builds are not signed with a developer certificate. On macOS, open the app once with right-click → *Open* (or allow it under *System Settings → Privacy & Security*); on Windows, choose *More info → Run anyway* in the SmartScreen prompt.
+The builds are not signed with a developer certificate. On macOS, try to open the app once, then choose *Open Anyway* under *System Settings → Privacy & Security* (or run `xattr -dr com.apple.quarantine /Applications/Arnold.app`); on Windows, choose *More info → Run anyway* in the SmartScreen prompt.
 
 ## Develop
 
