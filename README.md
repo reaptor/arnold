@@ -1,3 +1,5 @@
+<img src="src-tauri/icons/128x128@2x.png" width="96" alt="Arnold icon: an H drawn as a git graph">
+
 # Arnold
 
 Desktop app for reviewing a git branch before it becomes a pull request, built for checking what AI agents wrote. The diff is the editor: you fix things where you see them.
@@ -12,6 +14,12 @@ Desktop app for reviewing a git branch before it becomes a pull request, built f
 Arnold never stages, commits or checks out. It reads git state and writes the files you edit or reset.
 
 Not there yet: C# language server, a problems list with messages, settings.
+
+## The name
+
+Arnold is named after Arnold Rimmer, the hologram in the TV show *Red Dwarf*. People who describe his personality tend to reach for the word *git*, British slang for an unpleasant, annoying person, which is also where git itself got its name. This app works with git, so it is named after one.
+
+The icon is the **H** Rimmer wears on his forehead to mark him as a hologram, drawn as a git graph: two branches joined by a crossbar, with a commit at each end. The red and green commits are the removed and added lines of a diff.
 
 ## F# language server
 
@@ -91,6 +99,7 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | `npm test` | Frontend unit tests |
 | `cargo test --workspace` | Backend tests (create temporary git repositories) |
 | `cargo test -p arnold-lsp --test fsautocomplete_live -- --ignored --nocapture` | Downloads and runs the real FsAutoComplete on a small project |
+| `src-tauri/make-icons.sh` | Regenerates `src-tauri/icons/` from the icon source, `src-tauri/app-icon.svg` |
 
 `zed-trial/setup-trial-repo.sh` creates a small F# repository with a feature branch, uncommitted and untracked changes and a linked worktree — handy for trying the app.
 

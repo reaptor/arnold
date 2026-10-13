@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The H that Arnold Rimmer, a hologram, wears on his forehead, drawn as a git graph:
+       two branches joined by a crossbar, a commit at every end. Red and green are the diff. -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c3344"/>
+      <stop offset="1" stop-color="#161920"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="196" x2="0" y2="828" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#d9dfe8"/>
+      <stop offset="1" stop-color="#a3adbd"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6fb7ff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#6fb7ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="scanlines" width="1024" height="20" patternUnits="userSpaceOnUse">
+      <rect width="1024" height="4" fill="#1b2130"/>
+    </pattern>
+    <mask id="hologram">
+      <use href="#graph" fill="#fff" stroke="#fff"/>
+    </mask>
+    <g id="graph">
+      <path d="M332 292V732M692 292V732M332 512H692" fill="none" stroke-width="64"/>
+      <circle cx="332" cy="292" r="96"/>
+      <circle cx="332" cy="732" r="96"/>
+      <circle cx="692" cy="292" r="96"/>
+      <circle cx="692" cy="732" r="96"/>
+    </g>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#plate)"/>
+  <circle cx="512" cy="512" r="470" fill="url(#glow)"/>
+
+  <use href="#graph" fill="url(#metal)" stroke="url(#metal)"/>
+  <rect width="1024" height="1024" fill="url(#scanlines)" opacity="0.1" mask="url(#hologram)"/>
+
+  <circle cx="332" cy="292" r="46" fill="#1d212b"/>
+  <circle cx="692" cy="732" r="46" fill="#1d212b"/>
+  <circle cx="332" cy="732" r="46" fill="#e5534b"/>
+  <circle cx="692" cy="292" r="46" fill="#46bd6e"/>
+</svg>
