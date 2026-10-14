@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
 import { allFiles, openFile, resetFileAt, selectFile, state } from "../state/review";
+import { Chevron } from "./Chevron";
 import { FileTree } from "./FileTree";
 
 export const STATUS_LETTER: Record<FileStatus, string> = {
@@ -241,7 +242,7 @@ function DockHeading(props: {
 }) {
   return (
     <header class="dock-heading" title={props.explanation} onClick={() => props.onToggle()}>
-      <span class="dock-caret">{props.open ? "▾" : "▸"}</span>
+      <Chevron class="dock-caret" open={props.open} />
       <span class="dock-title">{props.title}</span>
       <span class="dock-detail">{props.detail}</span>
       <span class="dock-count" classList={{ filtered: props.matching !== undefined }}>

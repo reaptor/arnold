@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
 import { allFiles, openFile, state } from "../state/review";
+import { Chevron } from "./Chevron";
 import { splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Height of one row; rows are virtualized, so it is fixed. Matches `.tree-row`. */
@@ -229,7 +230,11 @@ export function FileTree(props: { filter: string }) {
                     title={title()}
                     onClick={() => activate(row())}
                   >
-                    <span class="tree-caret">{row().kind === "folder" ? (row().open ? "▾" : "▸") : ""}</span>
+                    <span class="tree-caret">
+                      <Show when={row().kind === "folder"}>
+                        <Chevron open={row().open} />
+                      </Show>
+                    </span>
                     <span class="tree-label" classList={{ "tree-folder": row().kind === "folder" }}>
                       {row().label}
                       <Show when={row().detail}>

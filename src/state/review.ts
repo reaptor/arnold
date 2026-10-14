@@ -476,15 +476,15 @@ export function onRevealSection(handler: (path: string) => void) {
 
 export async function setView(view: ViewMode) {
   if (view === state.view) return;
-  // The all-files view lists the diff; a file outside it is only shown on its own.
-  if (view === "all" && state.selected !== null && !isChanged(state.selected)) return;
   localStorage.setItem("arnold.view", view);
   const path = activePath();
   if (view === "all") {
     stashOpenFile();
     editor?.close();
     focusedPath = null;
-    setState({ view, menu: null });
+    // The all-files view lists the diff; a file outside it gives way to the first changed one.
+    const selected = isChanged(state.selected) ? state.selected : (state.comparison?.files[0]?.path ?? null);
+    setState({ view, selected, menu: null });
   } else {
     // Removing the all-files view hides its sections, keeping their edits.
     setState({ view, menu: null });

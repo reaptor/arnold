@@ -13,6 +13,7 @@ import {
   state,
   unregisterSection,
 } from "../state/review";
+import { Chevron } from "./Chevron";
 import { Counts, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Files this close to the screen are loaded into an editor... */
@@ -231,7 +232,7 @@ function FileSection(props: {
       ref={section}
     >
       <header class="section-header" title={title()} onClick={() => props.toggle(path)}>
-        <span class="section-caret">{collapsed() ? "▸" : "▾"}</span>
+        <Chevron class="section-caret" open={!collapsed()} />
         <span class={`status status-${props.file.status}`}>{STATUS_LETTER[props.file.status]}</span>
         <span class="section-path">
           <Show when={props.file.oldPath}>

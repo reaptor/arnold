@@ -495,10 +495,9 @@ button.primary:hover:not(:disabled) {
   background: var(--hover);
 }
 
-.dock-caret {
-  width: 1em;
-  text-align: center;
-  color: var(--muted);
+/* The heading lines its text up on the baseline; the arrow is centered instead. */
+.dock-heading .dock-caret {
+  align-self: center;
 }
 
 .dock-title {
@@ -575,11 +574,32 @@ button.primary:hover:not(:disabled) {
   outline-offset: -1px;
 }
 
+/* Fold arrows (explorer folders, dock headings, file headers). */
+/* No rotation animation: the explorer reuses rows as the list shifts, so it would animate the wrong arrows. */
+.chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+:is(.tree-row, .dock-heading, .section-header):hover .chevron {
+  stroke: var(--accent);
+}
+
 .tree-caret {
   flex: none;
-  width: 1em;
-  text-align: center;
-  color: var(--muted);
+  display: flex;
+  justify-content: center;
+  width: 16px;
 }
 
 .tree-label {
@@ -923,10 +943,6 @@ button.primary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.section-caret {
-  color: var(--muted);
-  width: 1em;
-}
 
 .section-path {
   flex: 1;
