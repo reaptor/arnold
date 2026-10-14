@@ -1,5 +1,6 @@
-// JetBrains-style diff colors: a change is green when it only adds lines,
-// gray when it only removes lines and blue when it replaces lines. CodeMirror's
+// Diff colors: a change is green when it only adds lines, gray when it only
+// removes lines, and red on the old side and green on the new side when it
+// replaces lines (styles.css has the colors). CodeMirror's
 // merge view marks every change the same way, so this classifies its chunks
 // and draws the change gutter itself (the merge view's own gutter is off).
 
@@ -41,6 +42,9 @@ const gutterMarker = {
   deleted: new KindMarker("cm-changeMark cm-kind-deleted"),
   modified: new KindMarker("cm-changeMark cm-kind-modified"),
 };
+
+/** The old lines of a replacement, shown above the new ones in the unified view. */
+const replacedMarker = new KindMarker("cm-changeMark cm-kind-modified cm-kind-old");
 
 /** The lines a chunk covers on this editor's side, as [from, to] document positions. */
 function span(chunk: Chunk, side: "a" | "b") {
@@ -92,7 +96,9 @@ const changeKinds = ViewPlugin.fromClass(
 function deletionMarker(view: EditorView, block: { from: number; type: BlockType | readonly unknown[] }) {
   if (block.type !== BlockType.WidgetBefore) return null;
   const chunk = getChunks(view.state)?.chunks.find((chunk) => chunk.fromB === block.from && chunk.fromA !== chunk.toA);
-  return chunk ? gutterMarker[kindOf(chunk)] : null;
+  if (!chunk) return null;
+  const kind = kindOf(chunk);
+  return kind === "modified" ? replacedMarker : gutterMarker[kind];
 }
 
 export const changeKindColors = [

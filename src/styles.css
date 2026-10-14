@@ -39,7 +39,7 @@
   --diff-new-line: rgb(190 230 190 / 0.6);
   --diff-new-text: rgb(140 210 140 / 0.85);
   --diff-inserted-mark: #8fcb93;
-  --diff-modified-mark: #8fb4ea;
+  --diff-old-mark: #e8918f;
   --diff-deleted-mark: #a8a8a8;
   --island-radius: 10px;
   --island-gap: 6px;
@@ -82,7 +82,7 @@
     --diff-new-line: rgb(41 66 31 / 0.8);
     --diff-new-text: rgb(62 112 46 / 0.9);
     --diff-inserted-mark: #4f8a3a;
-    --diff-modified-mark: #6656b8;
+    --diff-old-mark: #a84a4f;
     --diff-deleted-mark: #868686;
   }
 }
@@ -715,8 +715,14 @@ button.primary:hover:not(:disabled) {
   background: linear-gradient(var(--diff-deleted-mark), var(--diff-deleted-mark)) center / 3px 100% no-repeat;
 }
 
-.diff-host .cm-changeMark.cm-kind-modified {
-  background: linear-gradient(var(--diff-modified-mark), var(--diff-modified-mark)) center / 3px 100% no-repeat;
+/* Replaced lines: red on the old side, green on the new side. */
+.diff-host .cm-merge-a .cm-changeMark.cm-kind-modified,
+.diff-host .cm-changeMark.cm-kind-modified.cm-kind-old {
+  background: linear-gradient(var(--diff-old-mark), var(--diff-old-mark)) center / 3px 100% no-repeat;
+}
+
+.diff-host .cm-merge-b .cm-changeMark.cm-kind-modified:not(.cm-kind-old) {
+  background: linear-gradient(var(--diff-inserted-mark), var(--diff-inserted-mark)) center / 3px 100% no-repeat;
 }
 
 .diff-host .cm-editor .cm-collapsedLines {
