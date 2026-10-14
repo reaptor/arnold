@@ -6,6 +6,7 @@ import { startupPath } from "./ipc/commands";
 import {
   attachEditor,
   goBack,
+  goToDefinition,
   openRepoAt,
   resetFileAt,
   resetSelectedLines,
@@ -123,6 +124,11 @@ export function App() {
             style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
             onPointerDown={(event) => event.stopPropagation()}
           >
+            <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
+              <span>Go to definition</span>
+              <kbd>F12</kbd>
+            </li>
+            <li class="menu-separator" />
             <li classList={{ disabled: !canEdit() }} onClick={() => canEdit() && resetSelectedLines()}>
               <span>Reset selected lines</span>
               <kbd>Alt+R</kbd>

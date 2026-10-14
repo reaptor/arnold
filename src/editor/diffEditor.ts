@@ -39,7 +39,8 @@ export interface DiffEditorCallbacks {
   onChange(text: string): void;
   onSave(): void;
   onFocus(): void;
-  onContextMenu(x: number, y: number): void;
+  /** `view` is the editor right-clicked; `position` the text position under the pointer. */
+  onContextMenu(x: number, y: number, view: EditorView, position: number | null): void;
 }
 
 const COLLAPSE = { margin: 3, minSize: 8 };
@@ -352,9 +353,10 @@ export class DiffEditor {
           this.callbacks.onFocus();
           return false;
         },
-        contextmenu: (event) => {
+        contextmenu: (event, view) => {
           event.preventDefault();
-          this.callbacks.onContextMenu(event.clientX, event.clientY);
+          const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          this.callbacks.onContextMenu(event.clientX, event.clientY, view, position);
           return true;
         },
       }),

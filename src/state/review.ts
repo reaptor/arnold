@@ -52,8 +52,11 @@ interface State {
   diskConflict: Record<string, boolean>;
   /** Files folded away in the all-files view. */
   collapsed: Record<string, boolean>;
-  /** Context menu of the editor showing `path`. */
-  menu: { x: number; y: number; path: string | null } | null;
+  /**
+   * Context menu of the editor showing `path`; `definition` when a language
+   * server can say where the right-clicked symbol is defined.
+   */
+  menu: { x: number; y: number; path: string | null; definition: boolean } | null;
 }
 
 export const [state, setState] = createStore<State>({
@@ -110,6 +113,8 @@ const sectionHosts = new Map<string, HTMLElement>();
 const sectionEditors = new Map<string, DiffEditor>();
 /** All-files view: the file whose editor last had keyboard focus. */
 let focusedPath: string | null = null;
+/** Where the context menu was opened; kept out of the store, which would wrap the view. */
+let menuTarget: { view: EditorView; position: number } | null = null;
 /** Latest load per editor, so that a slower earlier load cannot win. */
 const loadTokens = new Map<string, number>();
 /** `loadTokens` key of the one-file editor; section editors use their path. */
@@ -179,7 +184,10 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
       focusedPath = path;
       if (state.selected !== path) setState("selected", path);
     },
-    onContextMenu: (x, y) => setState("menu", { x, y, path: pathOf() }),
+    onContextMenu(x, y, view, position) {
+      menuTarget = position === null ? null : { view, position };
+      setState("menu", { x, y, path: pathOf(), definition: menuTarget !== null && lsp.hasLanguageServer(view) });
+    },
   };
 }
 
@@ -594,6 +602,13 @@ export function resetSelectedLines() {
   const target = activeEditor();
   target?.resetSelectedLines();
   target?.focus();
+}
+
+/** "Go to definition" in the context menu: the symbol that was right-clicked. */
+export function goToDefinition() {
+  setState("menu", null);
+  if (menuTarget) lsp.goToDefinitionAt(menuTarget.view, menuTarget.position);
+  menuTarget = null;
 }
 
 export const nextChange = () => activeEditor()?.nextChange();

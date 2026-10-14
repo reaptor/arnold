@@ -2,6 +2,7 @@
 // without Tauri). It serves a small in-memory repository; nothing touches disk.
 // Never loaded in the real app.
 
+import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { ChangedFile, Comparison, FilePair, RepoInfo } from "./commands";
 
@@ -130,6 +131,45 @@ for (let index = 1; index <= extraFiles; index++) {
 const ROOT = "/fake/zed-trial/repo";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 
+// `?lsp` starts a stand-in language server that only answers go-to-definition,
+// with the first whole-word occurrence of the symbol in the same file.
+const fakeServer = new URLSearchParams(location.search).has("lsp");
+
+/** The open documents of the stand-in server, by URI. */
+const serverDocs = new Map<string, string>();
+
+let serverChannel: Channel<string> | null = null;
+
+function fakeServerAnswer(raw: string): unknown {
+  const message = JSON.parse(raw) as { id?: number; method: string; params?: any };
+  const params = message.params;
+  if (message.method === "textDocument/didOpen") serverDocs.set(params.textDocument.uri, params.textDocument.text);
+  if (message.method === "textDocument/didChange") {
+    serverDocs.set(params.textDocument.uri, params.contentChanges.at(-1).text);
+  }
+  if (message.id === undefined) return undefined;
+  if (message.method === "initialize") {
+    return { capabilities: { textDocumentSync: 1, definitionProvider: true } };
+  }
+  if (message.method !== "textDocument/definition") return null;
+  const uri = params.textDocument.uri;
+  const lines = (serverDocs.get(uri) ?? "").split("\n");
+  const line = lines[params.position.line] ?? "";
+  const at = params.position.character;
+  const start = line.slice(0, at).search(/\w+$/);
+  const word = line.slice(start === -1 ? at : start).match(/^\w+/)?.[0];
+  if (!word) return null;
+  const pattern = new RegExp(`\\b${word}\\b`);
+  for (const [index, text] of lines.entries()) {
+    const column = text.search(pattern);
+    if (column !== -1) {
+      const range = { start: { line: index, character: column }, end: { line: index, character: column + word.length } };
+      return { uri, range };
+    }
+  }
+  return null;
+}
+
 function changedFiles(): ChangedFile[] {
   const result: ChangedFile[] = [];
   for (const [path, file] of files) {
@@ -219,9 +259,21 @@ export function install() {
           if (file) file.working = file.base;
           return null;
         }
-        case "lsp_start":
-          throw new Error("No language server in the browser preview.");
-        case "lsp_send":
+        case "lsp_start": {
+          if (!fakeServer) throw new Error("No language server in the browser preview (add ?lsp for a stand-in).");
+          serverDocs.clear();
+          serverChannel = (payload as { onMessage: Channel<string> }).onMessage;
+          return 1;
+        }
+        case "lsp_send": {
+          const message = JSON.parse(args.message) as { id?: number };
+          const result = fakeServer ? fakeServerAnswer(args.message) : undefined;
+          if (message.id !== undefined) {
+            const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result: result ?? null });
+            setTimeout(() => serverChannel?.onmessage(reply));
+          }
+          return null;
+        }
         case "lsp_open_background":
         case "lsp_stop":
           return null;

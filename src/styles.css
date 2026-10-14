@@ -978,12 +978,19 @@ button.primary:hover:not(:disabled) {
   border-radius: 4px;
 }
 
-.menu li:hover:not(.disabled) {
+.menu li:hover:not(.disabled, .menu-separator) {
   background: var(--selected);
 }
 
 .menu li.disabled {
   opacity: 0.45;
+}
+
+.menu li.menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  padding: 0;
+  background: var(--popup-border);
 }
 
 .menu kbd {
