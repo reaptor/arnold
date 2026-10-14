@@ -177,7 +177,8 @@ export function install() {
         case "dev_trace":
           return null;
         case "open_repo":
-          return repo;
+          // Any path opens the same files, under that path's name.
+          return { ...repo, root: args.path };
         case "compare_branches":
           return {
             base: args.base,

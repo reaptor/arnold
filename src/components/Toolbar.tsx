@@ -1,6 +1,5 @@
 import { Show } from "solid-js";
 import {
-  chooseRepo,
   goBack,
   nextChange,
   previousChange,
@@ -13,15 +12,12 @@ import {
   state,
 } from "../state/review";
 import { BranchPicker } from "./BranchPicker";
-
-const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+import { RepoPicker } from "./RepoPicker";
 
 export function Toolbar() {
   return (
     <header class="toolbar">
-      <button onClick={chooseRepo} title={state.repo?.root ?? "Open a git repository"}>
-        {state.repo ? folderName(state.repo.root) : "Open repository…"}
-      </button>
+      <RepoPicker />
       <Show when={state.repo}>
         {(repo) => (
           <>

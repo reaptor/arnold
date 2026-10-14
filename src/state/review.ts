@@ -197,6 +197,7 @@ export async function chooseRepo() {
 }
 
 export async function openRepoAt(path: string) {
+  if (state.repo && !(await confirmDiscard("Open repository"))) return;
   setState({ busy: true, error: null });
   try {
     const repo = await ipc.openRepo(path);

@@ -28,6 +28,7 @@
   --modified: #3574f0;
   --deleted: #8c8f96;
   --warning: #a76c0b;
+  --star: #e0a100;
   --banner: #fdf2dc;
   --banner-error: #fde8e8;
   --scrollbar: rgb(0 0 0 / 0.2);
@@ -68,6 +69,7 @@
     --modified: #70aeff;
     --deleted: #6f737a;
     --warning: #d59637;
+    --star: #f2c55c;
     --banner: #44321d;
     --banner-error: #56272b;
     --scrollbar: rgb(255 255 255 / 0.15);
@@ -317,6 +319,63 @@ button.primary:hover:not(:disabled) {
 
 .picker-empty {
   color: var(--muted);
+}
+
+.picker-heading {
+  margin: 8px 6px 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.star {
+  color: var(--muted);
+}
+
+.star.on {
+  color: var(--star);
+}
+
+.repo-popup {
+  outline: none;
+}
+
+.repo-popup .picker-list {
+  margin-top: 4px;
+}
+
+.picker-list.repo-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--popup-border);
+}
+
+.repo-star-current {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  border-color: transparent;
+  text-align: left;
+}
+
+.repo-path {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.picker-list button.star {
+  border-color: transparent;
+  padding: 0 4px;
+  visibility: hidden;
+}
+
+.picker-list li:hover button.star,
+.picker-list li.active button.star {
+  visibility: visible;
 }
 
 .tag {
