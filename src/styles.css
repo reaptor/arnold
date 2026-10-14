@@ -411,6 +411,11 @@ button.primary:not(:disabled) {
   overflow: auto;
 }
 
+/* Fill the view so short files still get a full-height splitter. */
+.editor-host .cm-mergeViewEditors {
+  min-height: 100%;
+}
+
 .editor-host > .cm-editor {
   height: 100%;
 }
@@ -433,6 +438,20 @@ button.primary:not(:disabled) {
 .editor-host .cm-editor.cm-merge-a .cm-changedText,
 .editor-host .cm-editor .cm-deletedChunk .cm-deletedText {
   background: rgb(229 83 75 / 0.28);
+}
+
+/* Divider between the base and working sides of the split view. */
+.arnold-diff-splitter {
+  flex: none;
+  width: 5px;
+  cursor: col-resize;
+  border-left: 1px solid var(--border);
+}
+
+.arnold-diff-splitter:hover,
+.arnold-diff-splitter.dragging {
+  background: var(--accent);
+  opacity: 0.4;
 }
 
 .arnold-reset-chunk {

@@ -40,6 +40,18 @@ export interface DiffEditorCallbacks {
 
 const COLLAPSE = { margin: 3, minSize: 8 };
 
+/** Share of the split view's width given to the base (left) side. */
+const SPLIT_KEY = "arnold.splitRatio";
+const MIN_SPLIT = 0.1;
+const MAX_SPLIT = 0.9;
+
+const clampSplit = (ratio: number) => Math.min(Math.max(ratio, MIN_SPLIT), MAX_SPLIT);
+
+function storedSplit(): number {
+  const stored = Number(localStorage.getItem(SPLIT_KEY));
+  return stored > 0 && stored < 1 ? clampSplit(stored) : 0.5;
+}
+
 const prefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 export class DiffEditor {
@@ -50,6 +62,7 @@ export class DiffEditor {
   /** Language-server support for the working editor; arrives after the file is shown. */
   private support: Extension = [];
   private readonly supportSlot = new Compartment();
+  private splitRatio = storedSplit();
 
   constructor(
     private readonly parent: HTMLElement,
@@ -221,6 +234,7 @@ export class DiffEditor {
         gutter: true,
         collapseUnchanged: COLLAPSE,
       });
+      this.addSplitter(this.merge);
     } else {
       this.unified = new EditorView({
         parent: this.parent,
@@ -240,6 +254,46 @@ export class DiffEditor {
       });
     }
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
+  }
+
+  /** A draggable divider between the two sides; double-click makes them equal again. */
+  private addSplitter(merge: MergeView) {
+    const left = merge.a.dom.parentElement!;
+    const right = merge.b.dom.parentElement!;
+    const apply = () => {
+      left.style.flexGrow = String(this.splitRatio);
+      right.style.flexGrow = String(1 - this.splitRatio);
+    };
+    const setRatio = (ratio: number) => {
+      this.splitRatio = clampSplit(ratio);
+      apply();
+    };
+    const persist = () => localStorage.setItem(SPLIT_KEY, String(this.splitRatio));
+
+    const splitter = document.createElement("div");
+    splitter.className = "arnold-diff-splitter";
+    splitter.title = "Drag to resize · double-click to reset";
+    splitter.onpointerdown = (down) => {
+      if (down.button !== 0) return;
+      down.preventDefault();
+      // Only the two editors share the width; the splitter and revert column stay fixed.
+      const startLeft = left.getBoundingClientRect().width;
+      const total = startLeft + right.getBoundingClientRect().width;
+      splitter.setPointerCapture(down.pointerId);
+      splitter.classList.add("dragging");
+      splitter.onpointermove = (move) => setRatio((startLeft + move.clientX - down.clientX) / total);
+      splitter.onpointerup = splitter.onpointercancel = () => {
+        splitter.onpointermove = splitter.onpointerup = splitter.onpointercancel = null;
+        splitter.classList.remove("dragging");
+        persist();
+      };
+    };
+    splitter.ondblclick = () => {
+      setRatio(0.5);
+      persist();
+    };
+    left.after(splitter);
+    apply();
   }
 
   private sharedExtensions(path: string): Extension {
