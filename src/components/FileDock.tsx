@@ -8,7 +8,7 @@ export const STATUS_LETTER: Record<FileStatus, string> = {
   modified: "M",
   deleted: "D",
   renamed: "R",
-  untracked: "U",
+  untracked: "A",
   unchanged: "·",
 };
 
@@ -17,7 +17,7 @@ export const STATUS_NAME: Record<FileStatus, string> = {
   modified: "Modified",
   deleted: "Deleted",
   renamed: "Renamed",
-  untracked: "Untracked (new, not committed)",
+  untracked: "Added (not committed yet)",
   unchanged: "Not changed (opened by go-to-definition)",
 };
 
