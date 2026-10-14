@@ -6,9 +6,24 @@ mod fsio;
 mod lsp;
 mod watcher;
 
+use tauri_plugin_window_state::StateFlags;
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Reopens the window where it was, maximized if it was. The window
+        // starts hidden (tauri.conf.json) and the plugin shows it once placed,
+        // so it does not flash at the default size first.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    StateFlags::POSITION
+                        | StateFlags::SIZE
+                        | StateFlags::MAXIMIZED
+                        | StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .manage(commands::AppState::default())
         .manage(lsp::LspState::default())
         .invoke_handler(tauri::generate_handler![
