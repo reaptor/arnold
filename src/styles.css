@@ -396,45 +396,91 @@ button.primary:hover:not(:disabled) {
   padding: 0 var(--island-gap);
 }
 
+/* The filter on the frame, over two islands: the changes, then the file explorer. */
 .dock {
   display: flex;
   flex-direction: column;
   flex: none;
-  background: var(--bg);
-  border-radius: var(--island-radius);
-  overflow: hidden;
   min-width: 0;
 }
 
+.dock-island {
+  display: flex;
+  flex-direction: column;
+  /* The changes give way first when the window gets short. */
+  flex: 0 1 auto;
+  min-height: 0;
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
+}
+
+.dock-island.grow {
+  flex: 1;
+  min-height: 120px;
+}
+
 .dock-header {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 8px 6px;
+  padding-bottom: var(--island-gap);
+}
+
+.dock .dock-filter {
+  background: var(--bg);
+  border-color: transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+/* Room for the clear button. */
+.dock .dock-filter:not(:placeholder-shown) {
+  padding-right: 24px;
+}
+
+.dock .dock-filter:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.dock-filter-clear {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+  line-height: 18px;
+}
+
+.dock-filter-clear:hover {
+  color: var(--text);
 }
 
 .dock-count {
   color: var(--muted);
+  white-space: nowrap;
   min-width: 1.5em;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.dock-count.filtered {
+  color: var(--accent);
 }
 
 /* The changes on top, the file explorer below; either can be folded away. */
 .dock-section {
   display: flex;
   flex-direction: column;
-  flex: none;
+  flex: 0 1 auto;
   min-height: 0;
 }
 
 .dock-section.grow {
   flex: 1;
-}
-
-.dock-section + .dock-section,
-.dock-sash + .dock-section {
-  border-top: 1px solid var(--border);
 }
 
 .dock-heading {
@@ -468,17 +514,15 @@ button.primary:hover:not(:disabled) {
   font-size: 12px;
 }
 
+/* Same size as the splitter beside the dock. */
 .dock-sash {
   flex: none;
-  height: 5px;
-  margin: -2px 0 -3px;
+  height: var(--island-gap);
   cursor: row-resize;
-  z-index: 5;
 }
 
-.dock-sash:hover {
-  background: var(--accent);
-  opacity: 0.4;
+.dock-sash.fixed {
+  cursor: default;
 }
 
 .file-list {
@@ -488,6 +532,11 @@ button.primary:hover:not(:disabled) {
   overflow-y: auto;
   flex: 1;
   outline: none;
+}
+
+/* Above the explorer the list keeps the height dragged to, however few rows it has. */
+.file-list.sized {
+  flex: 0 1 auto;
 }
 
 .tree {

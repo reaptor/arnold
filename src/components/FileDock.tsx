@@ -38,16 +38,21 @@ const remember = (key: string, value: unknown) => localStorage.setItem(`arnold.$
  * open editors of VS Code), and below them every file of the checkout.
  */
 export function FileDock(props: { width: number }) {
-  let dock!: HTMLElement;
+  let changesList!: HTMLUListElement;
+  let explorer!: HTMLElement;
   const [filter, setFilter] = createSignal("");
   const [changesOpen, setChangesOpen] = createSignal(remembered("changesOpen") !== "false");
   const [explorerOpen, setExplorerOpen] = createSignal(remembered("explorerOpen") !== "false");
   const [changesHeight, setChangesHeight] = createSignal(Number(remembered("changesHeight")) || 240);
 
-  const files = createMemo(() => {
-    const needle = filter().toLowerCase();
-    return (state.comparison?.files ?? []).filter((file) => file.path.toLowerCase().includes(needle));
-  });
+  const needle = () => filter().toLowerCase();
+  const files = createMemo(() =>
+    (state.comparison?.files ?? []).filter((file) => file.path.toLowerCase().includes(needle())),
+  );
+  const matchingFiles = createMemo(() =>
+    needle() ? allFiles().filter((path) => path.toLowerCase().includes(needle())).length : allFiles().length,
+  );
+  const bothOpen = () => changesOpen() && explorerOpen();
   const canReset = () => state.comparison?.worktreePath != null;
 
   const move = (delta: number) => {
@@ -81,9 +86,10 @@ export function FileDock(props: { width: number }) {
 
   const startResize = (down: PointerEvent) => {
     const startY = down.clientY;
-    const startHeight = changesHeight();
+    // Start from what is shown: a short window may have squeezed the list.
+    const startHeight = changesList.clientHeight;
+    const most = startHeight + explorer.clientHeight - MIN_EXPLORER_HEIGHT;
     const onMove = (move: PointerEvent) => {
-      const most = dock.clientHeight - MIN_EXPLORER_HEIGHT;
       setChangesHeight(Math.max(Math.min(startHeight + move.clientY - startY, most), MIN_CHANGES_HEIGHT));
     };
     const onUp = () => {
@@ -102,99 +108,116 @@ export function FileDock(props: { width: number }) {
   };
 
   return (
-    <aside class="dock" style={{ width: `${props.width}px` }} ref={dock}>
+    <aside class="dock" style={{ width: `${props.width}px` }}>
+      {/* Outside both islands, as it narrows both lists. */}
       <div class="dock-header">
         <input
           class="dock-filter"
-          placeholder="Filter files"
+          placeholder="Filter Changes & All files"
+          title="Shows only the files whose path contains this text, in both Changes and All files."
           value={filter()}
           onInput={(event) => setFilter(event.currentTarget.value)}
+          onKeyDown={(event) => event.key === "Escape" && setFilter("")}
         />
-      </div>
-      <section class="dock-section" classList={{ grow: !explorerOpen() }}>
-        <DockHeading
-          open={changesOpen()}
-          onToggle={toggleChanges}
-          title="Changes"
-          detail={state.base ? `vs ${state.base}` : ""}
-          count={state.comparison?.files.length ?? 0}
-          explanation={`Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them; R resets the selected file.`}
-        />
-        <Show when={changesOpen()}>
-          <ul
-            class="file-list"
-            tabindex="0"
-            aria-label="Changed files"
-            onKeyDown={onKeyDown}
-            style={{ "max-height": explorerOpen() ? `${changesHeight()}px` : undefined }}
-          >
-            <For
-              each={files()}
-              fallback={<li class="file-empty">{state.comparison ? "No changed files" : ""}</li>}
-            >
-              {(file) => {
-                const parts = splitPath(file.path);
-                let row!: HTMLLIElement;
-                // The selection also follows scrolling in the all-files view.
-                createEffect(() => {
-                  if (file.path === state.selected) row.scrollIntoView({ block: "nearest" });
-                });
-                return (
-                  <li
-                    ref={row}
-                    classList={{ file: true, selected: file.path === state.selected }}
-                    title={title(file)}
-                    onClick={() => void openFile(file.path)}
-                  >
-                    <span class={`status status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
-                    <span class="file-path">
-                      <span class="file-name">{parts.name}</span>
-                      <span class="file-directory">{parts.directory}</span>
-                    </span>
-                    <Show when={state.dirty[file.path]}>
-                      <span class="unsaved" title="Unsaved edits">
-                        ●
-                      </span>
-                    </Show>
-                    <Show when={state.problems[file.path]?.errors}>
-                      <span class="problems" title="Errors reported by the language server">
-                        {state.problems[file.path].errors}
-                      </span>
-                    </Show>
-                    <span class="counts">
-                      <Show when={file.binary} fallback={<Counts file={file} />}>
-                        <span class="binary">bin</span>
-                      </Show>
-                    </span>
-                    <Show when={canReset() && file.status !== "unchanged"}>
-                      <button
-                        class="row-action"
-                        title="Reset file to the base version (R)"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void resetFileAt(file.path);
-                        }}
-                      >
-                        ↺
-                      </button>
-                    </Show>
-                  </li>
-                );
-              }}
-            </For>
-          </ul>
+        <Show when={filter()}>
+          <button class="dock-filter-clear" title="Clear the filter (Esc)" onClick={() => setFilter("")}>
+            ×
+          </button>
         </Show>
-      </section>
-      <Show when={changesOpen() && explorerOpen()}>
-        <div class="dock-sash" onPointerDown={startResize} />
-      </Show>
-      <section class="dock-section" classList={{ grow: explorerOpen() }}>
+      </div>
+      <div class="dock-island" classList={{ grow: !explorerOpen() }}>
+        <section class="dock-section" classList={{ grow: !explorerOpen() }}>
+          <DockHeading
+            open={changesOpen()}
+            onToggle={toggleChanges}
+            title="Changes"
+            detail={state.base ? `vs ${state.base}` : ""}
+            count={state.comparison?.files.length ?? 0}
+            matching={filter() ? files().length : undefined}
+            explanation={`Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them; R resets the selected file.`}
+          />
+          <Show when={changesOpen()}>
+            <ul
+              class="file-list"
+              ref={changesList}
+              classList={{ sized: explorerOpen() }}
+              tabindex="0"
+              aria-label="Changed files"
+              onKeyDown={onKeyDown}
+              style={{ height: explorerOpen() ? `${changesHeight()}px` : undefined }}
+            >
+              <For
+                each={files()}
+                fallback={<li class="file-empty">{state.comparison ? "No changed files" : ""}</li>}
+              >
+                {(file) => {
+                  const parts = splitPath(file.path);
+                  let row!: HTMLLIElement;
+                  // The selection also follows scrolling in the all-files view.
+                  createEffect(() => {
+                    if (file.path === state.selected) row.scrollIntoView({ block: "nearest" });
+                  });
+                  return (
+                    <li
+                      ref={row}
+                      classList={{ file: true, selected: file.path === state.selected }}
+                      title={title(file)}
+                      onClick={() => void openFile(file.path)}
+                    >
+                      <span class={`status status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
+                      <span class="file-path">
+                        <span class="file-name">{parts.name}</span>
+                        <span class="file-directory">{parts.directory}</span>
+                      </span>
+                      <Show when={state.dirty[file.path]}>
+                        <span class="unsaved" title="Unsaved edits">
+                          ●
+                        </span>
+                      </Show>
+                      <Show when={state.problems[file.path]?.errors}>
+                        <span class="problems" title="Errors reported by the language server">
+                          {state.problems[file.path].errors}
+                        </span>
+                      </Show>
+                      <span class="counts">
+                        <Show when={file.binary} fallback={<Counts file={file} />}>
+                          <span class="binary">bin</span>
+                        </Show>
+                      </span>
+                      <Show when={canReset() && file.status !== "unchanged"}>
+                        <button
+                          class="row-action"
+                          title="Reset file to the base version (R)"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void resetFileAt(file.path);
+                          }}
+                        >
+                          ↺
+                        </button>
+                      </Show>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+          </Show>
+        </section>
+      </div>
+      {/* Like the splitter beside the dock, the gap between the islands is the handle. */}
+      <div
+        class="dock-sash"
+        classList={{ fixed: !bothOpen() }}
+        onPointerDown={(down) => bothOpen() && startResize(down)}
+      />
+      <section class="dock-section dock-island" classList={{ grow: explorerOpen() }} ref={explorer}>
         <DockHeading
           open={explorerOpen()}
           onToggle={toggleExplorer}
           title="All files"
           detail={state.head ? `in ${state.head}` : ""}
           count={allFiles().length}
+          matching={filter() ? matchingFiles() : undefined}
           explanation={`File explorer: every file in ${checkout()}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
         />
         <Show when={explorerOpen()}>
@@ -212,6 +235,8 @@ function DockHeading(props: {
   title: string;
   detail: string;
   count: number;
+  /** How many of them the filter leaves, while filtering. */
+  matching?: number;
   explanation: string;
 }) {
   return (
@@ -219,7 +244,9 @@ function DockHeading(props: {
       <span class="dock-caret">{props.open ? "▾" : "▸"}</span>
       <span class="dock-title">{props.title}</span>
       <span class="dock-detail">{props.detail}</span>
-      <span class="dock-count">{props.count}</span>
+      <span class="dock-count" classList={{ filtered: props.matching !== undefined }}>
+        {props.matching !== undefined ? `${props.matching} of ${props.count}` : props.count}
+      </span>
     </header>
   );
 }
