@@ -23,7 +23,7 @@ export interface DiffDocument {
   /** Text under review ("" when the file was deleted). */
   working: string;
   editable: boolean;
-  /** Show the working text alone, without a diff (a file that is not part of the diff). */
+  /** Show the working text alone, without a diff (an added, deleted or unchanged file). */
   plain?: boolean;
 }
 

@@ -132,13 +132,20 @@ const fileAt = (path: string | null) =>
 const isEditable = (file: ChangedFile, pair: FilePair) =>
   state.comparison?.worktreePath != null && pair.working !== null && file.status !== "deleted";
 
-const documentOf = (file: ChangedFile, session: Session): DiffDocument => ({
-  path: file.path,
-  base: session.pair.base ?? "",
-  working: session.pair.working ?? "",
-  editable: isEditable(file, session.pair),
-  plain: file.status === "unchanged",
-});
+/**
+ * An added or deleted file has nothing to compare against, so it is shown
+ * whole: the new text, or the deleted text read-only.
+ */
+function documentOf(file: ChangedFile, session: Session): DiffDocument {
+  const { base, working } = session.pair;
+  return {
+    path: file.path,
+    base: base ?? "",
+    working: working ?? base ?? "",
+    editable: isEditable(file, session.pair),
+    plain: file.status === "unchanged" || base === null || working === null,
+  };
+}
 
 /** The editor showing `path`, if one does. */
 function editorFor(path: string | null): DiffEditor | null {
