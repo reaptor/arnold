@@ -1,8 +1,10 @@
-// JetBrains "Islands Dark" (the default theme of the 2025.3+ IDEs, Rider
-// included) for CodeMirror. Colors come from the IDE's own files in
-// JetBrains/intellij-community: themes/islands/IslandSchemeDark.xml for the
-// editor and its parent Darcula scheme for selection and diff colors. Diff
-// line colors live in styles.css, next to the light ones.
+// JetBrains Rider's "Rider Islands Dark" editor scheme for CodeMirror: the
+// scheme Rider picks with the Islands Dark UI theme. It is the Rider Dark
+// palette (blue keywords, purple types, teal methods) on the Islands
+// background, unlike IntelliJ's orange "Islands Dark". Colors come from
+// JetBrains/rider-theme-pack: src/main/resources/colorSchemes/RiderIslandsDark.xml
+// (F# has no entries of its own there and falls back to the ReSharper/DEFAULT_
+// ones used below). Diff line colors live in styles.css, next to the light ones.
 
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
@@ -11,35 +13,39 @@ import { tags as t } from "@lezer/highlight";
 
 const color = {
   background: "#191a1c",
-  text: "#bcbec4",
-  caret: "#ced0d6",
-  caretRow: "#1f2024",
-  lineNumber: "#4b5059",
-  lineNumberOnCaretRow: "#a1a3ab",
-  selection: "#214283",
-  selectionInactive: "#4c4f56",
-  identifierUnderCaret: "#373b39",
-  matchedBrace: "#43454a",
-  searchResult: "#114957",
-  searchResultSelected: "#2d543f",
-  folded: "#2b2d30",
+  text: "#d0d0d0",
+  identifier: "#bdbdbd",
+  caret: "#f0f0f0",
+  caretRow: "#202424",
+  lineNumber: "#808080",
+  selection: "#08335e",
+  // Not in the scheme; a dimmer take on the selection color.
+  selectionInactive: "#2b3a4d",
+  identifierUnderCaret: "#232e46",
+  matchedBrace: "#422240",
+  searchResult: "#484012",
+  searchResultSelected: "#144238",
+  folded: "#303030",
+  foldedText: "#787878",
+  // Popups follow the Islands UI theme, not the editor scheme.
   popup: "#26282c",
   popupBorder: "#33353b",
   popupSelection: "#2a4371",
-  muted: "#9fa2a8",
 
-  keyword: "#cf8e6d",
-  string: "#6aab73",
-  number: "#2aacb8",
-  comment: "#7a7e85",
-  docComment: "#5f826b",
-  functionDeclaration: "#56a8f5",
-  functionCall: "#57aaf7",
-  field: "#c77dbb",
-  metadata: "#b3ae60",
-  tag: "#d5b778",
-  link: "#5c92ff",
-  invalid: "#f75464",
+  keyword: "#6c95eb",
+  string: "#c9a26d",
+  escape: "#d688d4",
+  number: "#ed94c0",
+  comment: "#85c46c",
+  docTag: "#487d34",
+  type: "#c191ff",
+  valueType: "#e1bfff",
+  method: "#39cc9b",
+  field: "#66c3cc",
+  event: "#ed94c0",
+  inactive: "#787878",
+  link: "#6c95eb",
+  invalid: "#ff5647",
 };
 
 const theme = EditorView.theme(
@@ -69,7 +75,7 @@ const theme = EditorView.theme(
     },
     ".cm-activeLineGutter": {
       backgroundColor: color.caretRow,
-      color: color.lineNumberOnCaretRow,
+      color: color.lineNumber,
     },
     ".cm-foldGutter .cm-gutterElement": {
       color: color.lineNumber,
@@ -93,7 +99,7 @@ const theme = EditorView.theme(
     ".cm-foldPlaceholder": {
       backgroundColor: color.folded,
       border: "none",
-      color: color.muted,
+      color: color.foldedText,
       borderRadius: "4px",
       padding: "0 4px",
     },
@@ -128,11 +134,28 @@ const theme = EditorView.theme(
     },
     ".cm-completionMatchedText": {
       textDecoration: "none",
-      color: color.functionCall,
+      color: color.keyword,
     },
+
+    // Symbol kinds from the language server (see lsp/semanticTokens.ts). The
+    // second selector wins over the syntax color when the parser's span ends
+    // up inside the server's one.
+    ...semanticRule("type", { color: color.type }),
+    ...semanticRule("valueType", { color: color.valueType }),
+    ...semanticRule("function", { color: color.method }),
+    ...semanticRule("field", { color: color.field }),
+    ...semanticRule("constant", { color: color.field, fontWeight: "bold" }),
+    ...semanticRule("event", { color: color.event }),
+    ...semanticRule("keyword", { color: color.keyword }),
+    ...semanticRule("formatItem", { color: color.type }),
+    ...semanticRule("plain", { color: color.identifier }),
   },
   { dark: true },
 );
+
+function semanticRule(kind: string, style: Record<string, string>) {
+  return { [`.cm-semantic-${kind}, .cm-semantic-${kind} span`]: style };
+}
 
 const highlight = HighlightStyle.define([
   {
@@ -146,21 +169,25 @@ const highlight = HighlightStyle.define([
       t.self,
       t.bool,
       t.null,
-      t.escape,
+      t.atom,
     ],
     color: color.keyword,
   },
-  { tag: [t.string, t.special(t.string), t.character, t.regexp, t.attributeValue], color: color.string },
+  { tag: [t.string, t.special(t.string), t.character, t.attributeValue], color: color.string },
+  { tag: [t.escape, t.regexp], color: color.escape },
   { tag: [t.number, t.integer, t.float], color: color.number },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: color.comment },
-  { tag: t.docComment, color: color.docComment, fontStyle: "italic" },
-  { tag: [t.function(t.definition(t.variableName)), t.function(t.definition(t.propertyName))], color: color.functionDeclaration },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: color.functionCall },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: color.comment, fontStyle: "italic" },
+  { tag: [t.variableName, t.punctuation, t.operator, t.bracket, t.content], color: color.identifier },
+  { tag: [t.typeName, t.className, t.namespace, t.annotation, t.meta], color: color.type },
+  { tag: t.standard(t.variableName), color: color.method },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.function(t.definition(t.variableName))], color: color.method },
   { tag: t.propertyName, color: color.field },
-  { tag: [t.constant(t.variableName), t.constant(t.name), t.standard(t.name)], color: color.field, fontStyle: "italic" },
-  { tag: [t.meta, t.annotation, t.processingInstruction], color: color.metadata },
-  { tag: t.tagName, color: color.tag },
+  { tag: [t.constant(t.variableName), t.constant(t.name)], color: color.field, fontWeight: "bold" },
+  { tag: t.tagName, color: color.type },
+  { tag: t.attributeName, color: color.comment },
+  { tag: t.processingInstruction, color: color.type },
   { tag: t.heading, color: color.keyword, fontWeight: "bold" },
+  { tag: t.monospace, color: color.comment },
   { tag: [t.link, t.url], color: color.link, textDecoration: "underline" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strong, fontWeight: "bold" },
@@ -168,4 +195,4 @@ const highlight = HighlightStyle.define([
   { tag: t.invalid, color: color.invalid },
 ]);
 
-export const islandsDark: Extension = [theme, syntaxHighlighting(highlight)];
+export const riderIslandsDark: Extension = [theme, syntaxHighlighting(highlight)];

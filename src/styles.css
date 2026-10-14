@@ -1,6 +1,7 @@
 /* JetBrains "Islands" look: the dock and the editor are rounded islands on a
    window-colored frame. Dark values are Islands Dark's own (IntelliJ's
-   ManyIslandsDark.theme.json and IslandSchemeDark.xml); light ones follow
+   ManyIslandsDark.theme.json), with the diff colors of Rider's editor scheme
+   (RiderIslandsDark.xml in JetBrains/rider-theme-pack); light ones follow
    Islands Light. */
 :root {
   color-scheme: light dark;
@@ -69,13 +70,15 @@
     --banner-error: #56272b;
     --scrollbar: rgb(255 255 255 / 0.15);
     --scrollbar-hover: rgb(255 255 255 / 0.3);
-    --diff-inserted: rgb(41 68 54 / 0.8);
-    --diff-deleted: rgb(72 74 74 / 0.6);
-    --diff-modified-line: rgb(56 85 112 / 0.45);
-    --diff-modified-text: #385570;
-    --diff-inserted-mark: #549159;
-    --diff-modified-mark: #375fad;
-    --diff-deleted-mark: #868a91;
+    /* DIFF_INSERTED, DIFF_DELETED and DIFF_MODIFIED; the marks are lighter
+       takes on them for the change gutter. */
+    --diff-inserted: rgb(41 66 31 / 0.8);
+    --diff-deleted: rgb(66 66 66 / 0.6);
+    --diff-modified-line: rgb(58 48 112 / 0.45);
+    --diff-modified-text: #3a3070;
+    --diff-inserted-mark: #4f8a3a;
+    --diff-modified-mark: #6656b8;
+    --diff-deleted-mark: #868686;
   }
 }
 

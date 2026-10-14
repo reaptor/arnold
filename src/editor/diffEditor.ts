@@ -8,10 +8,11 @@ import { Compartment, EditorSelection, EditorState, type Extension, type Text } 
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
-import { islandsDark } from "./islandsTheme";
+import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
 import { resetEdits } from "./resetLines";
+import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 
 export type DiffMode = "split" | "unified";
 
@@ -227,6 +228,9 @@ export class DiffEditor {
       ]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) this.callbacks.onChange(update.state.doc.toString());
+        if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSemanticRanges)))) {
+          this.mirrorSemanticRanges();
+        }
       }),
     ];
 
@@ -275,6 +279,25 @@ export class DiffEditor {
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
   }
 
+  /**
+   * Only the working side talks to the language server. Its symbol colors are
+   * copied to the base side wherever the two sides have the same text.
+   */
+  private mirrorSemanticRanges() {
+    const merge = this.merge;
+    if (!merge) return;
+    const chunks = merge.chunks;
+    const mirrored: SemanticRange[] = [];
+    let next = 0;
+    for (const range of semanticRanges(merge.b)) {
+      while (next < chunks.length && chunks[next].toB <= range.from) next++;
+      if (next < chunks.length && chunks[next].fromB < range.to) continue; // Inside a change.
+      const offset = next > 0 ? chunks[next - 1].toA - chunks[next - 1].toB : 0;
+      mirrored.push({ from: range.from + offset, to: range.to + offset, kind: range.kind });
+    }
+    merge.a.dispatch({ effects: setSemanticRanges.of(mirrored) });
+  }
+
   /** A draggable divider between the two sides; double-click makes them equal again. */
   private addSplitter(merge: MergeView) {
     const left = merge.a.dom.parentElement!;
@@ -321,7 +344,8 @@ export class DiffEditor {
     return [
       basicSetup,
       languageFor(path),
-      prefersDark() ? islandsDark : [],
+      semanticHighlight,
+      prefersDark() ? riderIslandsDark : [],
       changeKindColors,
       EditorView.domEventHandlers({
         focus: () => {

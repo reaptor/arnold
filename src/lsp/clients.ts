@@ -10,6 +10,7 @@ import {
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
+import { semanticTokens } from "./semanticTokens";
 import { canonicalUri, pathToUri } from "./uri";
 
 export type LanguageId = "fsharp" | "csharp";
@@ -80,7 +81,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         rootUri: pathToUri(root),
         // Loading a solution can keep a server busy for a while.
         timeout: 20_000,
-        extensions: [...languageServerExtensions(), clickToDefinition],
+        extensions: [...languageServerExtensions(), semanticTokens(), clickToDefinition],
         notificationHandlers: {
           // Match the server's spelling of file URIs to ours; the built-in
           // handler then finds the open file.
