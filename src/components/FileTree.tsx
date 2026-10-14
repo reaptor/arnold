@@ -152,7 +152,7 @@ export function FileTree(props: { filter: string }) {
   const activate = (row: Row) => {
     setCursor(row.path);
     if (row.kind === "folder") toggle(row.path);
-    else if (row.path !== state.selected) void openFile(row.path);
+    else void openFile(row.path);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import {
   goBack,
+  isChanged,
   nextChange,
   previousChange,
   refresh,
@@ -15,6 +16,8 @@ import { BranchPicker } from "./BranchPicker";
 import { RepoPicker } from "./RepoPicker";
 
 export function Toolbar() {
+  // A file opened from outside the diff has no place in the all-files view.
+  const outsideDiff = () => state.selected !== null && !isChanged(state.selected);
   return (
     <header class="toolbar">
       <RepoPicker />
@@ -51,7 +54,8 @@ export function Toolbar() {
               <button
                 classList={{ on: state.view === "all" }}
                 onClick={() => setView("all")}
-                title="Show every file of the diff in one list"
+                disabled={outsideDiff()}
+                title={outsideDiff() ? "The open file is not part of the diff" : "Show every file of the diff in one list"}
               >
                 All files
               </button>

@@ -134,6 +134,10 @@ const fileAt = (path: string | null) =>
   state.comparison?.files.find((file) => file.path === path) ??
   state.visited.find((file) => file.path === path);
 
+/** Whether `path` is one of the diff's files (not a file opened from outside it). */
+export const isChanged = (path: string | null) =>
+  state.comparison?.files.some((file) => file.path === path) ?? false;
+
 const isEditable = (file: ChangedFile, pair: FilePair) =>
   state.comparison?.worktreePath != null && pair.working !== null && file.status !== "deleted";
 
@@ -327,13 +331,16 @@ const unchangedFile = (path: string): ChangedFile => ({
 });
 
 /** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
+/** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
 export async function openFile(path: string) {
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
-  if (state.view === "file") return selectFile(path);
-  // The all-files view adds a section for a visited file; reveal it once it is there.
+  if (state.view === "file") {
+    if (path !== state.selected) await selectFile(path);
+    return;
+  }
+  focusedPath = null;
   setState({ selected: path, menu: null });
-  await Promise.resolve();
-  revealSection(path);
+  await setView("file");
 }
 
 export async function selectFile(path: string | null) {
@@ -469,6 +476,8 @@ export function onRevealSection(handler: (path: string) => void) {
 
 export async function setView(view: ViewMode) {
   if (view === state.view) return;
+  // The all-files view lists the diff; a file outside it is only shown on its own.
+  if (view === "all" && state.selected !== null && !isChanged(state.selected)) return;
   localStorage.setItem("arnold.view", view);
   const path = activePath();
   if (view === "all") {

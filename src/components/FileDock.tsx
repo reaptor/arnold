@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, resetFileAt, selectFile, state } from "../state/review";
+import { allFiles, openFile, resetFileAt, selectFile, state } from "../state/review";
 import { FileTree } from "./FileTree";
 
 export const STATUS_LETTER: Record<FileStatus, string> = {
@@ -144,7 +144,7 @@ export function FileDock(props: { width: number }) {
                     ref={row}
                     classList={{ file: true, selected: file.path === state.selected }}
                     title={title(file)}
-                    onClick={() => void selectFile(file.path)}
+                    onClick={() => void openFile(file.path)}
                   >
                     <span class={`status status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
                     <span class="file-path">
