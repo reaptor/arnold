@@ -34,8 +34,10 @@
   --scrollbar-hover: rgb(0 0 0 / 0.35);
   --diff-inserted: rgb(190 230 190 / 0.6);
   --diff-deleted: rgb(214 214 214 / 0.7);
-  --diff-modified-line: rgb(202 217 250 / 0.5);
-  --diff-modified-text: rgb(170 195 250 / 0.8);
+  --diff-old-line: rgb(255 222 222 / 0.6);
+  --diff-old-text: rgb(250 175 175 / 0.85);
+  --diff-new-line: rgb(190 230 190 / 0.6);
+  --diff-new-text: rgb(140 210 140 / 0.85);
   --diff-inserted-mark: #8fcb93;
   --diff-modified-mark: #8fb4ea;
   --diff-deleted-mark: #a8a8a8;
@@ -70,12 +72,15 @@
     --banner-error: #56272b;
     --scrollbar: rgb(255 255 255 / 0.15);
     --scrollbar-hover: rgb(255 255 255 / 0.3);
-    /* DIFF_INSERTED, DIFF_DELETED and DIFF_MODIFIED; the marks are lighter
-       takes on them for the change gutter. */
+    /* DIFF_INSERTED and DIFF_DELETED; the marks are lighter takes on them
+       for the change gutter. Replaced lines are red on the old side and green
+       on the new side, as in Azure DevOps. */
     --diff-inserted: rgb(41 66 31 / 0.8);
     --diff-deleted: rgb(66 66 66 / 0.6);
-    --diff-modified-line: rgb(58 48 112 / 0.45);
-    --diff-modified-text: #3a3070;
+    --diff-old-line: rgb(110 38 42 / 0.45);
+    --diff-old-text: rgb(150 48 54 / 0.85);
+    --diff-new-line: rgb(41 66 31 / 0.8);
+    --diff-new-text: rgb(62 112 46 / 0.9);
     --diff-inserted-mark: #4f8a3a;
     --diff-modified-mark: #6656b8;
     --diff-deleted-mark: #868686;
@@ -650,9 +655,10 @@ button.primary:hover:not(:disabled) {
   line-height: 1.5;
 }
 
-/* Diff colors as in the IDE (classes from changeKinds.ts): added lines are
-   green, removed lines gray, replaced lines blue on both sides with the
-   changed words a shade stronger. */
+/* Diff colors (classes from changeKinds.ts): added lines are green and
+   removed lines gray as in the IDE. Replaced lines are red on the old side
+   and green on the new side with the changed words a shade stronger, as in
+   Azure DevOps. The unified view shows the old lines as a deleted chunk. */
 .diff-host .cm-editor .cm-changedLine.cm-kind-inserted {
   background: var(--diff-inserted);
 }
@@ -662,14 +668,22 @@ button.primary:hover:not(:disabled) {
   background: var(--diff-deleted);
 }
 
-.diff-host .cm-editor .cm-changedLine.cm-kind-modified,
+.diff-host .cm-editor.cm-merge-a .cm-changedLine.cm-kind-modified,
 .diff-host .cm-editor .cm-deletedChunk:has(+ .cm-kind-modified) {
-  background: var(--diff-modified-line);
+  background: var(--diff-old-line);
 }
 
-.diff-host .cm-editor .cm-changedText,
+.diff-host .cm-editor.cm-merge-b .cm-changedLine.cm-kind-modified {
+  background: var(--diff-new-line);
+}
+
+.diff-host .cm-editor.cm-merge-a .cm-changedText,
 .diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
-  background: var(--diff-modified-text);
+  background: var(--diff-old-text);
+}
+
+.diff-host .cm-editor.cm-merge-b .cm-changedText {
+  background: var(--diff-new-text);
 }
 
 /* A whole new or removed line needs no word highlight. */
