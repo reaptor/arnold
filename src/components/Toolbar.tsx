@@ -6,8 +6,10 @@ import {
   previousChange,
   refresh,
   save,
+  saveAll,
   setBranches,
   setMode,
+  setView,
   state,
 } from "../state/review";
 import { BranchPicker } from "./BranchPicker";
@@ -42,6 +44,22 @@ export function Toolbar() {
                 ← Back
               </button>
             </Show>
+            <div class="segmented" role="group" aria-label="Files shown">
+              <button
+                classList={{ on: state.view === "file" }}
+                onClick={() => setView("file")}
+                title="Show the file selected in the dock"
+              >
+                One file
+              </button>
+              <button
+                classList={{ on: state.view === "all" }}
+                onClick={() => setView("all")}
+                title="Show every file of the diff in one list"
+              >
+                All files
+              </button>
+            </div>
             <div class="segmented" role="group" aria-label="Diff layout">
               <button classList={{ on: state.mode === "split" }} onClick={() => setMode("split")}>
                 Split
@@ -59,14 +77,28 @@ export function Toolbar() {
             <button onClick={() => refresh()} title="Refresh the comparison">
               Refresh
             </button>
-            <button
-              class="primary"
-              disabled={!state.selected || !state.dirty[state.selected]}
-              onClick={() => save()}
-              title="Save the open file (Ctrl/Cmd+S)"
+            <Show
+              when={state.view === "all"}
+              fallback={
+                <button
+                  class="primary"
+                  disabled={!state.selected || !state.dirty[state.selected]}
+                  onClick={() => save()}
+                  title="Save the open file (Ctrl/Cmd+S)"
+                >
+                  Save
+                </button>
+              }
             >
-              Save
-            </button>
+              <button
+                class="primary"
+                disabled={!Object.values(state.dirty).some(Boolean)}
+                onClick={() => saveAll()}
+                title="Save every file with unsaved edits"
+              >
+                Save all
+              </button>
+            </Show>
           </>
         )}
       </Show>

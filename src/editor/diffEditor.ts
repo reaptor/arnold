@@ -35,6 +35,7 @@ export interface Snapshot {
 export interface DiffEditorCallbacks {
   onChange(text: string): void;
   onSave(): void;
+  onFocus(): void;
   onContextMenu(x: number, y: number): void;
 }
 
@@ -52,6 +53,11 @@ function storedSplit(): number {
   return stored > 0 && stored < 1 ? clampSplit(stored) : 0.5;
 }
 
+/** Shared by every split view, so dragging one divider moves them all. */
+let splitRatio = storedSplit();
+/** Re-applies `splitRatio`, one per split view on screen. */
+const splitLayouts = new Set<() => void>();
+
 const prefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 export class DiffEditor {
@@ -62,7 +68,7 @@ export class DiffEditor {
   /** Language-server support for the working editor; arrives after the file is shown. */
   private support: Extension = [];
   private readonly supportSlot = new Compartment();
-  private splitRatio = storedSplit();
+  private layoutSplit: (() => void) | null = null;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -171,6 +177,12 @@ export class DiffEditor {
     this.working?.focus();
   }
 
+  /** Scrolls the cursor of the working editor into view. */
+  revealCursor() {
+    const view = this.working;
+    view?.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "center" }) });
+  }
+
   destroy() {
     this.close();
   }
@@ -187,6 +199,8 @@ export class DiffEditor {
   }
 
   private destroyViews() {
+    if (this.layoutSplit) splitLayouts.delete(this.layoutSplit);
+    this.layoutSplit = null;
     this.merge?.destroy();
     this.unified?.destroy();
     this.merge = null;
@@ -261,14 +275,14 @@ export class DiffEditor {
     const left = merge.a.dom.parentElement!;
     const right = merge.b.dom.parentElement!;
     const apply = () => {
-      left.style.flexGrow = String(this.splitRatio);
-      right.style.flexGrow = String(1 - this.splitRatio);
+      left.style.flexGrow = String(splitRatio);
+      right.style.flexGrow = String(1 - splitRatio);
     };
     const setRatio = (ratio: number) => {
-      this.splitRatio = clampSplit(ratio);
-      apply();
+      splitRatio = clampSplit(ratio);
+      splitLayouts.forEach((layout) => layout());
     };
-    const persist = () => localStorage.setItem(SPLIT_KEY, String(this.splitRatio));
+    const persist = () => localStorage.setItem(SPLIT_KEY, String(splitRatio));
 
     const splitter = document.createElement("div");
     splitter.className = "arnold-diff-splitter";
@@ -293,6 +307,8 @@ export class DiffEditor {
       persist();
     };
     left.after(splitter);
+    this.layoutSplit = apply;
+    splitLayouts.add(apply);
     apply();
   }
 
@@ -302,6 +318,10 @@ export class DiffEditor {
       languageFor(path),
       prefersDark() ? oneDark : [],
       EditorView.domEventHandlers({
+        focus: () => {
+          this.callbacks.onFocus();
+          return false;
+        },
         contextmenu: (event) => {
           event.preventDefault();
           this.callbacks.onContextMenu(event.clientX, event.clientY);

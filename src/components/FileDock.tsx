@@ -1,8 +1,8 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
 import { resetFileAt, selectFile, state } from "../state/review";
 
-const STATUS_LETTER: Record<FileStatus, string> = {
+export const STATUS_LETTER: Record<FileStatus, string> = {
   added: "A",
   modified: "M",
   deleted: "D",
@@ -11,7 +11,7 @@ const STATUS_LETTER: Record<FileStatus, string> = {
   unchanged: "·",
 };
 
-const STATUS_NAME: Record<FileStatus, string> = {
+export const STATUS_NAME: Record<FileStatus, string> = {
   added: "Added",
   modified: "Modified",
   deleted: "Deleted",
@@ -20,7 +20,7 @@ const STATUS_NAME: Record<FileStatus, string> = {
   unchanged: "Not changed (opened by go-to-definition)",
 };
 
-function splitPath(path: string) {
+export function splitPath(path: string) {
   const slash = path.lastIndexOf("/");
   return { directory: slash < 0 ? "" : path.slice(0, slash + 1), name: path.slice(slash + 1) };
 }
@@ -77,8 +77,14 @@ export function FileDock(props: { width: number }) {
         >
           {(file) => {
             const parts = splitPath(file.path);
+            let row!: HTMLLIElement;
+            // The selection also follows scrolling in the all-files view.
+            createEffect(() => {
+              if (file.path === state.selected) row.scrollIntoView({ block: "nearest" });
+            });
             return (
               <li
+                ref={row}
                 classList={{ file: true, selected: file.path === state.selected }}
                 title={title(file)}
                 onClick={() => void selectFile(file.path)}
@@ -124,7 +130,7 @@ export function FileDock(props: { width: number }) {
   );
 }
 
-function Counts(props: { file: ChangedFile }) {
+export function Counts(props: { file: ChangedFile }) {
   return (
     <>
       <Show when={props.file.additions}>

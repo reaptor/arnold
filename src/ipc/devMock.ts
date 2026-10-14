@@ -99,6 +99,18 @@ const files = new Map<string, FakeFile>([
   ["docs/Legacy.md", { base: "# Legacy notes\n\nRemoved by the agent.\n", working: null }],
 ]);
 
+// `?files=40` adds that many generated files, to try the all-files view on a large diff.
+const extraFiles = Number(new URLSearchParams(location.search).get("files")) || 0;
+for (let index = 1; index <= extraFiles; index++) {
+  const name = `Generated${String(index).padStart(3, "0")}`;
+  const base = Array.from({ length: 40 + index * 7 }, (_, line) => `let value${line} = ${line}`).join("\n") + "\n";
+  const working = base
+    .split("\n")
+    .map((line, number) => (number % 13 === 5 ? `${line} // changed in ${name}` : line))
+    .join("\n");
+  files.set(`src/Generated/${name}.fs`, { base, working });
+}
+
 const ROOT = "/fake/zed-trial/repo";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 

@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { AllFilesView } from "./components/AllFilesView";
 import { FileDock } from "./components/FileDock";
 import { Toolbar } from "./components/Toolbar";
 import { startupPath } from "./ipc/commands";
@@ -10,6 +11,7 @@ import {
   resetSelectedLines,
   resolveDiskConflict,
   save,
+  saveAll,
   setState,
   startWatching,
   state,
@@ -39,11 +41,13 @@ export function App() {
     });
   });
 
-  // Ctrl/Cmd+S also saves when focus is outside the editor.
+  // Ctrl/Cmd+S also saves when focus is outside the editors; inside one, the
+  // editor saves its own file.
   const onKeyDown = (event: KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      void save();
+      const inEditor = event.target instanceof Element && event.target.closest(".cm-editor") !== null;
+      if (!inEditor) void (state.view === "all" ? saveAll() : save());
     } else if (event.key === "Escape") {
       setState("menu", null);
     } else if (isBackShortcut(event) && state.backCount > 0) {
@@ -91,16 +95,23 @@ export function App() {
         <FileDock width={dockWidth()} />
         <div class="splitter" onPointerDown={startResize} />
         <section class="content">
-          <Show when={state.diskConflict}>
+          <Show when={state.view === "file" && state.selected && state.diskConflict[state.selected]}>
             <div class="banner">
               <span>This file changed on disk while you have unsaved edits.</span>
-              <button onClick={() => resolveDiskConflict("reload")}>Reload from disk</button>
-              <button onClick={() => resolveDiskConflict("keep")}>Keep my edits</button>
+              <button onClick={() => resolveDiskConflict(state.selected, "reload")}>Reload from disk</button>
+              <button onClick={() => resolveDiskConflict(state.selected, "keep")}>Keep my edits</button>
             </div>
           </Show>
-          <div class="editor-host" classList={{ hidden: state.placeholder !== null }} ref={editorHost} />
-          <Show when={state.placeholder}>
+          <div
+            class="editor-host diff-host"
+            classList={{ hidden: state.view === "all" || state.placeholder !== null }}
+            ref={editorHost}
+          />
+          <Show when={state.view === "file" && state.placeholder}>
             <div class="placeholder">{state.placeholder}</div>
+          </Show>
+          <Show when={state.view === "all"}>
+            <AllFilesView />
           </Show>
         </section>
       </div>
@@ -116,7 +127,7 @@ export function App() {
               <span>Reset selected lines</span>
               <kbd>Alt+R</kbd>
             </li>
-            <li classList={{ disabled: !canEdit() }} onClick={() => canEdit() && resetFileAt(state.selected)}>
+            <li classList={{ disabled: !canEdit() }} onClick={() => canEdit() && resetFileAt(menu().path)}>
               <span>Reset file…</span>
             </li>
           </ul>

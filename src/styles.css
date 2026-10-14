@@ -393,13 +393,17 @@ button.primary:not(:disabled) {
   flex-direction: column;
 }
 
+/* Where diffs are shown: the one-file editor and each file of the all-files view. */
+.diff-host {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
 .editor-host {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: auto;
 }
 
 .editor-host.hidden {
@@ -420,23 +424,23 @@ button.primary:not(:disabled) {
   height: 100%;
 }
 
-.editor-host .cm-editor {
+.diff-host .cm-editor {
   font-size: 13px;
 }
 
-.editor-host .cm-scroller {
+.diff-host .cm-scroller {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
   line-height: 1.5;
 }
 
 /* Changed text gets a tint instead of CodeMirror's default underline, which is
    noisy when whole lines are new. */
-.editor-host .cm-editor.cm-merge-b .cm-changedText {
+.diff-host .cm-editor.cm-merge-b .cm-changedText {
   background: rgb(46 160 67 / 0.28);
 }
 
-.editor-host .cm-editor.cm-merge-a .cm-changedText,
-.editor-host .cm-editor .cm-deletedChunk .cm-deletedText {
+.diff-host .cm-editor.cm-merge-a .cm-changedText,
+.diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
   background: rgb(229 83 75 / 0.28);
 }
 
@@ -444,8 +448,8 @@ button.primary:not(:disabled) {
    line's own tint between changed rows. As an inline-block it is as tall as
    the line, so consecutive changed rows read as one block. Lines never wrap
    here, so the span cannot be split across rows. */
-.editor-host .cm-editor .cm-changedText,
-.editor-host .cm-editor .cm-deletedChunk .cm-deletedText {
+.diff-host .cm-editor .cm-changedText,
+.diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
   display: inline-block;
   vertical-align: top;
 }
@@ -468,6 +472,91 @@ button.primary:not(:disabled) {
   font: 11px system-ui, sans-serif;
   padding: 0 6px;
   margin: 1px 6px;
+}
+
+/* ------------------------------------------------------------ all files */
+
+.all-files {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Section offsets are measured from here. */
+  position: relative;
+  /* Scrolling is kept steady by hand (see AllFilesView); the browser must not
+     correct it a second time. */
+  overflow-anchor: none;
+  /* Keeps CodeMirror's high z-indexes below menus and popups. */
+  isolation: isolate;
+  /* No top padding: headers stick to the padding edge, which would leave a
+     strip of the diff above them. The first file gets a margin instead. */
+  padding: 0 10px 40vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.all-files > :first-child {
+  margin-top: 8px;
+}
+
+.file-section {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* Not hidden: that would stop the header from sticking. */
+  overflow: clip;
+}
+
+.file-section.selected {
+  border-color: var(--accent);
+}
+
+.section-header {
+  position: sticky;
+  top: 0;
+  /* Above CodeMirror's gutters (z-index 200). */
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.section-caret {
+  color: var(--muted);
+  width: 1em;
+}
+
+.section-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-directory {
+  color: var(--muted);
+}
+
+.section-name {
+  font-weight: 600;
+}
+
+.section-action {
+  padding: 0 7px;
+  font-size: 12px;
+}
+
+.section-host.hidden {
+  display: none;
+}
+
+.section-note {
+  padding: 12px;
+  color: var(--muted);
 }
 
 .placeholder {
