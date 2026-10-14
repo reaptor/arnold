@@ -80,6 +80,9 @@ export const openRepo = (path: string) => invoke<RepoInfo>("open_repo", { path }
 export const compareBranches = (root: string, base: string, head: string) =>
   invoke<Comparison>("compare_branches", { root, base, head });
 
+export const listFiles = (root: string, comparison: Comparison) =>
+  invoke<string[]>("list_files", { root, head: comparison.head, worktree: comparison.worktreePath });
+
 export const readFilePair = (root: string, comparison: Comparison, file: ChangedFile) =>
   invoke<FilePair>("read_file_pair", {
     root,

@@ -3,6 +3,7 @@
 
 import type { EditorView } from "@codemirror/view";
 import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   DiffEditor,
@@ -82,6 +83,17 @@ interface Session {
   savedText: string;
   snapshot: Snapshot | null;
 }
+
+const sameItems = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((item, index) => item === b[index]);
+
+/**
+ * Every file of the branch under review, for the file explorer: its checkout
+ * when it has one, otherwise its tip commit. Kept out of the store, which
+ * would wrap each of possibly many thousands of paths.
+ */
+const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sameItems });
+export { allFiles };
 
 const sessions = new Map<string, Session>();
 /** Text last handed to the language server for files no editor shows, by path. */
@@ -223,6 +235,7 @@ function resetSessions() {
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
   setState({ comparison: null, visited: [], backCount: 0, lspStatus: null });
+  setAllFiles([]);
 }
 
 async function confirmDiscard(action: string): Promise<boolean> {
@@ -245,6 +258,7 @@ export async function refresh() {
     const comparison = await ipc.compareBranches(repo.root, state.base, state.head);
     if (repo !== state.repo) return;
     setState("comparison", reconcile(comparison, { key: "path" }));
+    void loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
     setState("visited", (visited) =>
       visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
@@ -270,6 +284,34 @@ export async function refresh() {
   } catch (error) {
     fail(error);
   }
+}
+
+async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
+  try {
+    const files = await ipc.listFiles(repo.root, comparison);
+    if (repo === state.repo && comparison.head === state.comparison?.head) setAllFiles(files);
+  } catch (error) {
+    fail(error);
+  }
+}
+
+const unchangedFile = (path: string): ChangedFile => ({
+  path,
+  oldPath: null,
+  status: "unchanged",
+  additions: null,
+  deletions: null,
+  binary: false,
+});
+
+/** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
+export async function openFile(path: string) {
+  if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
+  if (state.view === "file") return selectFile(path);
+  // The all-files view adds a section for a visited file; reveal it once it is there.
+  setState({ selected: path, menu: null });
+  await Promise.resolve();
+  revealSection(path);
 }
 
 export async function selectFile(path: string | null) {
@@ -651,17 +693,7 @@ async function displayUri(uri: string): Promise<EditorView | null> {
   }
   const from = activePath();
   if (path !== from) {
-    if (!fileAt(path)) {
-      const unchanged: ChangedFile = {
-        path,
-        oldPath: null,
-        status: "unchanged",
-        additions: null,
-        deletions: null,
-        binary: false,
-      };
-      setState("visited", (visited) => [...visited, unchanged]);
-    }
+    if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
     if (from) backStack.push(from);
     setState("backCount", backStack.length);
     if (state.view === "file") await selectFile(path);

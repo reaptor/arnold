@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{compare, open, read_blob, FileStatus};
+use arnold_git::{compare, list_files, open, read_blob, FileStatus};
 
 fn git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -133,4 +133,26 @@ async fn reads_base_content_and_reports_missing_files() {
     assert_eq!(base.as_deref(), Some("one\ntwo\nthree\n".as_bytes()));
     let missing = read_blob(root, &comparison.merge_base, "new.txt").await.unwrap();
     assert_eq!(missing, None);
+}
+
+#[tokio::test]
+async fn lists_checkout_files_without_deleted_or_ignored_ones() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "sub/untracked.txt", "x\n");
+    write(root, "ignored/skip.txt", "nope\n");
+    std::fs::remove_file(root.join("a.txt")).unwrap();
+
+    let files = list_files(root, "feature", Some(root)).await.unwrap();
+    assert_eq!(files, vec![".gitignore", "new.txt", "sub/untracked.txt"]);
+}
+
+#[tokio::test]
+async fn lists_files_of_a_branch_not_checked_out() {
+    let dir = fixture();
+    let root = dir.path();
+    git(root, &["checkout", "--quiet", "main"]);
+
+    let files = list_files(root, "feature", None).await.unwrap();
+    assert_eq!(files, vec![".gitignore", "a.txt", "new.txt"]);
 }

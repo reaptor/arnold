@@ -265,15 +265,139 @@ button.primary:not(:disabled) {
   color: var(--muted);
   min-width: 1.5em;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The changes on top, the file explorer below; either can be folded away. */
+.dock-section {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+}
+
+.dock-section.grow {
+  flex: 1;
+}
+
+.dock-section + .dock-section,
+.dock-sash + .dock-section {
+  border-top: 1px solid var(--border);
+}
+
+.dock-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 8px 4px 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dock-heading:hover {
+  background: var(--hover);
+}
+
+.dock-caret {
+  width: 1em;
+  text-align: center;
+  color: var(--muted);
+}
+
+.dock-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dock-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.dock-sash {
+  flex: none;
+  height: 5px;
+  margin: -2px 0 -3px;
+  cursor: row-resize;
+  z-index: 5;
+}
+
+.dock-sash:hover {
+  background: var(--accent);
+  opacity: 0.4;
 }
 
 .file-list {
   list-style: none;
   margin: 0;
-  padding: 0 0 8px;
+  padding: 0 0 6px;
   overflow-y: auto;
   flex: 1;
   outline: none;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  outline: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
+.tree-row:hover {
+  background: var(--hover);
+}
+
+.tree-row.selected {
+  background: var(--selected);
+}
+
+.tree:focus .tree-row.cursor {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.tree-caret {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  color: var(--muted);
+}
+
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.changed-added .tree-label,
+.changed-untracked .tree-label {
+  color: var(--added);
+}
+
+.changed-modified .tree-label,
+.changed-renamed .tree-label {
+  color: var(--warning);
+}
+
+.tree-dot {
+  color: var(--warning);
+  font-size: 8px;
+  width: 1.2em;
+  text-align: center;
 }
 
 .file {

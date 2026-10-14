@@ -97,6 +97,21 @@ pub async fn compare_branches(
     Ok(comparison)
 }
 
+/// Every file of `head` (in its checkout when it has one), for the file explorer.
+#[tauri::command]
+pub async fn list_files(
+    root: String,
+    head: String,
+    worktree: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let root = state.checked_root(&root)?;
+    let worktree = worktree.map(|worktree| state.checked_root(&worktree)).transpose()?;
+    arnold_git::list_files(&root, &head, worktree.as_deref())
+        .await
+        .map_err(text_error)
+}
+
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FilePair {

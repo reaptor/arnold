@@ -16,6 +16,7 @@ fn main() {
             commands::startup_path,
             commands::open_repo,
             commands::compare_branches,
+            commands::list_files,
             commands::read_file_pair,
             commands::write_file,
             commands::reset_file,

@@ -170,6 +170,17 @@ export function install() {
             worktreePath: repo.branches.find((branch) => branch.name === args.head)?.worktreePath ?? null,
             files: changedFiles(),
           } satisfies Comparison;
+        case "list_files": {
+          // A few files that are not part of the diff, so the explorer has more to show.
+          const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
+          for (const path of unchanged) {
+            if (!files.has(path)) files.set(path, { base: `// ${path}\n`, working: `// ${path}\n` });
+          }
+          return [...files]
+            .filter(([, file]) => file.working !== null)
+            .map(([path]) => path)
+            .sort();
+        }
         case "read_file_pair": {
           const file = files.get(args.path);
           return {
