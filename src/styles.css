@@ -1,38 +1,81 @@
+/* JetBrains "Islands" look: the dock and the editor are rounded islands on a
+   window-colored frame. Dark values are Islands Dark's own (IntelliJ's
+   ManyIslandsDark.theme.json and IslandSchemeDark.xml); light ones follow
+   Islands Light. */
 :root {
   color-scheme: light dark;
+  /* The window around the islands: toolbar, status bar, gaps. */
+  --frame: #ebecf0;
+  /* An island: the dock and the editor. */
   --bg: #ffffff;
-  --panel: #f5f6f8;
-  --border: #d9dce1;
-  --text: #1f2328;
-  --muted: #6b7280;
-  --hover: #e9ebef;
-  --selected: #dbe7ff;
-  --accent: #2563eb;
+  /* Headers inside an island. */
+  --panel: #f7f8fa;
+  --popup: #ffffff;
+  --popup-border: #dfe1e5;
+  --border: #ebecf0;
+  --control-border: #c9ccd6;
+  --text: #1e1f22;
+  --muted: #6c707e;
+  --hover: rgb(0 0 0 / 0.05);
+  --pressed: rgb(0 0 0 / 0.09);
+  --selected: #d4e2ff;
+  --selected-inactive: #dfe1e5;
+  --accent: #3574f0;
   --accent-text: #ffffff;
-  --added: #1a7f37;
-  --removed: #cf222e;
-  --warning: #9a6700;
-  --banner: #fff8c5;
-  --banner-error: #ffebe9;
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  --added: #3e8a4c;
+  --removed: #d1434f;
+  --modified: #3574f0;
+  --deleted: #8c8f96;
+  --warning: #a76c0b;
+  --banner: #fdf2dc;
+  --banner-error: #fde8e8;
+  --scrollbar: rgb(0 0 0 / 0.2);
+  --scrollbar-hover: rgb(0 0 0 / 0.35);
+  --diff-inserted: rgb(190 230 190 / 0.6);
+  --diff-deleted: rgb(214 214 214 / 0.7);
+  --diff-modified-line: rgb(202 217 250 / 0.5);
+  --diff-modified-text: rgb(170 195 250 / 0.8);
+  --diff-inserted-mark: #8fcb93;
+  --diff-modified-mark: #8fb4ea;
+  --diff-deleted-mark: #a8a8a8;
+  --island-radius: 10px;
+  --island-gap: 6px;
+  font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #282c34;
-    --panel: #21252b;
-    --border: #3a3f4b;
-    --text: #d7dae0;
-    --muted: #8b93a1;
-    --hover: #2f343e;
-    --selected: #34425a;
-    --accent: #4d8dff;
-    --accent-text: #0b1220;
-    --added: #57c27a;
-    --removed: #f47067;
-    --warning: #d4a72c;
-    --banner: #4a3f12;
-    --banner-error: #5a2424;
+    --frame: #26282c;
+    --bg: #191a1c;
+    --panel: #212326;
+    --popup: #26282c;
+    --popup-border: #33353b;
+    --border: #2b2d30;
+    --control-border: #40434a;
+    --text: #d1d3d9;
+    --muted: #9fa2a8;
+    --hover: rgb(255 255 255 / 0.063);
+    --pressed: rgb(255 255 255 / 0.13);
+    --selected: #2a4371;
+    --selected-inactive: #33353b;
+    --accent: #3871e1;
+    --accent-text: #ffffff;
+    --added: #73bd79;
+    --removed: #f57e84;
+    --modified: #70aeff;
+    --deleted: #6f737a;
+    --warning: #d59637;
+    --banner: #44321d;
+    --banner-error: #56272b;
+    --scrollbar: rgb(255 255 255 / 0.15);
+    --scrollbar-hover: rgb(255 255 255 / 0.3);
+    --diff-inserted: rgb(41 68 54 / 0.8);
+    --diff-deleted: rgb(72 74 74 / 0.6);
+    --diff-modified-line: rgb(56 85 112 / 0.45);
+    --diff-modified-text: #385570;
+    --diff-inserted-mark: #549159;
+    --diff-modified-mark: #375fad;
+    --diff-deleted-mark: #868a91;
   }
 }
 
@@ -48,7 +91,7 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: var(--frame);
   color: var(--text);
   overflow: hidden;
   user-select: none;
@@ -63,15 +106,25 @@ input {
 }
 
 button {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  background: transparent;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
   padding: 3px 9px;
   white-space: nowrap;
 }
 
 button:hover:not(:disabled) {
   background: var(--hover);
+}
+
+button:active:not(:disabled) {
+  background: var(--pressed);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 button:disabled {
@@ -82,6 +135,32 @@ button.primary:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* Thin scrollbars that only show a thumb, as in the IDE. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-hover);
 }
 
 .app {
@@ -110,12 +189,19 @@ button.primary:not(:disabled) {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: var(--panel);
+  background: var(--frame);
   flex: none;
 }
 
 .toolbar {
-  border-bottom: 1px solid var(--border);
+  padding: 7px 12px;
+}
+
+/* Main-toolbar widgets are flat until hovered. */
+.toolbar button {
+  border-color: transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
 }
 
 .toolbar-word {
@@ -128,24 +214,20 @@ button.primary:not(:disabled) {
 
 .segmented {
   display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--hover);
 }
 
-.segmented button {
-  border-radius: 0;
-  margin-left: -1px;
-}
-
-.segmented button:first-child {
-  border-radius: 5px 0 0 5px;
-  margin-left: 0;
-}
-
-.segmented button:last-child {
-  border-radius: 0 5px 5px 0;
+.toolbar .segmented button {
+  border-radius: 5px;
+  padding: 1px 8px;
 }
 
 .segmented button.on {
-  background: var(--selected);
+  background: var(--bg);
+  border-color: var(--control-border);
 }
 
 .picker {
@@ -176,19 +258,19 @@ button.primary:not(:disabled) {
   top: calc(100% + 4px);
   left: 0;
   width: 340px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.2);
+  background: var(--popup);
+  border: 1px solid var(--popup-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
   padding: 6px;
 }
 
 .picker-search,
 .dock-filter {
   width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  background: transparent;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
   padding: 3px 7px;
   user-select: text;
   -webkit-user-select: text;
@@ -211,7 +293,7 @@ button.primary:not(:disabled) {
 }
 
 .picker-list li.active {
-  background: var(--hover);
+  background: var(--selected);
 }
 
 .picker-list li.current .picker-name {
@@ -244,13 +326,16 @@ button.primary:not(:disabled) {
   flex: 1;
   display: flex;
   min-height: 0;
+  padding: 0 var(--island-gap);
 }
 
 .dock {
   display: flex;
   flex-direction: column;
   flex: none;
-  background: var(--panel);
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
   min-width: 0;
 }
 
@@ -258,7 +343,7 @@ button.primary:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 8px 6px;
 }
 
 .dock-count {
@@ -289,8 +374,7 @@ button.primary:not(:disabled) {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 5px 8px 4px 4px;
-  font-size: 11px;
+  padding: 5px 8px 4px 6px;
   white-space: nowrap;
 }
 
@@ -305,9 +389,7 @@ button.primary:not(:disabled) {
 }
 
 .dock-title {
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 600;
 }
 
 .dock-detail {
@@ -316,6 +398,7 @@ button.primary:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--muted);
+  font-size: 12px;
 }
 
 .dock-sash {
@@ -352,7 +435,9 @@ button.primary:not(:disabled) {
   align-items: center;
   gap: 4px;
   height: 22px;
+  margin: 0 6px;
   padding-right: 8px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 
@@ -361,6 +446,11 @@ button.primary:not(:disabled) {
 }
 
 .tree-row.selected {
+  background: var(--selected-inactive);
+}
+
+.dock:focus-within .tree-row.selected,
+.dock:focus-within .file.selected {
   background: var(--selected);
 }
 
@@ -390,11 +480,11 @@ button.primary:not(:disabled) {
 
 .changed-modified .tree-label,
 .changed-renamed .tree-label {
-  color: var(--warning);
+  color: var(--modified);
 }
 
 .tree-dot {
-  color: var(--warning);
+  color: var(--modified);
   font-size: 8px;
   width: 1.2em;
   text-align: center;
@@ -404,7 +494,9 @@ button.primary:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
+  margin: 0 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 
@@ -413,7 +505,7 @@ button.primary:not(:disabled) {
 }
 
 .file.selected {
-  background: var(--selected);
+  background: var(--selected-inactive);
 }
 
 .file-empty {
@@ -434,12 +526,12 @@ button.primary:not(:disabled) {
 }
 
 .status-deleted {
-  color: var(--removed);
+  color: var(--deleted);
 }
 
 .status-modified,
 .status-renamed {
-  color: var(--warning);
+  color: var(--modified);
 }
 
 .file-path {
@@ -472,7 +564,7 @@ button.primary:not(:disabled) {
 
 .problems {
   background: var(--removed);
-  color: var(--bg);
+  color: var(--accent-text);
   border-radius: 8px;
   padding: 0 5px;
   font-size: 11px;
@@ -494,18 +586,11 @@ button.primary:not(:disabled) {
   visibility: visible;
 }
 
+/* The gap between the islands is the handle. */
 .splitter {
   flex: none;
-  width: 5px;
-  margin: 0 -2px;
+  width: var(--island-gap);
   cursor: col-resize;
-  border-left: 1px solid var(--border);
-  z-index: 5;
-}
-
-.splitter:hover {
-  background: var(--accent);
-  opacity: 0.4;
 }
 
 /* ------------------------------------------------------------------- editor */
@@ -515,6 +600,9 @@ button.primary:not(:disabled) {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
 }
 
 /* Where diffs are shown: the one-file editor and each file of the all-files view. */
@@ -553,19 +641,39 @@ button.primary:not(:disabled) {
 }
 
 .diff-host .cm-scroller {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Off by default in the IDE too; |> and -> stay as typed. */
+  font-variant-ligatures: none;
   line-height: 1.5;
 }
 
-/* Changed text gets a tint instead of CodeMirror's default underline, which is
-   noisy when whole lines are new. */
-.diff-host .cm-editor.cm-merge-b .cm-changedText {
-  background: rgb(46 160 67 / 0.28);
+/* Diff colors as in the IDE (classes from changeKinds.ts): added lines are
+   green, removed lines gray, replaced lines blue on both sides with the
+   changed words a shade stronger. */
+.diff-host .cm-editor .cm-changedLine.cm-kind-inserted {
+  background: var(--diff-inserted);
 }
 
-.diff-host .cm-editor.cm-merge-a .cm-changedText,
+.diff-host .cm-editor .cm-changedLine.cm-kind-deleted,
+.diff-host .cm-editor .cm-deletedChunk {
+  background: var(--diff-deleted);
+}
+
+.diff-host .cm-editor .cm-changedLine.cm-kind-modified,
+.diff-host .cm-editor .cm-deletedChunk:has(+ .cm-kind-modified) {
+  background: var(--diff-modified-line);
+}
+
+.diff-host .cm-editor .cm-changedText,
 .diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
-  background: rgb(229 83 75 / 0.28);
+  background: var(--diff-modified-text);
+}
+
+/* A whole new or removed line needs no word highlight. */
+.diff-host .cm-editor .cm-kind-inserted .cm-changedText,
+.diff-host .cm-editor .cm-kind-deleted .cm-changedText,
+.diff-host .cm-editor .cm-deletedChunk:not(:has(+ .cm-kind-modified)) .cm-deletedText {
+  background: none;
 }
 
 /* An inline span's background covers only the glyphs, leaving a stripe of the
@@ -576,6 +684,33 @@ button.primary:not(:disabled) {
 .diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
   display: inline-block;
   vertical-align: top;
+}
+
+.diff-host .cm-changeGutter {
+  width: 6px;
+}
+
+.diff-host .cm-changeMark.cm-kind-inserted {
+  background: linear-gradient(var(--diff-inserted-mark), var(--diff-inserted-mark)) center / 3px 100% no-repeat;
+}
+
+.diff-host .cm-changeMark.cm-kind-deleted {
+  background: linear-gradient(var(--diff-deleted-mark), var(--diff-deleted-mark)) center / 3px 100% no-repeat;
+}
+
+.diff-host .cm-changeMark.cm-kind-modified {
+  background: linear-gradient(var(--diff-modified-mark), var(--diff-modified-mark)) center / 3px 100% no-repeat;
+}
+
+.diff-host .cm-editor .cm-collapsedLines {
+  background: var(--panel);
+  color: var(--muted);
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.diff-host .cm-editor .cm-collapsedLines:hover {
+  color: var(--text);
 }
 
 /* Divider between the base and working sides of the split view. */
@@ -592,10 +727,18 @@ button.primary:not(:disabled) {
   opacity: 0.4;
 }
 
-.arnold-reset-chunk {
-  font: 11px system-ui, sans-serif;
+.diff-host .cm-editor .arnold-reset-chunk {
+  font: 11px "Inter Variable", Inter, system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
   padding: 0 6px;
   margin: 1px 6px;
+}
+
+.diff-host .cm-editor .arnold-reset-chunk:hover {
+  background: var(--frame);
 }
 
 /* ------------------------------------------------------------ all files */
@@ -626,7 +769,7 @@ button.primary:not(:disabled) {
 .file-section {
   flex: none;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   /* Not hidden: that would stop the header from sticking. */
   overflow: clip;
 }
@@ -713,8 +856,7 @@ button.primary:not(:disabled) {
 /* ---------------------------------------------------------------- statusbar */
 
 .statusbar {
-  border-top: 1px solid var(--border);
-  padding: 3px 10px;
+  padding: 4px 12px;
   gap: 16px;
   font-size: 12px;
   color: var(--muted);
@@ -740,10 +882,10 @@ button.primary:not(:disabled) {
   margin: 0;
   padding: 4px;
   min-width: 220px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+  background: var(--popup);
+  border: 1px solid var(--popup-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
 }
 
 .menu li {
@@ -755,7 +897,7 @@ button.primary:not(:disabled) {
 }
 
 .menu li:hover:not(.disabled) {
-  background: var(--hover);
+  background: var(--selected);
 }
 
 .menu li.disabled {

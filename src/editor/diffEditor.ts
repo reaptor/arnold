@@ -5,9 +5,10 @@
 import { historyField } from "@codemirror/commands";
 import { goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
 import { Compartment, EditorSelection, EditorState, type Extension, type Text } from "@codemirror/state";
-import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
+import { changeKindColors } from "./changeKinds";
+import { islandsDark } from "./islandsTheme";
 import { languageFor } from "./languages";
 import { resetEdits } from "./resetLines";
 
@@ -245,7 +246,8 @@ export class DiffEditor {
         b: { doc, selection, extensions: workingExtensions },
         revertControls: document.editable ? "a-to-b" : undefined,
         highlightChanges: true,
-        gutter: true,
+        // changeKindColors draws the change gutter.
+        gutter: false,
         collapseUnchanged: COLLAPSE,
       });
       this.addSplitter(this.merge);
@@ -259,7 +261,7 @@ export class DiffEditor {
           unifiedMergeView({
             original: document.base,
             highlightChanges: true,
-            gutter: true,
+            gutter: false,
             syntaxHighlightDeletions: true,
             collapseUnchanged: COLLAPSE,
             mergeControls: document.editable ? resetButton : false,
@@ -316,7 +318,8 @@ export class DiffEditor {
     return [
       basicSetup,
       languageFor(path),
-      prefersDark() ? oneDark : [],
+      prefersDark() ? islandsDark : [],
+      changeKindColors,
       EditorView.domEventHandlers({
         focus: () => {
           this.callbacks.onFocus();
