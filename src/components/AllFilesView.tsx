@@ -24,6 +24,11 @@ const UNLOAD_MARGIN = "5000px 0px";
 const LINE_HEIGHT = 19.5;
 /** Gap kept above a file scrolled to. */
 const REVEAL_GAP = 8;
+/**
+ * Where the eye rests while reading, as a share of the view's height: the
+ * file under this line is the one selected in the dock.
+ */
+const READING_LINE = 0.3;
 
 /** Height of a file's diff before it is loaded: about one row per changed line. */
 function estimatedHeight(file: ChangedFile) {
@@ -42,8 +47,6 @@ export function AllFilesView() {
   let scroller!: HTMLDivElement;
   const files = createMemo(() => [...(state.comparison?.files ?? []), ...state.visited]);
   const sections = new Map<string, HTMLElement>();
-  /** A file was scrolled to on request; the scroll spy waits until the user scrolls. */
-  let revealing = false;
 
   const load = (section: HTMLElement) => {
     const path = section.dataset.path!;
@@ -95,6 +98,8 @@ export function AllFilesView() {
         moved += height - before;
       }
       if (shift !== 0) scroller.scrollTop += shift;
+      // Files growing or shrinking is not scrolling: the selection stays.
+      spied = fileAtReadingLine();
     });
     onRevealSection(reveal);
     // The sections register in their own onMount, after this one.
@@ -102,6 +107,7 @@ export function AllFilesView() {
   });
 
   onCleanup(() => {
+    cancelAnimationFrame(spyFrame);
     loader.disconnect();
     unloader.disconnect();
     resizer.disconnect();
@@ -111,9 +117,10 @@ export function AllFilesView() {
   function reveal(path: string) {
     const section = sections.get(path);
     if (!section) return;
-    revealing = true;
     setCollapsed(path, false);
     scroller.scrollTop = section.offsetTop - REVEAL_GAP;
+    // A short file may sit above the reading line; it stays selected until scrolling moves on.
+    spied = fileAtReadingLine();
     load(section);
   }
 
@@ -144,22 +151,43 @@ export function AllFilesView() {
     }
   };
 
-  // Scroll spy: the file at the top of the list is the one selected in the dock.
+  /**
+   * The file under the reading line. Near the ends the line slides to the
+   * edge, so the first file is selected at the top and the last at the bottom
+   * even when they are short.
+   */
+  const fileAtReadingLine = (): string | null => {
+    const height = scroller.clientHeight;
+    const line = READING_LINE * height;
+    const fromTop = scroller.scrollTop;
+    const fromBottom = scroller.scrollHeight - height - fromTop;
+    let offset = Math.min(line, fromTop);
+    if (fromBottom < line) offset += ((line - fromBottom) / line) * (height - offset);
+    const probe = fromTop + offset;
+    let found: string | null = null;
+    for (const file of files()) {
+      const section = sections.get(file.path);
+      if (!section) continue;
+      if (section.offsetTop > probe) break;
+      found = file.path;
+    }
+    return found ?? files()[0]?.path ?? null;
+  };
+
+  // Scroll spy: the dock follows the file being read. It acts only when the
+  // file under the reading line changes, so a file picked or clicked into
+  // stays selected until scrolling actually moves on to another one.
+  let spied: string | null = null;
   let spyFrame = 0;
   const onScroll = () => {
-    if (revealing || spyFrame) return;
+    if (spyFrame) return;
     spyFrame = requestAnimationFrame(() => {
       spyFrame = 0;
-      const probe = scroller.scrollTop + 2 * REVEAL_GAP;
-      const top = files().find((file) => {
-        const section = sections.get(file.path);
-        return section && section.offsetTop + section.offsetHeight > probe;
-      });
-      if (top && top.path !== state.selected) setState("selected", top.path);
+      const path = fileAtReadingLine();
+      if (path === spied) return;
+      spied = path;
+      if (path && path !== state.selected) setState("selected", path);
     });
-  };
-  const userScrolls = () => {
-    revealing = false;
   };
 
   return (
@@ -167,9 +195,6 @@ export function AllFilesView() {
       class="all-files"
       ref={scroller}
       onScroll={onScroll}
-      onWheel={userScrolls}
-      onPointerDown={userScrolls}
-      onKeyDown={userScrolls}
     >
       <For
         each={files()}
