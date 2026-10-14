@@ -440,6 +440,16 @@ button.primary:not(:disabled) {
   background: rgb(229 83 75 / 0.28);
 }
 
+/* An inline span's background covers only the glyphs, leaving a stripe of the
+   line's own tint between changed rows. As an inline-block it is as tall as
+   the line, so consecutive changed rows read as one block. Lines never wrap
+   here, so the span cannot be split across rows. */
+.editor-host .cm-editor .cm-changedText,
+.editor-host .cm-editor .cm-deletedChunk .cm-deletedText {
+  display: inline-block;
+  vertical-align: top;
+}
+
 /* Divider between the base and working sides of the split view. */
 .arnold-diff-splitter {
   flex: none;
