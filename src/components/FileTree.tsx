@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
+import { collator } from "../state/pathOrder";
 import { allFiles, openFile, state } from "../state/review";
 import { splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
@@ -26,8 +27,6 @@ interface Row {
   depth: number;
   open: boolean;
 }
-
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function buildTree(paths: readonly string[]): Folder {
   const root: Folder = { path: "", folders: new Map(), files: [], sorted: false };

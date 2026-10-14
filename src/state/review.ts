@@ -17,6 +17,7 @@ import * as ipc from "../ipc/commands";
 import type { ChangedFile, Comparison, FilePair, RepoInfo } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
+import { comparePaths } from "./pathOrder";
 
 /** One file at a time, or every file of the diff in one scrolling list. */
 export type ViewMode = "file" | "all";
@@ -257,6 +258,8 @@ export async function refresh() {
   try {
     const comparison = await ipc.compareBranches(repo.root, state.base, state.head);
     if (repo !== state.repo) return;
+    // Listed, stepped through and shown in the order of the file explorer.
+    comparison.files.sort((a, b) => comparePaths(a.path, b.path));
     setState("comparison", reconcile(comparison, { key: "path" }));
     void loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
