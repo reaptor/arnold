@@ -111,6 +111,22 @@ for (let index = 1; index <= extraFiles; index++) {
   files.set(`src/Generated/${name}.fs`, { base, working });
 }
 
+// A large file with a few small edits far apart: each should show as its own one-line change.
+{
+  let seed = 42;
+  const rand = (n: number) => ((seed = (seed * 16807) % 2147483647), seed % n);
+  const word = () => ["value", "count", "items", "result", "name", "index"][rand(6)] + rand(100);
+  const lines = Array.from({ length: 3000 }, () =>
+    rand(4) === 0 ? "" : `${"    ".repeat(rand(3))}let ${word()} = ${word()} + ${rand(1000)}`,
+  );
+  const base = lines.join("\n") + "\n";
+  for (let at of [40, 700, 1400, 2100, 2900]) {
+    while (!lines[at]) at++;
+    lines[at] = lines[at].replace(/let \w+/, "let renamed");
+  }
+  files.set("src/Large/Inventory.fs", { base, working: lines.join("\n") + "\n" });
+}
+
 const ROOT = "/fake/zed-trial/repo";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 

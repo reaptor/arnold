@@ -1,15 +1,7 @@
 // "Reset selected lines": put the selected part of a change back to how it is
 // in the base version, as an ordinary (undoable) edit of the working text.
 
-import { diff } from "@codemirror/merge";
-
-/** A changed region in line numbers (0-based, end exclusive). */
-export interface LineBlock {
-  fromA: number;
-  toA: number;
-  fromB: number;
-  toB: number;
-}
+import { type LineBlock, lineBlocks } from "./lineDiff";
 
 /** Selected lines (0-based, inclusive) on the base side (`a`) or the working side (`b`). */
 export interface LineSelection {
@@ -23,54 +15,6 @@ export interface TextEdit {
   from: number;
   to: number;
   insert: string;
-}
-
-// Lines are diffed by giving each distinct line one UTF-16 code unit and
-// diffing the resulting strings. Surrogates are skipped so that one unit
-// always stands for one line.
-const FIRST_UNIT = 1;
-const SURROGATES_START = 0xd800;
-const SURROGATES_END = 0xdfff;
-const LAST_UNIT = 0xffff;
-
-function encodeLines(lineLists: string[][]): string[] | null {
-  const units = new Map<string, number>();
-  let next = FIRST_UNIT;
-  const encoded: string[] = [];
-  for (const lines of lineLists) {
-    let out = "";
-    for (const line of lines) {
-      let unit = units.get(line);
-      if (unit === undefined) {
-        if (next === SURROGATES_START) next = SURROGATES_END + 1;
-        if (next > LAST_UNIT) return null;
-        unit = next++;
-        units.set(line, unit);
-      }
-      out += String.fromCharCode(unit);
-    }
-    encoded.push(out);
-  }
-  return encoded;
-}
-
-/** Line-level differences between two versions of a file. */
-export function lineBlocks(aLines: string[], bLines: string[]): LineBlock[] {
-  const encoded = encodeLines([aLines, bLines]);
-  if (!encoded) {
-    // More distinct lines than code units: treat everything between the
-    // common start and end as one change.
-    let start = 0;
-    while (start < aLines.length && start < bLines.length && aLines[start] === bLines[start]) start++;
-    let endA = aLines.length;
-    let endB = bLines.length;
-    while (endA > start && endB > start && aLines[endA - 1] === bLines[endB - 1]) {
-      endA--;
-      endB--;
-    }
-    return start === endA && start === endB ? [] : [{ fromA: start, toA: endA, fromB: start, toB: endB }];
-  }
-  return diff(encoded[0], encoded[1]).map(({ fromA, toA, fromB, toB }) => ({ fromA, toA, fromB, toB }));
 }
 
 function touches(block: LineBlock, selection: LineSelection, lineCount: number): boolean {

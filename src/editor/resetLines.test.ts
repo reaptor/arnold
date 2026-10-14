@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyEdits, lineBlocks, resetEdits, type LineSelection } from "./resetLines";
+import { lineBlocks } from "./lineDiff";
+import { applyEdits, resetEdits, type LineSelection } from "./resetLines";
 
 const reset = (base: string, work: string, selection: LineSelection) =>
   applyEdits(work, resetEdits(base, work, selection));

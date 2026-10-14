@@ -1,0 +1,114 @@
+import { type Change, Chunk, type DiffConfig } from "@codemirror/merge";
+import { Text } from "@codemirror/state";
+import { describe, expect, it } from "vitest";
+import { lineFirstDiff, lineFirstDiffConfig } from "./lineDiff";
+
+/** Applies the changes to `a`, which must give `b`. */
+function apply(a: string, b: string, changes: readonly Change[]) {
+  let out = "";
+  let pos = 0;
+  for (const change of changes) {
+    out += a.slice(pos, change.fromA) + b.slice(change.fromB, change.toB);
+    pos = change.toA;
+  }
+  return out + a.slice(pos);
+}
+
+function chunks(a: string, b: string, config: DiffConfig = lineFirstDiffConfig) {
+  return Chunk.build(Text.of(a.split("\n")), Text.of(b.split("\n")), config);
+}
+
+/** Changed lines on the working side, 1-based, one entry per chunk. */
+function changedLines(a: string, b: string, config?: DiffConfig) {
+  const doc = Text.of(b.split("\n"));
+  return chunks(a, b, config).map((chunk) => [doc.lineAt(chunk.fromB).number, doc.lineAt(chunk.endB).number]);
+}
+
+// Deterministic pseudo-random numbers.
+function random(seed: number) {
+  return (n: number) => ((seed = (seed * 16807) % 2147483647), seed % n);
+}
+
+/** A large source file with varied lines, of the kind that broke the character diff. */
+function sourceFile(lineCount: number) {
+  const rand = random(42);
+  const word = () => ["value", "count", "items", "result", "name", "index", "total", "state"][rand(8)] + rand(100);
+  const lines: string[] = [];
+  for (let i = 0; i < lineCount; i++) {
+    const indent = "    ".repeat(rand(4));
+    const kind = rand(5);
+    if (kind === 0) lines.push("");
+    else if (kind === 1) lines.push(`${indent}let ${word()} = ${word()} + ${rand(1000)}`);
+    else if (kind === 2) lines.push(`${indent}if ${word()} > ${word()} then`);
+    else lines.push(`${indent}printfn "%d %s" ${word()} ${word()}`);
+  }
+  return lines.join("\n");
+}
+
+const bigFile = sourceFile(12000);
+
+describe("lineFirstDiff", () => {
+  it("describes exactly the difference", () => {
+    const cases: [string, string][] = [
+      ["", ""],
+      ["", "a"],
+      ["a", ""],
+      ["a", "a\n"],
+      ["a\n", "a"],
+      ["a\nb", "a\nc"],
+      ["a\nb", "a\nb\nc"],
+      ["a\nb\nc", "c"],
+      ["x\ny\n", "y\nx\n"],
+      ["let a = 1\nlet b = 2\n", "let a = 10\nlet b = 2\n"],
+    ];
+    for (const [a, b] of cases) expect(apply(a, b, lineFirstDiff(a, b)), JSON.stringify([a, b])).toBe(b);
+  });
+
+  it("describes exactly the difference after random edits", () => {
+    const rand = random(7);
+    const base = bigFile.split("\n").slice(0, 400);
+    for (let round = 0; round < 50; round++) {
+      const lines = [...base];
+      for (let i = 0; i < 1 + rand(8); i++) {
+        const at = rand(lines.length);
+        const kind = rand(3);
+        if (kind === 0) lines.splice(at, 1);
+        else if (kind === 1) lines.splice(at, 0, "inserted " + round);
+        else lines[at] = lines[at].slice(0, rand(lines[at].length + 1)) + "edit";
+      }
+      const a = base.join("\n");
+      const b = lines.join("\n");
+      expect(apply(a, b, lineFirstDiff(a, b))).toBe(b);
+    }
+  });
+
+  it("marks only the edited lines when small edits are spread over a large file", () => {
+    const lines = bigFile.split("\n");
+    const edited = [100, 2000, 4000, 6000, 8000, 10000, 11900].filter((at) => lines[at].length > 5);
+    for (const at of edited) lines[at] = lines[at].slice(0, 3) + "renamed" + lines[at].slice(6);
+    const working = lines.join("\n");
+    expect(changedLines(bigFile, working)).toEqual(edited.map((at) => [at + 1, at + 1]));
+    // CodeMirror's own character diff marks thousands of unchanged lines here.
+    expect(changedLines(bigFile, working, { scanLimit: 500 }).length).toBeLessThan(edited.length);
+  });
+
+  it("highlights only the changed characters within a line", () => {
+    const a = "let total = price * quantity\nprintfn \"%d\" total\n";
+    const b = "let total = price * amount\nprintfn \"%d\" total\n";
+    const [chunk] = chunks(a, b);
+    expect(chunk.changes.map((change) => b.slice(chunk.fromB + change.fromB, chunk.fromB + change.toB))).toEqual([
+      "amount",
+    ]);
+  });
+
+  it("stays fast when every line of a large file changed", () => {
+    const rewritten = bigFile
+      .split("\n")
+      .map((line: string, i: number) => `${i}:${line}`)
+      .join("\n");
+    const started = performance.now();
+    const changes = lineFirstDiff(bigFile, rewritten);
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(apply(bigFile, rewritten, changes)).toBe(rewritten);
+  });
+});

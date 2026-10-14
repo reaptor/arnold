@@ -10,6 +10,7 @@ import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
 import { islandsDark } from "./islandsTheme";
 import { languageFor } from "./languages";
+import { lineFirstDiffConfig } from "./lineDiff";
 import { resetEdits } from "./resetLines";
 
 export type DiffMode = "split" | "unified";
@@ -249,6 +250,7 @@ export class DiffEditor {
         // changeKindColors draws the change gutter.
         gutter: false,
         collapseUnchanged: COLLAPSE,
+        diffConfig: lineFirstDiffConfig,
       });
       this.addSplitter(this.merge);
     } else {
@@ -264,6 +266,7 @@ export class DiffEditor {
             gutter: false,
             syntaxHighlightDeletions: true,
             collapseUnchanged: COLLAPSE,
+            diffConfig: lineFirstDiffConfig,
             mergeControls: document.editable ? resetButton : false,
           }),
         ],
