@@ -14,7 +14,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, Comparison, FilePair, RepoInfo } from "../ipc/commands";
+import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
@@ -133,17 +133,20 @@ const isEditable = (file: ChangedFile, pair: FilePair) =>
   state.comparison?.worktreePath != null && pair.working !== null && file.status !== "deleted";
 
 /**
- * An added or deleted file has nothing to compare against, so it is shown
- * whole: the new text, or the deleted text read-only.
+ * Created and deleted files are shown whole (a deleted one read-only) instead
+ * of as a diff with one side empty. Unchanged files have no diff at all.
  */
+const WHOLE_FILE: FileStatus[] = ["added", "untracked", "deleted", "unchanged"];
+
 function documentOf(file: ChangedFile, session: Session): DiffDocument {
-  const { base, working } = session.pair;
+  const base = session.pair.base ?? "";
+  const working = session.pair.working ?? "";
   return {
     path: file.path,
-    base: base ?? "",
-    working: working ?? base ?? "",
+    base,
+    working: file.status === "deleted" ? base : working,
     editable: isEditable(file, session.pair),
-    plain: file.status === "unchanged" || base === null || working === null,
+    plain: WHOLE_FILE.includes(file.status),
   };
 }
 
