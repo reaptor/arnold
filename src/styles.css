@@ -387,6 +387,127 @@ button.primary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* Commit popup: opens from the right end of the toolbar. */
+.commit-popup {
+  left: auto;
+  right: 0;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.toolbar .commit-popup button {
+  border-color: var(--control-border);
+}
+
+.toolbar .commit-popup button.primary:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.count-badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--selected-inactive);
+  font-size: 11px;
+}
+
+.ahead {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.commit-title b {
+  font-weight: 600;
+}
+
+.commit-all,
+.commit-files label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.commit-all {
+  color: var(--muted);
+}
+
+.commit-files {
+  margin: 0;
+  max-height: 220px;
+}
+
+.commit-files li {
+  padding: 1px 4px;
+}
+
+.commit-files li:hover {
+  background: var(--hover);
+}
+
+.commit-note,
+.commit-push {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+}
+
+.commit-note {
+  color: var(--warning);
+}
+
+.commit-message {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 5px 7px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.commit-message:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.commit-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.commit-push {
+  padding-top: 8px;
+  border-top: 1px solid var(--popup-border);
+}
+
+.commit-outcome {
+  color: var(--added);
+  user-select: text;
+  -webkit-user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.commit-outcome.error {
+  color: var(--text);
+  background: var(--banner-error);
+  border-radius: 4px;
+  padding: 5px 7px;
+}
+
 /* --------------------------------------------------------------------- dock */
 
 .main {

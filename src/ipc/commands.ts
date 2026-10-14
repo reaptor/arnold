@@ -32,9 +32,37 @@ export interface Comparison {
   base: string;
   head: string;
   mergeBase: string;
-  /** Checkout holding `head`; when null the diff is read-only. */
+  /**
+   * Checkout holding `head`. The backend adds a linked worktree when the branch
+   * is not checked out anywhere, so this is only null in the dev mock.
+   */
   worktreePath: string | null;
   files: ChangedFile[];
+}
+
+/** An uncommitted change of the checkout under review. */
+export interface Uncommitted {
+  path: string;
+  oldPath: string | null;
+  /** A (added, untracked too), M, D, R or U (unmerged). */
+  status: "A" | "M" | "D" | "R" | "U";
+}
+
+export interface PushTarget {
+  remote: string;
+  branch: string;
+  /** The remote does not have the branch yet. */
+  unpublished: boolean;
+  ahead: number;
+  /** Commits on the remote the checkout lacks; a push is refused then. */
+  behind: number;
+}
+
+export interface CheckoutStatus {
+  /** Null when the checkout is detached (a remote branch under review). */
+  branch: string | null;
+  push: PushTarget | null;
+  changes: Uncommitted[];
 }
 
 export type Eol = "lf" | "crlf";
@@ -104,6 +132,15 @@ export const resetFile = (root: string, comparison: Comparison, file: ChangedFil
     path: file.path,
     oldPath: file.oldPath,
   });
+
+export const checkoutStatus = (worktree: string, head: string) =>
+  invoke<CheckoutStatus>("checkout_status", { worktree, head });
+
+/** Commits `paths` (every change when null); resolves to the new commit id. */
+export const commitChanges = (worktree: string, message: string, paths: string[] | null) =>
+  invoke<string>("commit_changes", { worktree, message, paths });
+
+export const pushChanges = (worktree: string, head: string) => invoke<void>("push_changes", { worktree, head });
 
 export const onWorktreeChanged = (handler: (event: WorktreeChanged) => void): Promise<UnlistenFn> =>
   listen<WorktreeChanged>("worktree-changed", (event) => handler(event.payload));

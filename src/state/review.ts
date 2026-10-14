@@ -14,7 +14,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
+import type { ChangedFile, CheckoutStatus, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
@@ -27,6 +27,8 @@ interface State {
   base: string;
   head: string;
   comparison: Comparison | null;
+  /** Uncommitted changes of the checkout under review and where a push goes. */
+  checkout: CheckoutStatus | null;
   /** Files opened from outside the diff (by go-to-definition). */
   visited: ChangedFile[];
   /**
@@ -64,6 +66,7 @@ export const [state, setState] = createStore<State>({
   base: "",
   head: "",
   comparison: null,
+  checkout: null,
   visited: [],
   selected: null,
   view: localStorage.getItem("arnold.view") === "all" ? "all" : "file",
@@ -258,7 +261,7 @@ function resetSessions() {
   setState("diskConflict", reconcile({}));
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
-  setState({ comparison: null, visited: [], backCount: 0, lspStatus: null });
+  setState({ comparison: null, checkout: null, visited: [], backCount: 0, lspStatus: null });
   setAllFiles([]);
 }
 
@@ -281,10 +284,16 @@ export async function refresh() {
   try {
     const comparison = await ipc.compareBranches(repo.root, state.base, state.head);
     if (repo !== state.repo) return;
+    // The backend checks a branch out in a worktree of its own when nothing held it.
+    const headIndex = repo.branches.findIndex((branch) => branch.name === comparison.head);
+    if (headIndex >= 0 && comparison.worktreePath) {
+      setState("repo", "branches", headIndex, "worktreePath", comparison.worktreePath);
+    }
     // Listed, stepped through and shown in the order of the file explorer.
     comparison.files.sort((a, b) => comparePaths(a.path, b.path));
     setState("comparison", reconcile(comparison, { key: "path" }));
     void loadAllFiles(repo, comparison);
+    void loadCheckout(comparison);
     // A visited file that has since been edited is now part of the diff.
     setState("visited", (visited) =>
       visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
@@ -318,6 +327,61 @@ async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
     if (repo === state.repo && comparison.head === state.comparison?.head) setAllFiles(files);
   } catch (error) {
     fail(error);
+  }
+}
+
+async function loadCheckout(comparison: Comparison) {
+  if (!comparison.worktreePath) return void setState("checkout", null);
+  try {
+    const checkout = await ipc.checkoutStatus(comparison.worktreePath, comparison.head);
+    if (comparison.head === state.comparison?.head) setState("checkout", reconcile(checkout));
+  } catch (error) {
+    fail(error);
+  }
+}
+
+// ------------------------------------------------------------ commit and push
+
+/**
+ * Commits `paths` of the checkout under review (every change when null), then
+ * pushes if asked. `error` says what went wrong, if anything; a failed push
+ * still leaves the commit made.
+ */
+export async function commitChanges(
+  message: string,
+  paths: string[] | null,
+  andPush: boolean,
+): Promise<{ committed: boolean; error: string | null }> {
+  const comparison = state.comparison;
+  if (!comparison?.worktreePath) return { committed: false, error: "This branch has no checkout to commit in." };
+  try {
+    await ipc.commitChanges(comparison.worktreePath, message, paths);
+  } catch (error) {
+    await refresh();
+    return { committed: false, error: String(error) };
+  }
+  try {
+    if (andPush) await ipc.pushChanges(comparison.worktreePath, comparison.head);
+    return { committed: true, error: null };
+  } catch (error) {
+    return { committed: true, error: `Committed, but the push failed: ${error}` };
+  } finally {
+    // A commit in a linked worktree does not reach the file watcher.
+    await refresh();
+  }
+}
+
+/** Pushes the checkout under review; resolves to an error message, or null. */
+export async function pushChanges() {
+  const comparison = state.comparison;
+  if (!comparison?.worktreePath) return "This branch has no checkout to push from.";
+  try {
+    await ipc.pushChanges(comparison.worktreePath, comparison.head);
+    return null;
+  } catch (error) {
+    return String(error);
+  } finally {
+    await refresh();
   }
 }
 

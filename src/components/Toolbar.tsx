@@ -12,6 +12,7 @@ import {
   state,
 } from "../state/review";
 import { BranchPicker } from "./BranchPicker";
+import { CommitPanel } from "./CommitPanel";
 import { RepoPicker } from "./RepoPicker";
 
 export function Toolbar() {
@@ -95,6 +96,7 @@ export function Toolbar() {
                 Save all
               </button>
             </Show>
+            <CommitPanel />
           </>
         )}
       </Show>

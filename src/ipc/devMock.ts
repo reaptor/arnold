@@ -4,7 +4,7 @@
 
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { ChangedFile, Comparison, FilePair, RepoInfo } from "./commands";
+import type { ChangedFile, CheckoutStatus, Comparison, FilePair, RepoInfo } from "./commands";
 
 interface FakeFile {
   base: string | null;
@@ -91,6 +91,16 @@ const CSHARP_WORKING = CSHARP_BASE.replace(
   '        return $"Order {order.Id}";',
   '        if (order is null) throw new ArgumentException("Unknown order", nameof(id));\n        return $"Order {order.Id}: {order.Lines.Count} lines";',
 );
+
+// What `git status` would say about the checkout: two uncommitted files, one unpushed commit.
+const checkout: CheckoutStatus = {
+  branch: "feature/agent-work",
+  push: { remote: "origin", branch: "feature/agent-work", unpublished: false, ahead: 1, behind: 0 },
+  changes: [
+    { path: "Audit.fs", oldPath: null, status: "A" },
+    { path: "Pricing.fs", oldPath: null, status: "M" },
+  ],
+};
 
 const files = new Map<string, FakeFile>([
   ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WORKING }],
@@ -238,6 +248,19 @@ export function install() {
             .map(([path]) => path)
             .sort();
         }
+        case "checkout_status":
+          return structuredClone(checkout) satisfies CheckoutStatus;
+        case "commit_changes": {
+          const paths = (payload as { paths: string[] | null }).paths;
+          if (!args.message.trim()) throw new Error("the commit message is empty");
+          if (location.search.includes("failcommit")) throw new Error("git commit failed: pre-commit hook rejected it");
+          checkout.changes = paths ? checkout.changes.filter((change) => !paths.includes(change.path)) : [];
+          if (checkout.push) checkout.push.ahead++;
+          return "0123456789abcdef0123456789abcdef01234567";
+        }
+        case "push_changes":
+          if (checkout.push) Object.assign(checkout.push, { ahead: 0, unpublished: false });
+          return null;
         case "read_file_pair": {
           const file = files.get(args.path);
           return {

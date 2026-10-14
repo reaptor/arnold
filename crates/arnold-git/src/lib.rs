@@ -1,14 +1,20 @@
-//! Read-only access to a git repository through the `git` CLI.
+//! Access to a git repository through the `git` CLI.
 //!
-//! Nothing here stages, commits or checks out: the app only reads git state.
+//! Writes happen only on request, in the checkout under review: a linked
+//! worktree for a branch that is not checked out anywhere (`checkout`, so no
+//! existing checkout ever switches branch), and commits and pushes (`commit`).
 
+mod checkout;
 mod cli;
+mod commit;
 mod compare;
 mod files;
 mod refs;
 
+pub use checkout::ensure_checkout;
 pub use cli::GitError;
-pub use compare::{compare, read_blob, ChangedFile, Comparison, FileStatus};
+pub use commit::{checkout_status, commit, push, CheckoutStatus, PushTarget, Uncommitted};
+pub use compare::{compare, compare_in, read_blob, ChangedFile, Comparison, FileStatus};
 pub use files::list_files;
 pub use refs::{open, Branch, RepoInfo};
 

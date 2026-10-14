@@ -4,9 +4,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{Comparison, RepoInfo};
+use arnold_git::{CheckoutStatus, Comparison, RepoInfo};
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::fsio::{self, Decoded, Eol};
 use crate::watcher::{self, WatchHandle};
@@ -71,7 +71,9 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
 }
 
 /// Compares `head` against its merge-base with `base` and starts watching the
-/// checkout that holds `head`.
+/// checkout that holds `head`. A branch not checked out anywhere gets a linked
+/// worktree in the app's data folder first, so it can be edited without
+/// switching the branch of the user's own checkouts.
 #[tauri::command]
 pub async fn compare_branches(
     root: String,
@@ -81,7 +83,15 @@ pub async fn compare_branches(
     state: State<'_, AppState>,
 ) -> Result<Comparison, String> {
     let root = state.checked_root(&root)?;
-    let comparison = arnold_git::compare(&root, &base, &head)
+    let store = app
+        .path()
+        .app_data_dir()
+        .map_err(text_error)?
+        .join("worktrees");
+    let worktree = arnold_git::ensure_checkout(&root, &head, &store)
+        .await
+        .map_err(text_error)?;
+    let comparison = arnold_git::compare_in(&root, &base, &head, Some(worktree))
         .await
         .map_err(text_error)?;
 
@@ -110,6 +120,44 @@ pub async fn list_files(
     arnold_git::list_files(&root, &head, worktree.as_deref())
         .await
         .map_err(text_error)
+}
+
+/// Uncommitted changes of the checkout under review and where a push goes.
+#[tauri::command]
+pub async fn checkout_status(
+    worktree: String,
+    head: String,
+    state: State<'_, AppState>,
+) -> Result<CheckoutStatus, String> {
+    let worktree = state.checked_root(&worktree)?;
+    arnold_git::checkout_status(&worktree, &head)
+        .await
+        .map_err(text_error)
+}
+
+/// Commits `paths` of the checkout under review (all changes when `None`).
+#[tauri::command]
+pub async fn commit_changes(
+    worktree: String,
+    message: String,
+    paths: Option<Vec<String>>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let worktree = state.checked_root(&worktree)?;
+    arnold_git::commit(&worktree, &message, paths.as_deref())
+        .await
+        .map_err(text_error)
+}
+
+/// Pushes the checkout under review to its remote branch.
+#[tauri::command]
+pub async fn push_changes(
+    worktree: String,
+    head: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let worktree = state.checked_root(&worktree)?;
+    arnold_git::push(&worktree, &head).await.map_err(text_error)
 }
 
 #[derive(Debug, Serialize, Default)]
