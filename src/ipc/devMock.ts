@@ -221,14 +221,15 @@ async function fakeProjectLoading(events: Channel<LspEvent>) {
   events.onmessage({ kind: "status", text: null });
 }
 
-async function fakePrepare(onEvent: Channel<SetupEvent>) {
+async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: boolean) {
   const run = ++preparation;
   const send = async (event: SetupEvent, ms = 0) => {
     if (ms) await pause(ms);
     if (run !== preparation) throw "cancelled";
     onEvent.onmessage(event);
   };
-  await send({ kind: "step", title: "Copying 7d3e9a1f out of the repository" });
+  const path = inPlace ? root : `${root}/.arnold/worktrees/feature-agent-work-5f3a9c21`;
+  if (!inPlace) await send({ kind: "step", title: "Copying 7d3e9a1f to .arnold/worktrees/feature-agent-work-5f3a9c21" });
   await send({ kind: "skipped", title: "Restore packages", reason: "already restored for these project files" }, 600);
   await send({ kind: "step", title: "Building src/Api/Api.csproj (dotnet build): F# code uses its compiled assembly" });
   await send({ kind: "output", line: "  Determining projects to restore..." }, 500);
@@ -236,9 +237,9 @@ async function fakePrepare(onEvent: Channel<SetupEvent>) {
     await send({ kind: "output", line: "src/Api/Startup.cs(12,5): error CS1002: ; expected [src/Api/Api.csproj]" }, 800);
     await send({ kind: "warning", text: "dotnet build failed (exit status: 1)" });
   } else {
-    await send({ kind: "output", line: "  Api -> /src/shop-api/.arnold/worktrees/feature-agent-work-5f3a9c21/src/Api/bin/Debug/net10.0/Api.dll" }, 800);
+    await send({ kind: "output", line: `  Api -> ${path}/src/Api/bin/Debug/net10.0/Api.dll` }, 800);
   }
-  return { path: "/src/shop-api/.arnold/worktrees/feature-agent-work-5f3a9c21" };
+  return { path };
 }
 
 function publishUnusedOpens(uri: string, text: string) {
@@ -770,7 +771,11 @@ export function install() {
           console.info("devMock: would open", args.url);
           return null;
         case "prepare_workspace":
-          return fakePrepare((payload as { onEvent: Channel<SetupEvent> }).onEvent);
+          return fakePrepare(
+            (payload as { onEvent: Channel<SetupEvent> }).onEvent,
+            args.root,
+            (payload as { inPlace: boolean }).inPlace,
+          );
         case "lsp_start": {
           if (!fakeServer) throw new Error("No language server in the browser preview (add ?lsp for a stand-in).");
           serverDocs.clear();

@@ -55,7 +55,7 @@ Without a folder they open the current one. Terminals that were open during the 
    - *Pull request*: shown when a remote of the repository is on Azure DevOps. Pick one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
 3. **Review:** go through the files in the dock or the all-files list, and step through the changes with `F7`.
 
-Arnold remembers per repository what you reviewed last, and puts the window back where it was.
+A repository opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
 
 ## Reviewing a branch
 
@@ -147,7 +147,7 @@ As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. The file headers of the all-files view count the errors of every changed F# file.
 
-The language server needs the reviewed code on disk with its packages restored, so Arnold prepares a copy. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
+The language server needs the reviewed code on disk with its packages restored. For the branch checked out in the opened folder it runs right there; for any other branch or a pull request Arnold prepares a copy. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
 
 ![The F# language features popup: copying the commit, restoring, building, starting FsAutoComplete and loading projects](docs/screenshots/language.png)
 
@@ -156,7 +156,7 @@ How it works:
 - Arnold uses [FsAutoComplete](https://github.com/ionide/FsAutoComplete) (Apache-2.0), which is not bundled. The first time an F# file is shown, Arnold downloads the latest release from nuget.org into its own data folder, checks it against the SHA-512 hash NuGet publishes, and starts it. Nothing is installed globally.
 - After that it starts the installed copy straight away and, at most once a day, looks for a newer release in the background; a new one is used from the next start. Old versions are removed.
 - It needs the .NET SDK (8 or newer). The SDK the repository selects (`global.json`) decides which build of the server runs.
-- The server runs in a copy of the reviewed commit, in `.arnold/worktrees/<branch>`. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. A new commit updates the copy in place, so restore and build output are reused.
+- The server runs in the opened folder when the reviewed branch is checked out there, else in a copy of the reviewed commit in `.arnold/worktrees/<branch>`. Checking out another branch in the folder moves it to a copy. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. A new commit updates the copy in place, so restore and build output are reused.
 - The server stops when Arnold closes or you pick another branch.
 
 ## Keyboard shortcuts
@@ -177,7 +177,8 @@ Arnold never edits, resets, stages, commits or checks out. It writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
-- a copy of the reviewed commit for the language server, in `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`, and it is not a registered git worktree);
+- for the language server, when the reviewed branch is not the one checked out in the folder: a copy of the reviewed commit in `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`, and it is not a registered git worktree);
+- when the reviewed branch is checked out in the folder: the output of `dotnet restore` (and of building referenced non-F# projects, when needed) in its `obj` and `bin` folders, as building it yourself would;
 - to Azure DevOps, when you ask it to: new pull requests, comments, votes, and completing, abandoning, drafting or publishing a pull request.
 
 ## Status
@@ -215,7 +216,7 @@ npm install
 npm run tauri dev -- -- path/to/repository
 ```
 
-The path is optional; without it Arnold reopens the last repository, or use *Open repository…*.
+The path is optional; without it Arnold reopens the last repository, or use *Open repository…*. Either way it starts on the branch checked out there.
 
 Build the app, and on Windows its installers:
 

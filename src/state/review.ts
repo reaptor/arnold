@@ -68,8 +68,10 @@ export type ProjectLoad = "loading" | "loaded" | "failed";
 export interface LanguageSetup {
   commit: string;
   phase: SetupPhase;
-  /** The prepared copy the server runs in, once there is one. */
+  /** The folder the server runs in, once it is ready: the opened checkout or a prepared copy. */
   path: string | null;
+  /** The reviewed branch is checked out in the opened folder, so no copy is made. */
+  inPlace: boolean;
   steps: SetupStep[];
   /** Why features are off or may be incomplete. */
   problems: SetupProblem[];
@@ -318,7 +320,10 @@ export async function openRepoAt(path: string) {
     const remembered = JSON.parse(localStorage.getItem(`arnold.branches.${repo.root}`) ?? "{}");
     const has = (name: unknown) => repo.branches.some((branch) => branch.name === name);
     const base = has(remembered.base) ? remembered.base : (repo.defaultBranch ?? repo.branches[0]?.name ?? "");
-    const head = has(remembered.head) ? remembered.head : defaultHead(repo, base);
+    // The branch checked out in the folder, which needs no copy for the
+    // language server; another only when that one is the base (or detached).
+    const current = repo.currentBranch && repo.currentBranch !== base ? repo.currentBranch : null;
+    const head = current ?? (has(remembered.head) && remembered.head !== base ? remembered.head : defaultHead(repo, base));
     resetSessions();
     setState({ repo, base, head, source: "branches", pullRequest: null, range: null, comparison: null, selected: null });
     // The store's copy: a later repository replaces it.
@@ -326,7 +331,6 @@ export async function openRepoAt(path: string) {
     await pullRequests.loadRemotes(repo.root);
     if (opened !== state.repo) return;
     await setView("all");
-    if (await restorePullRequest(repo)) return;
     await refresh();
   } catch (error) {
     fail(error);
@@ -344,7 +348,6 @@ function defaultHead(repo: RepoInfo, base: string): string {
 export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
   setState({ ...change, source: "branches", range: null });
-  rememberSource();
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
     JSON.stringify({ base: state.base, head: state.head }),
@@ -357,25 +360,6 @@ export async function setBranches(change: { base?: string; head?: string }) {
 
 // ------------------------------------------------------------- pull requests
 
-/** Remembers, per repository, whether branches or a pull request (and which) were reviewed. */
-function rememberSource() {
-  if (!state.repo) return;
-  const pullRequest = state.pullRequest && { remote: state.pullRequest.remote, id: state.pullRequest.id };
-  localStorage.setItem(`arnold.source.${state.repo.root}`, JSON.stringify({ source: state.source, pullRequest }));
-}
-
-/** Reopens the pull request reviewed last time in `repo`, if it is still active. */
-async function restorePullRequest(repo: RepoInfo): Promise<boolean> {
-  const remembered = JSON.parse(localStorage.getItem(`arnold.source.${repo.root}`) ?? "{}");
-  if (remembered.source !== "pullRequest" || pullRequests.prs.remotes.length === 0) return false;
-  setState("source", "pullRequest");
-  void pullRequests.loadPullRequests();
-  const { remote, id } = remembered.pullRequest ?? {};
-  const known = pullRequests.prs.remotes.find((candidate) => candidate.remote === remote);
-  if (known?.token && typeof id === "number") await openPullRequest(remote, id, { quiet: true });
-  return true;
-}
-
 /**
  * Switches between reviewing two branches and reviewing a pull request.
  * Each keeps what was picked in it, so switching back shows that again.
@@ -384,7 +368,6 @@ export async function setSource(source: Source) {
   if (!state.repo || source === state.source) return;
   resetSessions();
   setState({ source, range: null, selected: null });
-  rememberSource();
   await setView("all");
   if (source === "pullRequest" && pullRequests.prs.list === null) void pullRequests.loadPullRequests();
   await refresh();
@@ -393,27 +376,23 @@ export async function setSource(source: Source) {
 /**
  * Reviews pull request `id` of `remote`: reads it and fetches its commits if
  * the repository lacks them, then compares them as a pull request does.
- * `quiet`: a pull request that is no longer active is not opened (restoring
- * the last one), and failing leaves no error banner.
  */
-export async function openPullRequest(remote: string, id: number, options: { quiet?: boolean } = {}) {
+export async function openPullRequest(remote: string, id: number) {
   const repo = state.repo;
   if (!repo) return;
   setState({ openingPullRequest: id, error: null });
   try {
     const pullRequest = await ipc.openPullRequest(repo.root, remote, id);
     if (repo !== state.repo || state.openingPullRequest !== id) return;
-    if (options.quiet && pullRequest.status !== "active") return;
     resetSessions();
     drafts.clear();
     setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
     setHostLinks(azureHostLinks(pullRequest.url));
-    rememberSource();
-    void loadThreads();
+      void loadThreads();
     await setView("all");
     await refresh();
   } catch (error) {
-    if (!options.quiet && repo === state.repo) fail(pullRequests.prErrorText(error));
+    if (repo === state.repo) fail(pullRequests.prErrorText(error));
   } finally {
     if (state.openingPullRequest === id) setState("openingPullRequest", null);
   }
@@ -423,7 +402,6 @@ export async function openPullRequest(remote: string, id: number, options: { qui
 export function closePullRequest() {
   resetSessions();
   setState({ pullRequest: null, range: null, selected: null });
-  rememberSource();
 }
 
 /** The two commits or branches compared, or null when nothing is picked yet. */
@@ -796,22 +774,37 @@ let preparedKey: string | null = null;
 let setupRun = 0;
 
 const setupKey = (repo: RepoInfo, comparison: Comparison) =>
-  `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}`;
+  `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}\n${checkedOutHere(repo, comparison)}`;
 
-/** The prepared copy of the reviewed commit, once a server may run there. */
+const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, "") === b.replace(/[\\/]+$/, "");
+
+/**
+ * The reviewed branch is the one checked out in the opened folder: the
+ * language server then runs there, without a copy. A pull request or any
+ * other branch gets a copy in `.arnold/worktrees`.
+ */
+function checkedOutHere(repo: RepoInfo, comparison: Comparison): boolean {
+  if (state.source !== "branches") return false;
+  const branch = repo.branches.find((candidate) => candidate.name === comparison.head && !candidate.isRemote);
+  return branch?.worktreePath != null && samePath(branch.worktreePath, repo.root);
+}
+
+/** The folder of the reviewed commit, once a server may run there. */
 function serverRoot(): string | null {
   const setup = state.languageSetup;
   return setup && setup.phase !== "preparing" && setup.phase !== "failed" ? setup.path : null;
 }
 
 /**
- * Gets F# language features going for the reviewed commit: a copy of it is
+ * Gets F# language features going for the reviewed commit: the opened
+ * checkout (when it has the reviewed branch) or a copy of the commit is
  * prepared (restored, built where needed), then FsAutoComplete starts there
  * and loads the projects. The diff can be used all along; editors get
  * language features once the server runs.
  */
 async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   preparedKey = setupKey(repo, comparison);
+  const inPlace = checkedOutHere(repo, comparison);
   const run = ++setupRun;
   const current = () => run === setupRun;
   await lsp.stop();
@@ -821,12 +814,21 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   setSetupOutput([]);
   setState({
     lspStatus: null,
-    languageSetup: { commit: comparison.tipCommit, phase: "preparing", path: null, steps: [], problems: [], projects: {}, currentProject: null },
+    languageSetup: {
+      commit: comparison.tipCommit,
+      phase: "preparing",
+      path: null,
+      inPlace,
+      steps: [],
+      problems: [],
+      projects: {},
+      currentProject: null,
+    },
   });
 
   let prepared: { path: string | null };
   try {
-    prepared = await ipc.prepareWorkspace(repo.root, reviewedName(comparison), comparison.tipCommit, (event) => {
+    prepared = await ipc.prepareWorkspace(repo.root, reviewedName(comparison), comparison.tipCommit, inPlace, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {

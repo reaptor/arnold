@@ -1,7 +1,8 @@
-//! Prepares the reviewed commit for the F# language server: its files copied
-//! to `.arnold/worktrees/<branch>` in the checkout (ignored by git, and not a
-//! registered worktree), then
-//! restored, and built only where FsAutoComplete needs compiled assemblies.
+//! Prepares the reviewed commit for the F# language server: restored, and
+//! built only where FsAutoComplete needs compiled assemblies. The branch
+//! checked out in the opened folder is prepared right there; any other is
+//! first copied to `.arnold/worktrees/<branch>` in the checkout (ignored by
+//! git, and not a registered worktree).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -45,9 +46,10 @@ pub struct Prepared {
     path: Option<PathBuf>,
 }
 
-/// Copies `commit` (the tip of branch `head`) of the repository at `root`
-/// into its `.arnold/worktrees` folder
-/// and gets it ready for FsAutoComplete. Steps are reported on `on_event`.
+/// Gets `commit` (the tip of branch `head`) of the repository at `root`
+/// ready for FsAutoComplete: with `in_place` (`head` is checked out in
+/// `root`) in `root` itself, else in a copy in its `.arnold/worktrees`
+/// folder. Steps are reported on `on_event`.
 /// Starting another preparation stops this one, which then fails with
 /// "cancelled".
 #[tauri::command]
@@ -55,6 +57,7 @@ pub async fn prepare_workspace(
     root: String,
     head: String,
     commit: String,
+    in_place: bool,
     on_event: Channel<SetupEvent>,
     app_state: State<'_, AppState>,
     prepare_state: State<'_, PrepareState>,
@@ -70,7 +73,7 @@ pub async fn prepare_workspace(
             let _ = previous.await;
         }
         *job = Some(tokio::spawn(async move {
-            let _ = sender.send(prepare(&root, &head, &commit, &on_event).await);
+            let _ = sender.send(prepare(&root, &head, &commit, in_place, &on_event).await);
         }));
     }
     let prepared = receiver.await.map_err(|_| "cancelled".to_string())??;
@@ -80,7 +83,7 @@ pub async fn prepare_workspace(
     Ok(prepared)
 }
 
-async fn prepare(root: &Path, head: &str, commit: &str, events: &Channel<SetupEvent>) -> Result<Prepared, String> {
+async fn prepare(root: &Path, head: &str, commit: &str, in_place: bool, events: &Channel<SetupEvent>) -> Result<Prepared, String> {
     let emit = |event: SetupEvent| {
         let _ = events.send(event);
     };
@@ -100,17 +103,24 @@ async fn prepare(root: &Path, head: &str, commit: &str, events: &Channel<SetupEv
         return Ok(Prepared { path: None });
     };
 
-    let Folders { checkout, state } = folders_for(root, head).await?;
-    emit(SetupEvent::Step {
-        title: format!(
-            "Copying {} to {}",
-            &commit[..commit.len().min(8)],
-            checkout.strip_prefix(root).unwrap_or(&checkout).display()
-        ),
-    });
-    arnold_git::export_commit(root, commit, &checkout, &state.join("index"))
-        .await
-        .map_err(|e| e.to_string())?;
+    let (checkout, state) = if in_place {
+        let state = state_folder(root, IN_PLACE).await?;
+        std::fs::create_dir_all(&state).map_err(|e| e.to_string())?;
+        (root.to_path_buf(), state)
+    } else {
+        let Folders { checkout, state } = folders_for(root, head).await?;
+        emit(SetupEvent::Step {
+            title: format!(
+                "Copying {} to {}",
+                &commit[..commit.len().min(8)],
+                checkout.strip_prefix(root).unwrap_or(&checkout).display()
+            ),
+        });
+        arnold_git::export_commit(root, commit, &checkout, &state.join("index"))
+            .await
+            .map_err(|e| e.to_string())?;
+        (checkout, state)
+    };
     // The server reports resolved paths (the repository may be opened through a symlink).
     // Not `std` canonicalize: on Windows that gives `\\?\C:\…`, which becomes a
     // root URI FsAutoComplete cannot load, so it never finishes loading.
@@ -211,6 +221,15 @@ async fn folders_for(root: &Path, head: &str) -> Result<Folders, String> {
         checkout: folder.join("worktrees").join(&name),
         state: folder.join("state").join(name),
     })
+}
+
+/// State folder of the opened checkout itself; branch folders always end in
+/// a hash, so it cannot clash with one.
+const IN_PLACE: &str = "checkout";
+
+async fn state_folder(root: &Path, name: &str) -> Result<PathBuf, String> {
+    let folder = arnold_git::app_folder(root).await.map_err(|e| e.to_string())?;
+    Ok(folder.join("state").join(name))
 }
 
 /// A name safe in a path on every platform.

@@ -113,6 +113,9 @@ pub fn session_config() -> SessionConfig {
             "AutomaticWorkspaceInit": true,
             // Off by default; reported as hints tagged "unnecessary".
             "UnusedOpensAnalyzer": true,
+            // FsAutoComplete's own list, plus Arnold's copies of other
+            // branches when it runs in the opened checkout itself.
+            "ExcludeProjectDirectories": [".git", "paket-files", ".fable", "packages", "node_modules", ".arnold"],
         }),
     }
 }

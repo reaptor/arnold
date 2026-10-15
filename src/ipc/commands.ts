@@ -321,15 +321,22 @@ export type SetupEvent =
   | { kind: "warning"; text: string };
 
 /**
- * Copies `commit` (the tip of `head`) to a folder of the app's own and
- * restores, and where needed builds, what the F# language server needs.
- * Resolves to that folder, or null when the commit has no F# projects.
+ * Restores, and where needed builds, what the F# language server needs for
+ * `commit` (the tip of `head`): with `inPlace` (`head` is checked out in
+ * `root`) in `root` itself, else in a copy in `root`'s `.arnold/worktrees`.
+ * Resolves to the folder, or null when the commit has no F# projects.
  * Starting another preparation makes this one fail with "cancelled".
  */
-export function prepareWorkspace(root: string, head: string, commit: string, onEvent: (event: SetupEvent) => void) {
+export function prepareWorkspace(
+  root: string,
+  head: string,
+  commit: string,
+  inPlace: boolean,
+  onEvent: (event: SetupEvent) => void,
+) {
   const channel = new Channel<SetupEvent>();
   channel.onmessage = onEvent;
-  return invoke<{ path: string | null }>("prepare_workspace", { root, head, commit, onEvent: channel });
+  return invoke<{ path: string | null }>("prepare_workspace", { root, head, commit, inPlace, onEvent: channel });
 }
 
 export type LspEvent =

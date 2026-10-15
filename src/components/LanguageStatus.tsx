@@ -72,7 +72,11 @@ export function LanguageStatus() {
       case "failed":
         return "Keep reviewing: the diff works as usual, but hover, go to definition and error markers are off for this commit.";
       default:
-        return "Arnold copies the reviewed commit to .arnold/worktrees in the repository folder (git does not see it) and does only what FsAutoComplete needs there: restoring packages, and building projects in other languages that F# code uses. Keep reviewing meanwhile; hover, go to definition and error markers appear once this is done.";
+        return `${
+          state.languageSetup?.inPlace
+            ? "The reviewed branch is checked out in the opened folder, so FsAutoComplete runs there. Arnold"
+            : "Arnold copies the reviewed commit to .arnold/worktrees in the repository folder (git does not see it) and"
+        } does only what FsAutoComplete needs there: restoring packages, and building projects in other languages that F# code uses. Keep reviewing meanwhile; hover, go to definition and error markers appear once this is done.`;
     }
   };
 
