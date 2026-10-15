@@ -5,22 +5,27 @@ import {
   goBack,
   nextChange,
   previousChange,
-  refresh,
+  refreshAll,
   setBranches,
   setRange,
   setMode,
+  setSource,
   setView,
   state,
 } from "../state/review";
+import { prs } from "../state/pullRequests";
 import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
+import { PullRequestPicker } from "./PullRequestPicker";
 import {
   ArrowDownIcon,
+  BranchIcon,
   ArrowUpIcon,
   BackIcon,
   FileIcon,
   FilesIcon,
+  PullRequestIcon,
   RefreshIcon,
   SplitIcon,
   UnifiedIcon,
@@ -55,30 +60,57 @@ export function Toolbar() {
       <Show when={state.repo}>
         {(repo) => (
           <>
-            <BranchPicker
-              label="Branch to review"
-              value={state.head}
-              branches={repo().branches}
-              onChange={(head) => setBranches({ head })}
-            />
-            <span class="toolbar-word">against</span>
-            <BranchPicker
-              label="Base branch"
-              value={state.base}
-              branches={repo().branches}
-              onChange={(base) => setBranches({ base })}
-            />
-            <span class="toolbar-separator" />
-            <CommitPicker
-              commits={state.comparison?.commits ?? []}
-              value={state.range}
-              onChange={(range) => void setRange(range)}
-            />
+            <Show when={prs.remotes.length > 0}>
+              <div class="segmented source-switch" role="group" aria-label="What to review">
+                <button
+                  classList={{ on: state.source === "branches" }}
+                  onClick={() => void setSource("branches")}
+                  title="Compare a branch against a base branch"
+                >
+                  <BranchIcon />
+                  <span>Branches</span>
+                </button>
+                <button
+                  classList={{ on: state.source === "pullRequest" }}
+                  onClick={() => void setSource("pullRequest")}
+                  title="Review an active pull request from Azure DevOps"
+                >
+                  <PullRequestIcon />
+                  <span>Pull request</span>
+                </button>
+              </div>
+            </Show>
+            <Show
+              when={state.source === "branches"}
+              fallback={<PullRequestPicker />}
+            >
+              <BranchPicker
+                label="Branch to review"
+                value={state.head}
+                branches={repo().branches}
+                onChange={(head) => setBranches({ head })}
+              />
+              <span class="toolbar-word">against</span>
+              <BranchPicker
+                label="Base branch"
+                value={state.base}
+                branches={repo().branches}
+                onChange={(base) => setBranches({ base })}
+              />
+            </Show>
+            <Show when={state.source === "branches" || state.pullRequest}>
+              <span class="toolbar-separator" />
+              <CommitPicker
+                commits={state.comparison?.commits ?? []}
+                value={state.range}
+                onChange={(range) => void setRange(range)}
+              />
+            </Show>
           </>
         )}
       </Show>
       <span class="toolbar-space" />
-      <Show when={state.repo}>
+      <Show when={state.repo && (state.source === "branches" || state.pullRequest)}>
         <Show when={state.backCount > 0}>
           <button class="icon-button" onClick={() => goBack()} title="Back to where you jumped from">
             <BackIcon />
@@ -125,7 +157,11 @@ export function Toolbar() {
         <button class="icon-button" onClick={nextChange} title="Next change (F7)">
           <ArrowDownIcon />
         </button>
-        <button class="icon-button" onClick={() => refresh()} title="Refresh the comparison">
+        <button
+          class="icon-button"
+          onClick={() => void refreshAll()}
+          title={state.source === "pullRequest" ? "Refresh: new pushes to the pull request and the list of pull requests" : "Refresh the comparison"}
+        >
           <RefreshIcon />
         </button>
       </Show>

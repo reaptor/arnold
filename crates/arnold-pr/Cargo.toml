@@ -1,0 +1,13 @@
+[package]
+name = "arnold-pr"
+version.workspace = true
+edition.workspace = true
+description = "Pull requests from code hosts (Azure DevOps) for Arnold"
+
+[dependencies]
+base64 = "0.22"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq = "3"

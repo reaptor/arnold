@@ -1,0 +1,454 @@
+//! Azure DevOps Services (dev.azure.com, *.visualstudio.com) and Azure DevOps
+//! Server: recognizing their remotes and reading active pull requests with a
+//! personal access token.
+
+use std::time::Duration;
+
+use base64::Engine;
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::{PrError, PullRequest, Reviewer, Vote};
+
+/// A repository hosted on Azure DevOps.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureRepo {
+    /// `https://dev.azure.com/contoso`, or a server's collection URL such as
+    /// `https://tfs.example.com/tfs/DefaultCollection`.
+    pub collection_url: String,
+    /// The organization (or the server's collection), for display.
+    pub organization: String,
+    /// Project and repository as they appear in URLs (percent-encoded).
+    pub project: String,
+    pub repository: String,
+}
+
+impl AzureRepo {
+    /// The repository's page, which is also its HTTPS clone URL.
+    pub fn web_url(&self) -> String {
+        format!("{}/{}/_git/{}", self.collection_url, self.project, self.repository)
+    }
+
+    pub fn pull_request_url(&self, id: u64) -> String {
+        format!("{}/pullrequest/{id}", self.web_url())
+    }
+
+    /// Where a personal access token is created.
+    pub fn token_settings_url(&self) -> String {
+        format!("{}/_usersSettings/tokens", self.collection_url)
+    }
+
+    /// A token works for one organization, so it is saved per organization.
+    pub fn token_key(&self) -> String {
+        format!("azure-devops:{}", self.collection_url.to_lowercase())
+    }
+
+    /// `contoso / Shop / shop-api`.
+    pub fn display_name(&self) -> String {
+        format!(
+            "{} / {} / {}",
+            self.organization,
+            percent_decode(&self.project),
+            percent_decode(&self.repository)
+        )
+    }
+
+    fn api(&self, path: &str) -> String {
+        format!(
+            "{}/{}/_apis/git/repositories/{}{path}",
+            self.collection_url, self.project, self.repository
+        )
+    }
+}
+
+/// The Azure DevOps repository a remote URL points at, if it is one.
+///
+/// Understood: `https://[user@]dev.azure.com/org/project/_git/repo`,
+/// `https://org.visualstudio.com/[DefaultCollection/]project/_git/repo`,
+/// `git@ssh.dev.azure.com:v3/org/project/repo`,
+/// `org@vs-ssh.visualstudio.com:v3/org/project/repo` (also as `ssh://`), and
+/// a server's `https://host/[path/]collection/project/_git/repo`. A URL
+/// without the project (`…/org/_git/repo`) means the project has the
+/// repository's name.
+pub fn parse_remote_url(url: &str) -> Option<AzureRepo> {
+    let url = url.trim();
+    if let Some(repo) = parse_ssh(url) {
+        return Some(repo);
+    }
+    let (scheme, rest) = url.split_once("://")?;
+    if scheme != "https" && scheme != "http" {
+        return None;
+    }
+    let (authority, path) = rest.split_once('/')?;
+    // Drop `user@` (and any password) in front of the host.
+    let host = authority.rsplit('@').next()?.to_lowercase();
+    let segments: Vec<&str> = path
+        .split(['?', '#'])
+        .next()?
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let at = segments.iter().position(|segment| *segment == "_git")?;
+    let mut repository = *segments.get(at + 1)?;
+    // `_git/_optimized/repo` and `_git/_full/repo` are other views of the same repository.
+    if matches!(repository, "_optimized" | "_full") {
+        repository = segments.get(at + 2)?;
+    }
+    let repository = repository.strip_suffix(".git").unwrap_or(repository).to_string();
+    let before = &segments[..at];
+
+    if host == "dev.azure.com" {
+        let organization = before.first()?.to_string();
+        let project = before.get(1).map_or_else(|| repository.clone(), |p| p.to_string());
+        return Some(services(organization, project, repository));
+    }
+    if let Some(organization) = host.strip_suffix(".visualstudio.com") {
+        let before = match before.first() {
+            Some(first) if first.eq_ignore_ascii_case("DefaultCollection") => &before[1..],
+            _ => before,
+        };
+        let project = before.last().map_or_else(|| repository.clone(), |p| p.to_string());
+        return Some(services(organization.to_string(), project, repository));
+    }
+    // Azure DevOps Server: …/collection/project/_git/repo.
+    let (project, collection) = before.split_last()?;
+    let organization = percent_decode(collection.last()?);
+    Some(AzureRepo {
+        collection_url: format!("{scheme}://{host}/{}", collection.join("/")),
+        organization,
+        project: project.to_string(),
+        repository,
+    })
+}
+
+fn services(organization: String, project: String, repository: String) -> AzureRepo {
+    AzureRepo {
+        // visualstudio.com organizations answer on dev.azure.com too, so a
+        // token is shared between remotes written either way.
+        collection_url: format!("https://dev.azure.com/{organization}"),
+        organization,
+        project,
+        repository,
+    }
+}
+
+fn parse_ssh(url: &str) -> Option<AzureRepo> {
+    // `ssh://git@ssh.dev.azure.com/v3/…` or the scp-like `git@ssh.dev.azure.com:v3/…`.
+    let (host, path) = match url.strip_prefix("ssh://") {
+        Some(rest) => {
+            let (authority, path) = rest.split_once('/')?;
+            (authority.rsplit('@').next()?, path)
+        }
+        None => {
+            let (authority, path) = url.split_once(':')?;
+            if authority.contains('/') {
+                return None;
+            }
+            (authority.rsplit('@').next()?, path)
+        }
+    };
+    let host = host.split(':').next()?.to_lowercase();
+    if host != "ssh.dev.azure.com" && host != "vs-ssh.visualstudio.com" {
+        return None;
+    }
+    let mut segments = path.trim_matches('/').split('/');
+    if segments.next()? != "v3" {
+        return None;
+    }
+    let organization = segments.next()?.to_string();
+    let project = segments.next()?.to_string();
+    let repository = segments.next()?;
+    let repository = repository.strip_suffix(".git").unwrap_or(repository).to_string();
+    Some(services(organization, project, repository))
+}
+
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok());
+        match (bytes[i], hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            (byte, _) => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+// ------------------------------------------------------------------- the API
+
+/// Older servers do not know newer versions; this one is in every Azure
+/// DevOps Server since 2020.
+const API_VERSION: &str = "6.0";
+
+/// The value of an `Authorization` header for a personal access token:
+/// basic authentication with an empty user name. Git takes the same.
+pub fn authorization(token: &str) -> String {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(format!(":{token}"));
+    format!("Basic {encoded}")
+}
+
+/// The active pull requests of `repo`, newest first.
+pub fn active_pull_requests(repo: &AzureRepo, token: &str) -> Result<Vec<PullRequest>, PrError> {
+    let url = repo.api(&format!(
+        "/pullrequests?searchCriteria.status=active&$top=500&api-version={API_VERSION}"
+    ));
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(list.iter().filter_map(|value| parse_pull_request(value, repo)).collect())
+}
+
+/// One pull request of `repo`, whatever its state.
+pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullRequest, PrError> {
+    let url = repo.api(&format!("/pullrequests/{id}?api-version={API_VERSION}"));
+    let body = get(&url, token)?;
+    parse_pull_request(&body, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_global(Some(Duration::from_secs(60)))
+        // Status codes are told apart below.
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+fn get(url: &str, token: &str) -> Result<Value, PrError> {
+    let mut response = agent()
+        .get(url)
+        .header("Authorization", authorization(token))
+        .header("Accept", "application/json")
+        // Without it a bad token gets a sign-in page (status 203) instead of a 401.
+        .header("X-TFS-FedAuthRedirect", "Suppress")
+        .call()
+        .map_err(|e| PrError::Network(format!("Could not reach Azure DevOps: {e}")))?;
+    let status = response.status().as_u16();
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| PrError::Network(format!("Could not read the answer from Azure DevOps: {e}")))?;
+    classify(status, &text)
+}
+
+fn classify(status: u16, text: &str) -> Result<Value, PrError> {
+    let json: Option<Value> = serde_json::from_str(text).ok();
+    let message = json
+        .as_ref()
+        .and_then(|value| value["message"].as_str())
+        .unwrap_or_default()
+        .to_string();
+    match (status, json) {
+        (200, Some(value)) => Ok(value),
+        // A sign-in page instead of JSON: the token was not accepted.
+        (200 | 203 | 401 | 403, _) => Err(PrError::TokenRejected(message)),
+        (404, _) => Err(PrError::NotFound(if message.is_empty() {
+            "Azure DevOps does not know this repository, or the token has no access to it.".into()
+        } else {
+            message
+        })),
+        (status, _) => Err(PrError::Other(format!(
+            "Azure DevOps answered with status {status}{}",
+            if message.is_empty() { String::new() } else { format!(": {message}") }
+        ))),
+    }
+}
+
+fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
+    let id = value["pullRequestId"].as_u64()?;
+    let text = |value: &Value| value.as_str().unwrap_or_default().to_string();
+    let branch = |value: &Value| {
+        let name = value.as_str().unwrap_or_default();
+        name.strip_prefix("refs/heads/").unwrap_or(name).to_string()
+    };
+    let commit = |value: &Value| value["commitId"].as_str().map(str::to_string);
+    let reviewers = value["reviewers"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|reviewer| Reviewer {
+                    name: text(&reviewer["displayName"]),
+                    vote: match reviewer["vote"].as_i64().unwrap_or(0) {
+                        10 => Vote::Approved,
+                        5 => Vote::ApprovedWithSuggestions,
+                        -5 => Vote::WaitingForAuthor,
+                        -10 => Vote::Rejected,
+                        _ => Vote::None,
+                    },
+                    group: reviewer["isContainer"].as_bool().unwrap_or(false),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(PullRequest {
+        id,
+        title: text(&value["title"]),
+        description: text(&value["description"]),
+        author: text(&value["createdBy"]["displayName"]),
+        created: text(&value["creationDate"]),
+        draft: value["isDraft"].as_bool().unwrap_or(false),
+        status: text(&value["status"]),
+        source_branch: branch(&value["sourceRefName"]),
+        target_branch: branch(&value["targetRefName"]),
+        source_commit: commit(&value["lastMergeSourceCommit"]),
+        target_commit: commit(&value["lastMergeTargetCommit"]),
+        url: repo.pull_request_url(id),
+        reviewers,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repo(collection_url: &str, organization: &str, project: &str, repository: &str) -> Option<AzureRepo> {
+        Some(AzureRepo {
+            collection_url: collection_url.into(),
+            organization: organization.into(),
+            project: project.into(),
+            repository: repository.into(),
+        })
+    }
+
+    #[test]
+    fn recognizes_services_urls() {
+        let expected = repo("https://dev.azure.com/contoso", "contoso", "Shop", "shop-api");
+        for url in [
+            "https://dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://contoso@dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://contoso@dev.azure.com/contoso/Shop/_git/shop-api/",
+            "https://contoso.visualstudio.com/Shop/_git/shop-api",
+            "https://contoso.visualstudio.com/DefaultCollection/Shop/_git/shop-api",
+            "https://contoso.visualstudio.com/Shop/_git/_optimized/shop-api",
+            "git@ssh.dev.azure.com:v3/contoso/Shop/shop-api",
+            "ssh://git@ssh.dev.azure.com/v3/contoso/Shop/shop-api",
+            "contoso@vs-ssh.visualstudio.com:v3/contoso/Shop/shop-api",
+            "ssh://contoso@vs-ssh.visualstudio.com:22/v3/contoso/Shop/shop-api",
+        ] {
+            assert_eq!(parse_remote_url(url), expected, "{url}");
+        }
+    }
+
+    #[test]
+    fn project_defaults_to_repository_and_names_stay_encoded() {
+        assert_eq!(
+            parse_remote_url("https://dev.azure.com/contoso/_git/Shop"),
+            repo("https://dev.azure.com/contoso", "contoso", "Shop", "Shop")
+        );
+        let spaced = parse_remote_url("https://dev.azure.com/contoso/My%20Shop/_git/Web%20App").unwrap();
+        assert_eq!(spaced.web_url(), "https://dev.azure.com/contoso/My%20Shop/_git/Web%20App");
+        assert_eq!(spaced.display_name(), "contoso / My Shop / Web App");
+    }
+
+    #[test]
+    fn recognizes_server_urls() {
+        assert_eq!(
+            parse_remote_url("https://tfs.example.com/tfs/DefaultCollection/Shop/_git/shop-api"),
+            repo("https://tfs.example.com/tfs/DefaultCollection", "DefaultCollection", "Shop", "shop-api")
+        );
+        // Not enough to tell the collection from the project.
+        assert_eq!(parse_remote_url("https://tfs.example.com/_git/shop-api"), None);
+    }
+
+    #[test]
+    fn ignores_other_hosts() {
+        for url in [
+            "https://github.com/reaptor/arnold.git",
+            "git@github.com:reaptor/arnold.git",
+            "/local/path/repo",
+            "file:///local/path/repo",
+            "git@ssh.dev.azure.com:v2/contoso/Shop/shop-api",
+        ] {
+            assert_eq!(parse_remote_url(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn builds_urls_and_keys() {
+        let repo = parse_remote_url("https://contoso.visualstudio.com/Shop/_git/shop-api").unwrap();
+        assert_eq!(repo.token_settings_url(), "https://dev.azure.com/contoso/_usersSettings/tokens");
+        assert_eq!(repo.token_key(), "azure-devops:https://dev.azure.com/contoso");
+        assert_eq!(repo.pull_request_url(7), "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/7");
+        assert_eq!(
+            repo.api("/pullrequests"),
+            "https://dev.azure.com/contoso/Shop/_apis/git/repositories/shop-api/pullrequests"
+        );
+        assert_eq!(authorization("abc"), "Basic OmFiYw==");
+    }
+
+    #[test]
+    fn tells_errors_apart() {
+        assert!(classify(200, "{\"value\":[]}").is_ok());
+        assert!(matches!(classify(203, "<html>sign in</html>"), Err(PrError::TokenRejected(_))));
+        assert!(matches!(classify(200, "<html>sign in</html>"), Err(PrError::TokenRejected(_))));
+        assert_eq!(
+            classify(401, "{\"message\":\"TF400813: not authorized\"}"),
+            Err(PrError::TokenRejected("TF400813: not authorized".into()))
+        );
+        assert!(matches!(classify(404, ""), Err(PrError::NotFound(_))));
+        assert_eq!(
+            classify(500, "{\"message\":\"boom\"}"),
+            Err(PrError::Other("Azure DevOps answered with status 500: boom".into()))
+        );
+    }
+
+    /// Against the real service: `cargo test -p arnold-pr -- --ignored`.
+    #[test]
+    #[ignore = "talks to dev.azure.com"]
+    fn live_service_turns_down_a_bogus_token() {
+        let repo = parse_remote_url("https://dev.azure.com/microsoft/OS/_git/os").unwrap();
+        let result = active_pull_requests(&repo, "not-a-real-token");
+        assert!(matches!(result, Err(PrError::TokenRejected(_))), "{result:?}");
+    }
+
+    #[test]
+    fn parses_a_pull_request() {
+        let repo = parse_remote_url("https://dev.azure.com/contoso/Shop/_git/shop-api").unwrap();
+        let value: Value = serde_json::from_str(
+            r#"{
+              "pullRequestId": 42,
+              "title": "Add loyalty discount",
+              "description": "Customers who return get 10%.",
+              "createdBy": { "displayName": "Ada Lovelace", "uniqueName": "ada@contoso.com" },
+              "creationDate": "2026-10-14T08:30:00Z",
+              "isDraft": true,
+              "status": "active",
+              "sourceRefName": "refs/heads/feature/loyalty",
+              "targetRefName": "refs/heads/main",
+              "lastMergeSourceCommit": { "commitId": "aaaa" },
+              "lastMergeTargetCommit": { "commitId": "bbbb" },
+              "reviewers": [
+                { "displayName": "Bo", "vote": 10 },
+                { "displayName": "[Shop]\\Shop Team", "vote": 0, "isContainer": true },
+                { "displayName": "Cy", "vote": -5 }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let pr = parse_pull_request(&value, &repo).unwrap();
+        assert_eq!(pr.id, 42);
+        assert_eq!(pr.author, "Ada Lovelace");
+        assert!(pr.draft);
+        assert_eq!(pr.status, "active");
+        assert_eq!(pr.source_branch, "feature/loyalty");
+        assert_eq!(pr.target_branch, "main");
+        assert_eq!(pr.source_commit.as_deref(), Some("aaaa"));
+        assert_eq!(pr.target_commit.as_deref(), Some("bbbb"));
+        assert_eq!(pr.url, "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/42");
+        assert_eq!(
+            pr.reviewers.iter().map(|r| (r.vote, r.group)).collect::<Vec<_>>(),
+            vec![(Vote::Approved, false), (Vote::None, true), (Vote::WaitingForAuthor, false)]
+        );
+    }
+}

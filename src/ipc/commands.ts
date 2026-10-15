@@ -76,7 +76,7 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     trace("ok");
     return result;
   } catch (error) {
-    trace(`FAILED ${error}`);
+    trace(`FAILED ${typeof error === "object" ? JSON.stringify(error) : error}`);
     throw error;
   }
 }
@@ -105,6 +105,71 @@ export const readFilePair = (root: string, comparison: Comparison, file: Changed
     path: file.path,
     oldPath: file.oldPath,
   });
+
+// ------------------------------------------------------------ pull requests
+
+/** Where a personal access token comes from: saved from Arnold, or the environment variable. */
+export type TokenSource = "keychain" | "environment";
+
+/** A remote of the repository whose pull requests Arnold can list. */
+export interface PrRemote {
+  /** The git remote's name (`origin`). */
+  remote: string;
+  provider: "azureDevOps";
+  /** `contoso / Shop / shop-api`. */
+  name: string;
+  organization: string;
+  webUrl: string;
+  /** Where a personal access token is created. */
+  tokenSettingsUrl: string;
+  token: TokenSource | null;
+}
+
+export type Vote = "approved" | "approvedWithSuggestions" | "none" | "waitingForAuthor" | "rejected";
+
+export interface PullRequest {
+  id: number;
+  title: string;
+  description: string;
+  author: string;
+  /** ISO 8601. */
+  created: string;
+  draft: boolean;
+  status: string;
+  sourceBranch: string;
+  targetBranch: string;
+  /** What the host last compared; null while it is still working on a new push. */
+  sourceCommit: string | null;
+  targetCommit: string | null;
+  /** The pull request's page on the host. */
+  url: string;
+  reviewers: { name: string; vote: Vote; group: boolean }[];
+}
+
+/** How the pull request commands fail. */
+export type PrError =
+  | { kind: "noToken" }
+  | { kind: "tokenRejected" | "notFound" | "network" | "other"; message: string };
+
+export const isPrError = (error: unknown): error is PrError =>
+  typeof error === "object" && error !== null && "kind" in error;
+
+export const pullRequestRemotes = (root: string) => invoke<PrRemote[]>("pull_request_remotes", { root });
+
+export const listPullRequests = (root: string, remote: string) =>
+  invoke<PullRequest[]>("list_pull_requests", { root, remote });
+
+/** Checks the token with the host and, if it works, saves it. Resolves to the active pull requests. */
+export const setPullRequestToken = (root: string, remote: string, token: string) =>
+  invoke<PullRequest[]>("set_pull_request_token", { root, remote, token });
+
+/** Resolves to where a token still comes from (the environment), if anywhere. */
+export const removePullRequestToken = (root: string, remote: string) =>
+  invoke<TokenSource | null>("remove_pull_request_token", { root, remote });
+
+/** Reads the pull request and fetches its commits into the repository if they are missing. */
+export const openPullRequest = (root: string, remote: string, id: number) =>
+  invoke<PullRequest>("open_pull_request", { root, remote, id });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());

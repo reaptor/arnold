@@ -4,6 +4,7 @@
 mod commands;
 mod fsio;
 mod lsp;
+mod pull_requests;
 mod watcher;
 mod workspace;
 
@@ -13,6 +14,7 @@ use tauri_plugin_window_state::StateFlags;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         // Reopens the window where it was, maximized if it was. The window
         // starts hidden (tauri.conf.json) and the plugin shows it once placed,
         // so it does not flash at the default size first.
@@ -49,6 +51,7 @@ fn main() {
         .manage(commands::AppState::default())
         .manage(lsp::LspState::default())
         .manage(workspace::PrepareState::default())
+        .manage(pull_requests::PrState::default())
         .invoke_handler(tauri::generate_handler![
             commands::dev_trace,
             commands::startup_path,
@@ -56,6 +59,11 @@ fn main() {
             commands::compare_branches,
             commands::list_files,
             commands::read_file_pair,
+            pull_requests::pull_request_remotes,
+            pull_requests::list_pull_requests,
+            pull_requests::set_pull_request_token,
+            pull_requests::remove_pull_request_token,
+            pull_requests::open_pull_request,
             workspace::prepare_workspace,
             lsp::lsp_start,
             lsp::lsp_send,

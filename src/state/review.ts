@@ -14,10 +14,26 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, CommitRange, Comparison, FilePair, FileStatus, RepoInfo, SetupEvent } from "../ipc/commands";
+import type {
+  ChangedFile,
+  CommitRange,
+  Comparison,
+  FilePair,
+  FileStatus,
+  PullRequest,
+  RepoInfo,
+  SetupEvent,
+} from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
+import * as pullRequests from "./pullRequests";
+
+/** What is reviewed: one branch against another, or a pull request of the repository's code host. */
+export type Source = "branches" | "pullRequest";
+
+/** A pull request picked for review, with the remote it came from. */
+export type ReviewedPullRequest = PullRequest & { remote: string };
 
 /** One file at a time, or every file of the diff in one scrolling list. */
 export type ViewMode = "file" | "all";
@@ -59,8 +75,14 @@ export interface LanguageSetup {
 
 interface State {
   repo: RepoInfo | null;
+  source: Source;
+  /** Branches compared when `source` is "branches". */
   base: string;
   head: string;
+  /** Reviewed when `source` is "pullRequest"; null until one is picked. */
+  pullRequest: ReviewedPullRequest | null;
+  /** The pull request being opened (read, its commits fetched), by id. */
+  openingPullRequest: number | null;
   /** The commits of `head` being shown, or null for all of its changes. */
   range: CommitRange | null;
   comparison: Comparison | null;
@@ -96,8 +118,11 @@ interface State {
 
 export const [state, setState] = createStore<State>({
   repo: null,
+  source: "branches",
   base: "",
   head: "",
+  pullRequest: null,
+  openingPullRequest: null,
   range: null,
   comparison: null,
   visited: [],
@@ -251,8 +276,13 @@ export async function openRepoAt(path: string) {
     const base = has(remembered.base) ? remembered.base : (repo.defaultBranch ?? repo.branches[0]?.name ?? "");
     const head = has(remembered.head) ? remembered.head : defaultHead(repo, base);
     resetSessions();
-    setState({ repo, base, head, range: null, comparison: null, selected: null });
+    setState({ repo, base, head, source: "branches", pullRequest: null, range: null, comparison: null, selected: null });
+    // The store's copy: a later repository replaces it.
+    const opened = state.repo;
+    await pullRequests.loadRemotes(repo.root);
+    if (opened !== state.repo) return;
     await setView("all");
+    if (await restorePullRequest(repo)) return;
     await refresh();
   } catch (error) {
     fail(error);
@@ -269,7 +299,8 @@ function defaultHead(repo: RepoInfo, base: string): string {
 
 export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
-  setState({ ...change, range: null });
+  setState({ ...change, source: "branches", range: null });
+  rememberSource();
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
     JSON.stringify({ base: state.base, head: state.head }),
@@ -279,6 +310,118 @@ export async function setBranches(change: { base?: string; head?: string }) {
   await setView("all");
   await refresh();
 }
+
+// ------------------------------------------------------------- pull requests
+
+/** Remembers, per repository, whether branches or a pull request (and which) were reviewed. */
+function rememberSource() {
+  if (!state.repo) return;
+  const pullRequest = state.pullRequest && { remote: state.pullRequest.remote, id: state.pullRequest.id };
+  localStorage.setItem(`arnold.source.${state.repo.root}`, JSON.stringify({ source: state.source, pullRequest }));
+}
+
+/** Reopens the pull request reviewed last time in `repo`, if it is still active. */
+async function restorePullRequest(repo: RepoInfo): Promise<boolean> {
+  const remembered = JSON.parse(localStorage.getItem(`arnold.source.${repo.root}`) ?? "{}");
+  if (remembered.source !== "pullRequest" || pullRequests.prs.remotes.length === 0) return false;
+  setState("source", "pullRequest");
+  void pullRequests.loadPullRequests();
+  const { remote, id } = remembered.pullRequest ?? {};
+  const known = pullRequests.prs.remotes.find((candidate) => candidate.remote === remote);
+  if (known?.token && typeof id === "number") await openPullRequest(remote, id, { quiet: true });
+  return true;
+}
+
+/**
+ * Switches between reviewing two branches and reviewing a pull request.
+ * Each keeps what was picked in it, so switching back shows that again.
+ */
+export async function setSource(source: Source) {
+  if (!state.repo || source === state.source) return;
+  resetSessions();
+  setState({ source, range: null, selected: null });
+  rememberSource();
+  await setView("all");
+  if (source === "pullRequest" && pullRequests.prs.list === null) void pullRequests.loadPullRequests();
+  await refresh();
+}
+
+/**
+ * Reviews pull request `id` of `remote`: reads it and fetches its commits if
+ * the repository lacks them, then compares them as a pull request does.
+ * `quiet`: a pull request that is no longer active is not opened (restoring
+ * the last one), and failing leaves no error banner.
+ */
+export async function openPullRequest(remote: string, id: number, options: { quiet?: boolean } = {}) {
+  const repo = state.repo;
+  if (!repo) return;
+  setState({ openingPullRequest: id, error: null });
+  try {
+    const pullRequest = await ipc.openPullRequest(repo.root, remote, id);
+    if (repo !== state.repo || state.openingPullRequest !== id) return;
+    if (options.quiet && pullRequest.status !== "active") return;
+    resetSessions();
+    setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
+    rememberSource();
+    await setView("all");
+    await refresh();
+  } catch (error) {
+    if (!options.quiet && repo === state.repo) fail(pullRequests.prErrorText(error));
+  } finally {
+    if (state.openingPullRequest === id) setState("openingPullRequest", null);
+  }
+}
+
+/** Leaves the pull request, back to the list of them. */
+export function closePullRequest() {
+  resetSessions();
+  setState({ pullRequest: null, range: null, selected: null });
+  rememberSource();
+}
+
+/**
+ * Refresh button: in a pull request, also asks the host for new pushes to it
+ * (and for the list of pull requests); then re-reads the comparison.
+ */
+export async function refreshAll() {
+  const pullRequest = state.pullRequest;
+  if (state.source === "pullRequest") {
+    void pullRequests.loadPullRequests();
+    if (pullRequest && state.repo) {
+      try {
+        const fresh = await ipc.openPullRequest(state.repo.root, pullRequest.remote, pullRequest.id);
+        if (state.pullRequest === pullRequest) setState("pullRequest", { ...fresh, remote: pullRequest.remote });
+      } catch (error) {
+        fail(pullRequests.prErrorText(error));
+      }
+    }
+  }
+  await refresh();
+}
+
+/** The two commits or branches compared, or null when nothing is picked yet. */
+function compared(): { base: string; head: string } | null {
+  if (state.source === "pullRequest") {
+    const pullRequest = state.pullRequest;
+    return pullRequest?.sourceCommit && pullRequest.targetCommit
+      ? { base: pullRequest.targetCommit, head: pullRequest.sourceCommit }
+      : null;
+  }
+  return state.base && state.head ? { base: state.base, head: state.head } : null;
+}
+
+/** The branch reviewed and the one it goes into, by name: the pull request's or the picked ones. */
+export function branchNames(): { base: string; head: string } {
+  if (state.source === "pullRequest") {
+    const pullRequest = state.pullRequest;
+    return { base: pullRequest?.targetBranch ?? "", head: pullRequest?.sourceBranch ?? "" };
+  }
+  return { base: state.base, head: state.head };
+}
+
+/** Name of what is reviewed, for the folder of the language server's copy. */
+const reviewedName = (comparison: Comparison) =>
+  state.source === "pullRequest" && state.pullRequest ? state.pullRequest.sourceBranch : comparison.head;
 
 const sameRange = (a: CommitRange | null, b: CommitRange | null) =>
   a === b || (a !== null && b !== null && a.oldest === b.oldest && a.newest === b.newest);
@@ -312,11 +455,13 @@ function resetSessions() {
 /** Re-reads the changed-file list and brings the open file up to date. */
 export async function refresh() {
   const repo = state.repo;
-  if (!repo || !state.base || !state.head) return;
+  const revs = compared();
+  if (!repo || !revs) return;
   try {
     const range = state.range;
-    const comparison = await ipc.compareBranches(repo.root, state.base, state.head, range);
-    if (repo !== state.repo || range !== state.range) return;
+    const comparison = await ipc.compareBranches(repo.root, revs.base, revs.head, range);
+    const now = compared();
+    if (repo !== state.repo || range !== state.range || now?.base !== revs.base || now.head !== revs.head) return;
     // Commits no longer on the branch (rebased away): all of the changes are shown instead.
     if (!sameRange(comparison.range, range)) setState("range", comparison.range);
     // Listed, stepped through and shown in the order of the file explorer.
@@ -624,7 +769,7 @@ let preparedKey: string | null = null;
 let setupRun = 0;
 
 const setupKey = (repo: RepoInfo, comparison: Comparison) =>
-  `${repo.root}\n${comparison.head}\n${comparison.tipCommit}`;
+  `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}`;
 
 /** The prepared copy of the reviewed commit, once a server may run there. */
 function serverRoot(): string | null {
@@ -654,7 +799,7 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
 
   let prepared: { path: string | null };
   try {
-    prepared = await ipc.prepareWorkspace(repo.root, comparison.head, comparison.tipCommit, (event) => {
+    prepared = await ipc.prepareWorkspace(repo.root, reviewedName(comparison), comparison.tipCommit, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {

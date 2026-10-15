@@ -4,7 +4,18 @@
 
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { ChangedFile, Commit, CommitRange, Comparison, FilePair, LspEvent, RepoInfo, SetupEvent } from "./commands";
+import type {
+  ChangedFile,
+  Commit,
+  CommitRange,
+  Comparison,
+  FilePair,
+  LspEvent,
+  PrRemote,
+  PullRequest,
+  RepoInfo,
+  SetupEvent,
+} from "./commands";
 
 interface FakeFile {
   base: string | null;
@@ -321,6 +332,96 @@ const repo: RepoInfo = {
   worktrees: [ROOT, "/fake/zed-trial/repo-worktree"],
 };
 
+// ------------------------------------------------------------ pull requests
+// `?devops`: origin is an Azure DevOps repository with a saved token.
+// `?devops=nopat`: no token yet (pasting "bad" is rejected, anything else works).
+// `?devops=empty`: no active pull requests. `?devops=rejected`: the saved token no longer works.
+
+const devops = searchParams.get("devops");
+let mockToken: PrRemote["token"] = devops === "nopat" ? null : "keychain";
+let tokenWorks = devops !== "rejected";
+
+const prRemote = (): PrRemote => ({
+  remote: "origin",
+  provider: "azureDevOps",
+  name: "contoso / Shop / shop-api",
+  organization: "contoso",
+  webUrl: "https://dev.azure.com/contoso/Shop/_git/shop-api",
+  tokenSettingsUrl: "https://dev.azure.com/contoso/_usersSettings/tokens",
+  token: mockToken,
+});
+
+const pullRequestList = (): PullRequest[] =>
+  devops === "empty"
+    ? []
+    : [
+        {
+          id: 1287,
+          title: "Add loyalty discount for returning customers",
+          description: "Customers who come back get 10% off. Also rounds totals to two decimals.",
+          author: "Ada Lovelace",
+          created: hoursAgo(3),
+          draft: false,
+          status: "active",
+          sourceBranch: "feature/agent-work",
+          targetBranch: "main",
+          sourceCommit: TIP,
+          targetCommit: MERGE_BASE,
+          url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1287",
+          reviewers: [
+            { name: "Bo Svensson", vote: "approved", group: false },
+            { name: "[Shop]\\Shop Team", vote: "none", group: true },
+            { name: "Cy Young", vote: "waitingForAuthor", group: false },
+          ],
+        },
+        {
+          id: 1281,
+          title: "Open orders stored procedure: only the last 30 days",
+          description: "",
+          author: "Grace Hopper",
+          created: hoursAgo(30),
+          draft: true,
+          status: "active",
+          sourceBranch: "agent/sql-open-orders",
+          targetBranch: "main",
+          sourceCommit: TIP,
+          targetCommit: MERGE_BASE,
+          url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1281",
+          reviewers: [],
+        },
+        {
+          id: 1270,
+          title: "Remove legacy notes and validate unknown orders in OrderController",
+          description: "",
+          author: "Linus Torvalds",
+          created: hoursAgo(24 * 6),
+          draft: false,
+          status: "active",
+          sourceBranch: "fix/order-controller-validation-with-a-rather-long-branch-name",
+          targetBranch: "release/2026.10",
+          sourceCommit: TIP,
+          targetCommit: MERGE_BASE,
+          url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1270",
+          reviewers: [{ name: "Bo Svensson", vote: "rejected", group: false }],
+        },
+      ];
+
+function checkToken() {
+  if (!mockToken) throw { kind: "noToken" };
+  if (!tokenWorks) throw { kind: "tokenRejected", message: "TF400813: The user is not authorized to access this resource." };
+}
+
+const slowly = <T>(value: () => T, ms = 500) =>
+  new Promise<T>((resolve, reject) =>
+    setTimeout(() => {
+      try {
+        resolve(value());
+      } catch (error) {
+        reject(error);
+      }
+    }, ms),
+  );
+
 export function install() {
   mockWindows("main");
   mockIPC(
@@ -370,6 +471,33 @@ export function install() {
             tooLarge: false,
           } satisfies FilePair;
         }
+        case "pull_request_remotes":
+          return devops === null ? [] : [prRemote()];
+        case "list_pull_requests":
+          return slowly(() => {
+            checkToken();
+            return pullRequestList();
+          });
+        case "set_pull_request_token":
+          return slowly(() => {
+            if (args.token.trim() === "bad") throw { kind: "tokenRejected", message: "" };
+            mockToken = "keychain";
+            tokenWorks = true;
+            return pullRequestList();
+          }, 800);
+        case "remove_pull_request_token":
+          mockToken = null;
+          return null;
+        case "open_pull_request":
+          return slowly(() => {
+            checkToken();
+            const found = pullRequestList().find((pullRequest) => pullRequest.id === Number(args.id));
+            if (!found) throw { kind: "notFound", message: `Pull request ${args.id} does not exist.` };
+            return found;
+          }, 700);
+        case "plugin:opener|open_url":
+          console.info("devMock: would open", args.url);
+          return null;
         case "prepare_workspace":
           return fakePrepare((payload as { onEvent: Channel<SetupEvent> }).onEvent);
         case "lsp_start": {

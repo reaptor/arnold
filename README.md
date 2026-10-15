@@ -5,15 +5,26 @@
 Desktop app for reviewing a git branch before it becomes a pull request, built for checking what AI agents wrote. Arnold only reads: the diff is read-only, and fixes are made elsewhere.
 
 - **PR-style comparison:** merge-base of the base branch → the last commit of the reviewed branch. Only commits count: uncommitted and untracked files in any checkout are left out. The diff refreshes when a branch moves (a new commit, a fetch).
+- **Azure DevOps pull requests:** when a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudio.com or Azure DevOps Server, HTTPS or SSH), the toolbar gets a *Branches | Pull request* switch. *Pull request* lists the active pull requests (title, number, branches, author, votes, drafts) and shows the one you pick the way Azure DevOps does: the merge-base of its target and source → the source branch's last commit, with the same commit picker. Commits the repository lacks are fetched from Azure DevOps into the object store only (no branch, remote-tracking branch or `FETCH_HEAD` changes). Arnold remembers per repository which way you reviewed and which pull request. Refresh also picks up new pushes to the pull request. See [Azure DevOps](#azure-devops) for the token it needs.
 - **Files dock:** on top, *Changes*: every file in the diff, with status and line counts. Below it, *All files*: a file explorer with every file in the last commit of the branch under review, changed files marked with their status and folders holding changes with a dot. Files outside the diff open on their own, without a diff. Drag the line between the two to resize them; click a heading to fold that part away. The filter applies to both.
 - **One file or all files:** review one file at a time, or every file of the diff in one scrolling list, as in a pull request's "all files" view. Each file has a header that stays in view while you scroll through it, with its counts; click it to fold the file away. Clicking a file in the dock scrolls to it, and the dock follows as you scroll. Files load as they come near the screen, so large diffs stay fast.
 - **Read-only diff:** side-by-side or unified. `F7` / `Shift+F7` step through the changes (in the all-files view they carry on into the next or previous expanded file). Drag the divider between the sides to resize them (double-click to make them equal again).
 - **Syntax highlighting:** F#, C#, project files, JSON, Markdown.
 - **F# language server in the diff:** errors, hover, go-to-definition (`F12` or Ctrl/Cmd+click; *Back* returns), find references. Error counts for every changed F# file show in the file headers of the all-files view. When a branch is selected, Arnold copies its last commit to a folder of its own under the system temp folder (`arnold/<repository>/<branch>`; not a git worktree, the repository knows nothing of it) and does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. The status bar shows each step, and its popup lists the steps, problems and the output of `dotnet`; the diff can be used all along, and language features switch on once the server has loaded the projects. If something fails, the review goes on without them (or with gaps). A new commit on the branch updates the copy in place, so restore and build output are reused.
 
-Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out. The only copy of the code it writes is the temp folder for the language server.
+Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out. The only copy of the code it writes is the temp folder for the language server; the only thing it adds to the repository is the objects of a pull request it fetched (see above).
 
-Not there yet: C# language server, a problems list with messages, settings.
+Not there yet: C# language server, a problems list with messages, settings, GitHub pull requests.
+
+## Azure DevOps
+
+Listing pull requests needs a personal access token with the **Code (Read)** scope. Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
+
+1. In Azure DevOps, open *User settings → Personal access tokens* (`https://dev.azure.com/<organization>/_usersSettings/tokens`) and select *New Token*.
+2. Pick the organization and an expiry date, choose *Custom defined* scopes and tick *Code → Read*. Create it and copy the token.
+3. In Arnold, switch to *Pull request*, paste the token and select *Connect*.
+
+Arnold checks the token with Azure DevOps before saving it, one per organization, in the macOS Keychain or Windows Credential Manager. Without a saved token it uses the `AZURE_DEVOPS_EXT_PAT` environment variable (the Azure CLI's). The token goes only to the remote's Azure DevOps host: to list pull requests and to fetch their commits. The key button in the pull request list changes or removes it.
 
 ## The name
 
@@ -95,10 +106,11 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | UI alone in a browser at <http://localhost:1420>, against an in-memory stand-in backend (`src/ipc/devMock.ts`) |
+| `npm run dev` | UI alone in a browser at <http://localhost:1420>, against an in-memory stand-in backend (`src/ipc/devMock.ts`); add `?devops` for an Azure DevOps remote (`=nopat` without a token, where pasting `bad` is rejected; `=rejected`; `=empty`) |
 | `npm test` | Frontend unit tests |
 | `cargo test --workspace` | Backend tests (create temporary git repositories) |
 | `cargo test -p arnold-lsp --test fsautocomplete_live -- --ignored --nocapture` | Downloads and runs the real FsAutoComplete on a small project |
+| `cargo test -p arnold-pr -- --ignored` | Checks that dev.azure.com turns down a bogus token |
 | `src-tauri/make-icons.sh` | Regenerates `src-tauri/icons/` from the icon source, `src-tauri/app-icon.svg` |
 
 `zed-trial/setup-trial-repo.sh` creates a small F# repository with a feature branch, uncommitted and untracked changes and a linked worktree — handy for trying the app.
@@ -111,4 +123,5 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | `src-tauri/` | Tauri shell: commands, file decoding, branch watcher, preparing the language server's copy |
 | `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
 | `crates/arnold-git/` | Read-only git access through the `git` CLI, and copying a commit's files out |
+| `crates/arnold-pr/` | Pull requests of code hosts: Azure DevOps remotes, its REST API, tokens in the system credential store |
 | `crates/arnold-lsp/` | Language servers: install/update, the minimal restore/build plan, and the proxy between editor and server |

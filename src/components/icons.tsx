@@ -87,3 +87,28 @@ export const FilesIcon = (props: IconProps) => (
     <path d="M4.5 4.5h-2v10h7v-1" />
   </Icon>
 );
+
+/** A pull request: a branch merged back into another. */
+export const PullRequestIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="4.5" cy="3.5" r="1.5" />
+    <circle cx="4.5" cy="12.5" r="1.5" />
+    <circle cx="11.5" cy="12.5" r="1.5" />
+    <path d="M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7M8.5 3 7 4.5 8.5 6" />
+  </Icon>
+);
+
+/** Opens a web page in the browser. */
+export const ExternalIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" />
+  </Icon>
+);
+
+/** A personal access token. */
+export const KeyIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="5" cy="11" r="2.5" />
+    <path d="M6.8 9.2 13 3M11 5l1.5 1.5M9.5 6.5 11 8" />
+  </Icon>
+);

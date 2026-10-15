@@ -2,9 +2,11 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { AllFilesView } from "./components/AllFilesView";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
+import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { startupPath } from "./ipc/commands";
 import { isMac } from "./platform";
+import { prs } from "./state/pullRequests";
 import {
   attachEditor,
   goBack,
@@ -23,6 +25,9 @@ const isBackShortcut = (event: KeyboardEvent) =>
 
 const MIN_DOCK = 160;
 const MAX_DOCK = 640;
+
+/** Reviewing pull requests, and none is picked yet: the main area lists them instead. */
+const choosingPullRequest = () => state.repo !== null && state.source === "pullRequest" && state.pullRequest === null;
 
 export function App() {
   const [dockWidth, setDockWidth] = createSignal(Number(localStorage.getItem("arnold.dockWidth")) || 280);
@@ -81,9 +86,14 @@ export function App() {
         </div>
       </Show>
       <div class="main">
-        <FileDock width={dockWidth()} />
-        <div class="splitter" onPointerDown={startResize} />
-        <section class="content">
+        <Show when={choosingPullRequest()}>
+          <PullRequestPanel />
+        </Show>
+        <Show when={!choosingPullRequest()}>
+          <FileDock width={dockWidth()} />
+          <div class="splitter" onPointerDown={startResize} />
+        </Show>
+        <section class="content" classList={{ hidden: choosingPullRequest() }}>
           <div
             class="editor-host diff-host"
             classList={{ hidden: state.view === "all" || state.placeholder !== null }}
@@ -98,6 +108,9 @@ export function App() {
         </section>
       </div>
       <StatusBar />
+      <Show when={prs.tokenDialog}>
+        <TokenDialog />
+      </Show>
       <Show when={state.menu}>
         {(menu) => (
           <ul
@@ -135,6 +148,13 @@ function StatusBar() {
               {comparison().files.length} files <span class="added">+{totals().added}</span>{" "}
               <span class="removed">−{totals().removed}</span>
             </span>
+            <Show when={state.source === "pullRequest" && state.pullRequest}>
+              {(pullRequest) => (
+                <span title={pullRequest().url}>
+                  Pull request !{pullRequest().id} by {pullRequest().author}
+                </span>
+              )}
+            </Show>
             <span title={`Commits only: ${comparison().mergeBase} to ${comparison().headCommit}`}>
               from {comparison().mergeBase.slice(0, 8)} to {comparison().headCommit.slice(0, 8)}
             </span>

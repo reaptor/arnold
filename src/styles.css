@@ -1362,3 +1362,372 @@ button.primary:hover:not(:disabled) {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ------------------------------------------------------------ pull requests */
+
+.content.hidden {
+  display: none;
+}
+
+/* Branches | Pull request: always labelled, it decides what the rest of the toolbar is. */
+.source-switch {
+  margin-right: 6px;
+}
+
+.pr-picker {
+  align-items: center;
+  /* The pull request's name matters more than the other toolbar widgets. */
+  min-width: 140px;
+}
+
+.pr-picker .picker-button {
+  max-width: 420px;
+  overflow: hidden;
+}
+
+.pr-id {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-into {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 280px;
+  font-size: 12px;
+}
+
+@media (max-width: 1250px) {
+  .pr-into {
+    display: none;
+  }
+}
+
+.pr-popup {
+  width: min(560px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pr-popup .picker-list {
+  max-height: 420px;
+}
+
+.pr-popup > .primary,
+.pr-popup > button {
+  align-self: flex-start;
+}
+
+.pr-popup-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--popup-border);
+}
+
+.pr-popup-footer button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.pr-list .picker-list li {
+  padding: 5px 8px;
+}
+
+.pr-list .picker-list li.busy {
+  cursor: progress;
+}
+
+.pr-list .picker-list li.current {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.pr-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pr-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pr-details {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pr-branches {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pr-author,
+.pr-votes {
+  flex: none;
+  white-space: nowrap;
+}
+
+.pr-author::before,
+.pr-votes::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.pr-opening {
+  color: var(--accent);
+}
+
+.pr-remote {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+/* The main area while no pull request is picked: one centered card. */
+.pr-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  padding: 48px 24px;
+}
+
+.pr-card {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pr-card h2,
+.connect h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.pr-card h2 .icon,
+.connect h2 .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pr-card p,
+.connect p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.pr-subtitle,
+.pr-message {
+  color: var(--muted);
+}
+
+.pr-list.roomy .picker-list {
+  max-height: none;
+  margin-top: 8px;
+}
+
+.pr-list.roomy .picker-list li {
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.pr-list.roomy .pr-line:first-child {
+  font-size: 14px;
+}
+
+.pr-card .pr-list.roomy .picker-search {
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.connect {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connect code {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
+  font-size: 12px;
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.connect-steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.connect-steps > li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connect-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.connect-steps h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.connect-steps ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+.connect-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.connect-link .icon {
+  stroke: var(--accent);
+}
+
+.connect-token {
+  display: flex;
+  gap: 8px;
+}
+
+.connect-token input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.connect-token input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.connect .connect-problem,
+.pr-card .connect-problem,
+.pr-popup .connect-problem {
+  background: var(--banner-error);
+  border-left: 3px solid var(--removed);
+  border-radius: 6px;
+  padding: 6px 10px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.connect-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.connect-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.connect-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.modal {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  background: var(--popup);
+  border: 1px solid var(--popup-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.4);
+  padding: 24px;
+}
+
+.pr-votes {
+  display: flex;
+  gap: 6px;
+}
+
+.vote-approved {
+  color: var(--added);
+}
+
+.vote-waiting {
+  color: var(--warning);
+}
+
+.vote-rejected {
+  color: var(--removed);
+}
