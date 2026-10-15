@@ -24,6 +24,14 @@ const isBackShortcut = (event: KeyboardEvent) =>
     ? event.ctrlKey && !event.metaKey && event.key === "-"
     : event.altKey && !event.ctrlKey && event.key === "ArrowLeft";
 
+/** Hides or shows the files dock: Ctrl+B, and on macOS Cmd+B too, as in VS Code. */
+const isDockShortcut = (event: KeyboardEvent) =>
+  (event.ctrlKey || (isMac && event.metaKey)) &&
+  !(event.ctrlKey && event.metaKey) &&
+  !event.altKey &&
+  !event.shiftKey &&
+  event.key.toLowerCase() === "b";
+
 const MIN_DOCK = 160;
 const MAX_DOCK = 640;
 
@@ -32,6 +40,11 @@ const choosingPullRequest = () => state.repo !== null && state.source === "pullR
 
 export function App() {
   const [dockWidth, setDockWidth] = createSignal(Number(localStorage.getItem("arnold.dockWidth")) || 280);
+  const [dockHidden, setDockHidden] = createSignal(localStorage.getItem("arnold.dockHidden") === "true");
+  const toggleDock = () => {
+    setDockHidden(!dockHidden());
+    localStorage.setItem("arnold.dockHidden", String(dockHidden()));
+  };
   let editorHost!: HTMLDivElement;
 
   onMount(() => {
@@ -50,10 +63,14 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
       void goBack();
+    } else if (isDockShortcut(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleDock();
     }
   };
   const closeMenu = () => setState("menu", null);
-  // Capture phase: the editor would otherwise use the back shortcut itself.
+  // Capture phase: the editor would otherwise use these shortcuts itself (Ctrl+B moves the cursor on macOS).
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("pointerdown", closeMenu);
   onCleanup(() => {
@@ -91,8 +108,9 @@ export function App() {
           <PullRequestPanel />
         </Show>
         <Show when={!choosingPullRequest()}>
-          <FileDock width={dockWidth()} />
-          <div class="splitter" onPointerDown={startResize} />
+          {/* Hidden rather than removed, so the explorer keeps its open folders and scroll position. */}
+          <FileDock width={dockWidth()} hidden={dockHidden()} />
+          <div class="splitter" classList={{ hidden: dockHidden() }} onPointerDown={startResize} />
         </Show>
         <section class="content" classList={{ hidden: choosingPullRequest() }}>
           <div
@@ -182,7 +200,7 @@ function StatusBar() {
               from {comparison().mergeBase.slice(0, 8)} to {comparison().headCommit.slice(0, 8)}
             </span>
             <span class="toolbar-space" />
-            <span class="hint">F12 go to definition · F7 next change</span>
+            <span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>
             <LanguageStatus />
           </>
         )}

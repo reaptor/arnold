@@ -525,6 +525,11 @@ button.primary:hover:not(:disabled) {
   min-width: 0;
 }
 
+.dock.hidden,
+.splitter.hidden {
+  display: none;
+}
+
 .dock-island {
   display: flex;
   flex-direction: column;

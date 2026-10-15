@@ -39,7 +39,7 @@ const remember = (key: string, value: unknown) => localStorage.setItem(`arnold.$
  * Left dock, in two parts: the files changed by the branch on top (like the
  * open editors of VS Code), and below them every file of the checkout.
  */
-export function FileDock(props: { width: number }) {
+export function FileDock(props: { width: number; hidden?: boolean }) {
   let changesList!: HTMLUListElement;
   let explorer!: HTMLElement;
   const [filter, setFilter] = createSignal("");
@@ -108,7 +108,7 @@ export function FileDock(props: { width: number }) {
   };
 
   return (
-    <aside class="dock" style={{ width: `${props.width}px` }}>
+    <aside class="dock" classList={{ hidden: props.hidden }} style={{ width: `${props.width}px` }}>
       {/* Outside both islands, as it narrows both lists. */}
       <div class="dock-header">
         <input
