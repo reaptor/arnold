@@ -14,7 +14,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo, SetupEvent } from "../ipc/commands";
+import type { ChangedFile, CommitRange, Comparison, FilePair, FileStatus, RepoInfo, SetupEvent } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
@@ -61,6 +61,8 @@ interface State {
   repo: RepoInfo | null;
   base: string;
   head: string;
+  /** The commits of `head` being shown, or null for all of its changes. */
+  range: CommitRange | null;
   comparison: Comparison | null;
   /** Files opened from outside the diff (by go-to-definition). */
   visited: ChangedFile[];
@@ -96,6 +98,7 @@ export const [state, setState] = createStore<State>({
   repo: null,
   base: "",
   head: "",
+  range: null,
   comparison: null,
   visited: [],
   selected: null,
@@ -122,8 +125,8 @@ const sameItems = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
 /**
- * Every file of the branch under review, for the file explorer: its checkout
- * when it has one, otherwise its tip commit. Kept out of the store, which
+ * Every file of the commit shown (the branch tip, or the newest commit picked),
+ * for the file explorer. Kept out of the store, which
  * would wrap each of possibly many thousands of paths.
  */
 const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sameItems });
@@ -248,7 +251,7 @@ export async function openRepoAt(path: string) {
     const base = has(remembered.base) ? remembered.base : (repo.defaultBranch ?? repo.branches[0]?.name ?? "");
     const head = has(remembered.head) ? remembered.head : defaultHead(repo, base);
     resetSessions();
-    setState({ repo, base, head, comparison: null, selected: null });
+    setState({ repo, base, head, range: null, comparison: null, selected: null });
     await setView("all");
     await refresh();
   } catch (error) {
@@ -266,7 +269,7 @@ function defaultHead(repo: RepoInfo, base: string): string {
 
 export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
-  setState(change);
+  setState({ ...change, range: null });
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
     JSON.stringify({ base: state.base, head: state.head }),
@@ -274,6 +277,17 @@ export async function setBranches(change: { base?: string; head?: string }) {
   resetSessions();
   setState({ selected: null });
   await setView("all");
+  await refresh();
+}
+
+const sameRange = (a: CommitRange | null, b: CommitRange | null) =>
+  a === b || (a !== null && b !== null && a.oldest === b.oldest && a.newest === b.newest);
+
+/** Shows only what a run of the branch's commits changed, or with null all of its changes. */
+export async function setRange(range: CommitRange | null) {
+  if (!state.repo || sameRange(range, state.range)) return;
+  resetSessions();
+  setState("range", range);
   await refresh();
 }
 
@@ -300,8 +314,11 @@ export async function refresh() {
   const repo = state.repo;
   if (!repo || !state.base || !state.head) return;
   try {
-    const comparison = await ipc.compareBranches(repo.root, state.base, state.head);
-    if (repo !== state.repo) return;
+    const range = state.range;
+    const comparison = await ipc.compareBranches(repo.root, state.base, state.head, range);
+    if (repo !== state.repo || range !== state.range) return;
+    // Commits no longer on the branch (rebased away): all of the changes are shown instead.
+    if (!sameRange(comparison.range, range)) setState("range", comparison.range);
     // Listed, stepped through and shown in the order of the file explorer.
     comparison.files.sort((a, b) => comparePaths(a.path, b.path));
     // Deleted files start collapsed in the all-files view; once opened or
@@ -607,7 +624,7 @@ let preparedKey: string | null = null;
 let setupRun = 0;
 
 const setupKey = (repo: RepoInfo, comparison: Comparison) =>
-  `${repo.root}\n${comparison.head}\n${comparison.headCommit}`;
+  `${repo.root}\n${comparison.head}\n${comparison.tipCommit}`;
 
 /** The prepared copy of the reviewed commit, once a server may run there. */
 function serverRoot(): string | null {
@@ -632,12 +649,12 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   setSetupOutput([]);
   setState({
     lspStatus: null,
-    languageSetup: { commit: comparison.headCommit, phase: "preparing", path: null, steps: [], problems: [], projects: {}, currentProject: null },
+    languageSetup: { commit: comparison.tipCommit, phase: "preparing", path: null, steps: [], problems: [], projects: {}, currentProject: null },
   });
 
   let prepared: { path: string | null };
   try {
-    prepared = await ipc.prepareWorkspace(repo.root, comparison.head, comparison.headCommit, (event) => {
+    prepared = await ipc.prepareWorkspace(repo.root, comparison.head, comparison.tipCommit, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {

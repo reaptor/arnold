@@ -28,12 +28,35 @@ export interface ChangedFile {
   binary: boolean;
 }
 
+export interface Commit {
+  sha: string;
+  shortSha: string;
+  /** First line of the message. */
+  subject: string;
+  author: string;
+  /** Author date, ISO 8601. */
+  date: string;
+}
+
+/** A run of consecutive commits of the branch, by sha. */
+export interface CommitRange {
+  oldest: string;
+  newest: string;
+}
+
 export interface Comparison {
   base: string;
   head: string;
+  /** Where the diff starts: the merge-base, or the parent of the oldest commit of `range`. */
   mergeBase: string;
-  /** The commit `head` pointed at; everything shown comes from it. */
+  /** Where the diff ends; everything shown comes from it: the tip of `head`, or the newest of `range`. */
   headCommit: string;
+  /** The commit `head` pointed at. */
+  tipCommit: string;
+  /** The commits shown, or null for all of the changes. */
+  range: CommitRange | null;
+  /** The commits of `head` since the merge-base, newest first. */
+  commits: Commit[];
   files: ChangedFile[];
 }
 
@@ -67,8 +90,9 @@ export const startupPath = () => invoke<string | null>("startup_path");
 
 export const openRepo = (path: string) => invoke<RepoInfo>("open_repo", { path });
 
-export const compareBranches = (root: string, base: string, head: string) =>
-  invoke<Comparison>("compare_branches", { root, base, head });
+/** All of the changes of `head`, or with `range` only what those commits of it changed. */
+export const compareBranches = (root: string, base: string, head: string, range: CommitRange | null) =>
+  invoke<Comparison>("compare_branches", { root, base, head, range });
 
 export const listFiles = (root: string, comparison: Comparison) =>
   invoke<string[]>("list_files", { root, commit: comparison.headCommit });

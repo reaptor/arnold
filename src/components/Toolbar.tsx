@@ -7,12 +7,14 @@ import {
   previousChange,
   refresh,
   setBranches,
+  setRange,
   setMode,
   setView,
   state,
 } from "../state/review";
 import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
+import { CommitPicker } from "./CommitPicker";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -65,6 +67,12 @@ export function Toolbar() {
               value={state.base}
               branches={repo().branches}
               onChange={(base) => setBranches({ base })}
+            />
+            <span class="toolbar-separator" />
+            <CommitPicker
+              commits={state.comparison?.commits ?? []}
+              value={state.range}
+              onChange={(range) => void setRange(range)}
             />
           </>
         )}

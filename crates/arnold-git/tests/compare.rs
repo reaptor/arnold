@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{compare, export_commit, list_files, open, read_blob, tree_files, FileStatus};
+use arnold_git::{compare, export_commit, list_files, open, read_blob, tree_files, CommitRange, FileStatus};
 
 fn git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -65,7 +65,7 @@ async fn compares_commits_from_merge_base_ignoring_uncommitted_and_untracked() {
     write(root, "sub/untracked.txt", "x\ny\n");
     git(root, &["add", "sub/untracked.txt"]);
 
-    let comparison = compare(root, "main", "feature").await.unwrap();
+    let comparison = compare(root, "main", "feature", None).await.unwrap();
     let tip = String::from_utf8(git_output(root, &["rev-parse", "feature"])).unwrap();
     assert_eq!(comparison.head_commit, tip.trim());
 
@@ -87,13 +87,61 @@ async fn compares_commits_from_merge_base_ignoring_uncommitted_and_untracked() {
     assert_eq!(comparison.files[2].old_path.as_deref(), Some("old.txt"));
 }
 
+fn only(sha: &str) -> CommitRange {
+    CommitRange {
+        oldest: sha.to_string(),
+        newest: sha.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn lists_branch_commits_and_shows_a_run_of_them() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "c.txt", "new\n");
+    write(root, "a.txt", "one\nTWO\nthree\nfour\n");
+    commit_all(root, "second feature commit");
+    write(root, "c.txt", "newer\n");
+    commit_all(root, "third feature commit");
+
+    let all = compare(root, "main", "feature", None).await.unwrap();
+    let subjects: Vec<_> = all.commits.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, vec!["third feature commit", "second feature commit", "feature work"]);
+    assert_eq!(all.range, None);
+    assert_eq!(all.head_commit, all.tip_commit);
+    let [third, second, first] = [0, 1, 2].map(|i| all.commits[i].sha.clone());
+
+    let one = compare(root, "main", "feature", Some(&only(&first))).await.unwrap();
+    assert_eq!(one.range, Some(only(&first)));
+    assert_eq!(one.head_commit, first);
+    assert_eq!(one.merge_base, all.merge_base);
+    assert_eq!(one.tip_commit, all.tip_commit);
+    let paths: Vec<_> = one.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["a.txt", "b.txt", "new.txt"]);
+
+    // Ends given the wrong way round are put in order.
+    let reversed = CommitRange { oldest: third.clone(), newest: second.clone() };
+    let run = compare(root, "main", "feature", Some(&reversed)).await.unwrap();
+    assert_eq!(run.range, Some(CommitRange { oldest: second.clone(), newest: third.clone() }));
+    assert_eq!(run.merge_base, first);
+    assert_eq!(run.head_commit, third);
+    let summary: Vec<_> = run.files.iter().map(|f| (f.path.as_str(), f.status)).collect();
+    assert_eq!(summary, vec![("a.txt", FileStatus::Modified), ("c.txt", FileStatus::Added)]);
+
+    // A commit that is not on the branch falls back to all of the changes.
+    let main_tip = String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap();
+    let other = compare(root, "main", "feature", Some(&only(main_tip.trim()))).await.unwrap();
+    assert_eq!(other.range, None);
+    assert_eq!(other.files.len(), 4);
+}
+
 #[tokio::test]
 async fn branch_not_checked_out_is_compared_at_its_tip() {
     let dir = fixture();
     let root = dir.path();
     git(root, &["checkout", "--quiet", "main"]);
 
-    let comparison = compare(root, "main", "feature").await.unwrap();
+    let comparison = compare(root, "main", "feature", None).await.unwrap();
     let paths: Vec<_> = comparison.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, vec!["a.txt", "b.txt", "new.txt"]);
 }
@@ -114,7 +162,7 @@ async fn finds_branch_checked_out_in_linked_worktree() {
     git(&linked_path, &["add", "committed.txt"]);
     git(&linked_path, &["commit", "--quiet", "-m", "in the worktree"]);
 
-    let comparison = compare(root, "main", "feature-wt").await.unwrap();
+    let comparison = compare(root, "main", "feature-wt", None).await.unwrap();
     let paths: Vec<_> = comparison.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, vec!["a.txt", "b.txt", "committed.txt", "new.txt"]);
 
@@ -133,7 +181,7 @@ async fn finds_branch_checked_out_in_linked_worktree() {
 async fn reads_base_content_and_reports_missing_files() {
     let dir = fixture();
     let root = dir.path();
-    let comparison = compare(root, "main", "feature").await.unwrap();
+    let comparison = compare(root, "main", "feature", None).await.unwrap();
 
     let base = read_blob(root, &comparison.merge_base, "a.txt").await.unwrap();
     assert_eq!(base.as_deref(), Some("one\ntwo\nthree\n".as_bytes()));

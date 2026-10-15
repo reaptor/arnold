@@ -19,6 +19,13 @@ export const BranchIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const CommitIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="2.5" />
+    <path d="M1.5 8h4M10.5 8h4" />
+  </Icon>
+);
+
 export const ChevronDownIcon = (props: IconProps) => (
   <Icon class={["chevron-down", props.class].filter(Boolean).join(" ")}>
     <path d="M4.5 6.5 8 10l3.5-3.5" />

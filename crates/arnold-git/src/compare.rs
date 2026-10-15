@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cli::{run, run_raw, run_text, GitError};
 use crate::Result;
@@ -28,37 +28,119 @@ pub struct ChangedFile {
     pub binary: bool,
 }
 
+/// One commit of the branch under review.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub sha: String,
+    pub short_sha: String,
+    /// First line of the message.
+    pub subject: String,
+    pub author: String,
+    /// Author date, ISO 8601.
+    pub date: String,
+}
+
+/// A run of consecutive commits of the branch under review, by sha.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRange {
+    pub oldest: String,
+    pub newest: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comparison {
     pub base: String,
     pub head: String,
-    /// Commit the diff starts from: what a pull request would compare against.
+    /// Commit the diff starts from: what a pull request would compare
+    /// against, or the parent of the oldest commit of `range`.
     pub merge_base: String,
-    /// The commit `head` pointed at: everything shown comes from it, even if
-    /// the branch moves on meanwhile.
+    /// Commit the diff ends at, which everything shown comes from: the tip of
+    /// `head` (even if the branch moves on meanwhile), or the newest of `range`.
     pub head_commit: String,
+    /// The tip of `head`.
+    pub tip_commit: String,
+    /// The commits shown, if not all of the changes.
+    pub range: Option<CommitRange>,
+    /// The commits of `head` since the merge-base, newest first.
+    pub commits: Vec<Commit>,
     pub files: Vec<ChangedFile>,
 }
 
+/// What git compares a parentless commit against.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 /// PR-style comparison: merge-base of `base` and `head` → the tip commit of
-/// `head`. Uncommitted and untracked files are never part of it.
-pub async fn compare(root: &Path, base: &str, head: &str) -> Result<Comparison> {
+/// `head`. With `range`, only what those commits (of the ones since the
+/// merge-base) changed: the first parent of the oldest → the newest. A range
+/// whose ends are no longer on the branch is ignored. Uncommitted and
+/// untracked files are never part of it.
+pub async fn compare(root: &Path, base: &str, head: &str, range: Option<&CommitRange>) -> Result<Comparison> {
     // Unrelated histories have no merge-base; compare against `base` itself then.
     let merge_base = match run_text(root, &["merge-base", base, head]).await {
         Ok(sha) if !sha.is_empty() => sha,
         _ => run_text(root, &["rev-parse", "--verify", &format!("{base}^{{commit}}")]).await?,
     };
-    let head_commit = run_text(root, &["rev-parse", "--verify", &format!("{head}^{{commit}}")]).await?;
-    let mut files = diff_files(root, &[merge_base.as_str(), head_commit.as_str()]).await?;
+    let tip_commit = run_text(root, &["rev-parse", "--verify", &format!("{head}^{{commit}}")]).await?;
+    let commits = commits_between(root, &merge_base, &tip_commit).await?;
+
+    let position = |sha: &str| commits.iter().position(|c| c.sha == sha);
+    let range = range.and_then(|range| {
+        // Newest first: the oldest has the larger position.
+        let (a, b) = (position(&range.oldest)?, position(&range.newest)?);
+        Some(CommitRange {
+            oldest: commits[a.max(b)].sha.clone(),
+            newest: commits[a.min(b)].sha.clone(),
+        })
+    });
+    let (from, to) = match &range {
+        Some(range) => {
+            let parent = run_raw(root, &["rev-parse", "--verify", "--quiet", &format!("{}^1", range.oldest)]).await?;
+            let parent = if parent.success {
+                String::from_utf8_lossy(&parent.stdout).trim().to_string()
+            } else {
+                EMPTY_TREE.to_string()
+            };
+            (parent, range.newest.clone())
+        }
+        None => (merge_base, tip_commit.clone()),
+    };
+    let mut files = diff_files(root, &[from.as_str(), to.as_str()]).await?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(Comparison {
         base: base.to_string(),
         head: head.to_string(),
-        merge_base,
-        head_commit,
+        merge_base: from,
+        head_commit: to,
+        tip_commit,
+        range,
+        commits,
         files,
     })
+}
+
+/// Commits reachable from `tip` but not from `merge_base`, newest first.
+async fn commits_between(root: &Path, merge_base: &str, tip: &str) -> Result<Vec<Commit>> {
+    let range = format!("{merge_base}..{tip}");
+    let out = run(root, &["log", "-z", "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s", &range]).await?;
+    Ok(parse_log(&String::from_utf8_lossy(&out)))
+}
+
+fn parse_log(out: &str) -> Vec<Commit> {
+    out.split('\0')
+        .filter_map(|record| {
+            let mut fields = record.trim_start_matches('\n').splitn(5, '\x1f');
+            Some(Commit {
+                sha: fields.next()?.to_string(),
+                short_sha: fields.next()?.to_string(),
+                author: fields.next()?.to_string(),
+                date: fields.next()?.to_string(),
+                subject: fields.next()?.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// Contents of `path` at `rev`, or `None` if it does not exist there.
@@ -177,6 +259,16 @@ mod tests {
                 (FileStatus::Deleted, "c.fs", None),
             ]
         );
+    }
+
+    #[test]
+    fn parses_log_records() {
+        let commits = parse_log("abc123\x1fabc\x1fAda\x1f2026-10-15T10:00:00+02:00\x1fFix\x1fthings\0def456\x1fdef\x1fBo\x1f2026-10-14T09:00:00+02:00\x1f\0");
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].sha, "abc123");
+        assert_eq!(commits[0].subject, "Fix\x1fthings");
+        assert_eq!(commits[1].author, "Bo");
+        assert_eq!(commits[1].subject, "");
     }
 
     #[test]

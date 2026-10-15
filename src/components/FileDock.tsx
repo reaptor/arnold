@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
 import { allFiles, openFile, selectFile, state } from "../state/review";
+import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
 import { FileTree } from "./FileTree";
 
@@ -40,6 +41,12 @@ export function FileDock(props: { width: number }) {
   let changesList!: HTMLUListElement;
   let explorer!: HTMLElement;
   const [filter, setFilter] = createSignal("");
+  /** "3 commits" when only some of the branch's commits are shown. */
+  const picked = () => {
+    if (!state.range) return null;
+    const count = pickedCount(state.comparison?.commits ?? [], state.range);
+    return `${count} commit${count === 1 ? "" : "s"}`;
+  };
   const [changesOpen, setChangesOpen] = createSignal(remembered("changesOpen") !== "false");
   const [explorerOpen, setExplorerOpen] = createSignal(remembered("explorerOpen") !== "false");
   const [changesHeight, setChangesHeight] = createSignal(Number(remembered("changesHeight")) || 240);
@@ -122,10 +129,14 @@ export function FileDock(props: { width: number }) {
             open={changesOpen()}
             onToggle={toggleChanges}
             title="Changes"
-            detail={state.base ? `vs ${state.base}` : ""}
+            detail={picked() ? `in ${picked()}` : state.base ? `vs ${state.base}` : ""}
             count={state.comparison?.files.length ?? 0}
             matching={filter() ? files().length : undefined}
-            explanation={`Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them.`}
+            explanation={
+              picked()
+                ? `Files that the picked ${picked()} of ${state.head} change, compared with the commit before them. Arrow keys move through them.`
+                : `Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them.`
+            }
           />
           <Show when={changesOpen()}>
             <ul
@@ -184,10 +195,10 @@ export function FileDock(props: { width: number }) {
           open={explorerOpen()}
           onToggle={toggleExplorer}
           title="All files"
-          detail={state.head ? `in ${state.head}` : ""}
+          detail={state.range ? `in ${state.range.newest.slice(0, 7)}` : state.head ? `in ${state.head}` : ""}
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
-          explanation={`File explorer: every file in the last commit of ${state.head}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
+          explanation={`File explorer: every file in ${state.range ? `commit ${state.range.newest.slice(0, 7)}, the newest one picked` : `the last commit of ${state.head}`}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
         />
         <Show when={explorerOpen()}>
           <FileTree filter={filter()} />

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{Comparison, RepoInfo};
+use arnold_git::{CommitRange, Comparison, RepoInfo};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -79,18 +79,19 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
     Ok(info)
 }
 
-/// Compares `head` against its merge-base with `base` and starts watching the
-/// repository's branches, so new commits show up.
+/// Compares `head` against its merge-base with `base` (or shows a run of its
+/// commits) and starts watching the repository's branches, so new commits show up.
 #[tauri::command]
 pub async fn compare_branches(
     root: String,
     base: String,
     head: String,
+    range: Option<CommitRange>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Comparison, String> {
     let root = state.checked_root(&root)?;
-    let comparison = arnold_git::compare(&root, &base, &head)
+    let comparison = arnold_git::compare(&root, &base, &head, range.as_ref())
         .await
         .map_err(text_error)?;
 

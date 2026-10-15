@@ -484,6 +484,27 @@ button.primary:hover:not(:disabled) {
   visibility: visible;
 }
 
+.commit-popup {
+  width: 440px;
+}
+
+.commit-check {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.commit-meta {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.picker-list li.commit-all {
+  margin-bottom: 4px;
+}
+
 .tag {
   color: var(--muted);
   border: 1px solid var(--border);

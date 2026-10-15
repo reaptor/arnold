@@ -4,7 +4,7 @@
 
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { ChangedFile, Comparison, FilePair, LspEvent, RepoInfo, SetupEvent } from "./commands";
+import type { ChangedFile, Commit, CommitRange, Comparison, FilePair, LspEvent, RepoInfo, SetupEvent } from "./commands";
 
 interface FakeFile {
   base: string | null;
@@ -268,10 +268,27 @@ function fakeServerAnswer(raw: string): unknown {
   return null;
 }
 
-function changedFiles(): ChangedFile[] {
+// The branch's commits, newest first. Each changed file belongs to one of
+// them: the oldest takes every file the others do not name.
+const MERGE_BASE = "b481a92f122e44c0d840c722ded1ab11d334c7dd";
+const TIP = "7d3e9a1f0c5b2e8d4a6f1b3c9e7d5a2f8b4c6e1d";
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
+const commits: (Commit & { paths: string[] | null })[] = [
+  { sha: TIP, subject: "Filter open orders to the last 30 days", author: "Agent Smith", date: hoursAgo(1), paths: ["db/Orders.sql"] },
+  { sha: "5c2b8e14a7d93f60b1e2c4a8d7f9e3b6a1c5d204", subject: "Add loyalty discount to pricing", author: "Agent Smith", date: hoursAgo(5), paths: ["Pricing.fs", "Orders.fs"] },
+  { sha: "e91f4d2a6b8c3e7f0a5d1b9c2e4f6a8d3b7c5e10", subject: "Validate unknown orders in the API and add an audit log", author: "Kristofer", date: hoursAgo(30), paths: null },
+].map((commit) => ({ ...commit, shortSha: commit.sha.slice(0, 7) }));
+
+const inCommits = (path: string, picked: readonly Commit[]) =>
+  picked.some((commit) =>
+    commits.find((candidate) => candidate.sha === commit.sha)?.paths?.includes(path) ??
+    !commits.some((other) => other.paths?.includes(path)),
+  );
+
+function changedFiles(picked: readonly Commit[]): ChangedFile[] {
   const result: ChangedFile[] = [];
   for (const [path, file] of files) {
-    if (file.base === file.working) continue;
+    if (file.base === file.working || !inCommits(path, picked)) continue;
     const status =
       file.base === null ? "added" : file.working === null ? "deleted" : "modified";
     // Rough counts are enough for the mock.
@@ -317,14 +334,22 @@ export function install() {
         case "open_repo":
           // Any path opens the same files, under that path's name.
           return { ...repo, root: args.path };
-        case "compare_branches":
+        case "compare_branches": {
+          const wanted = (payload as { range: CommitRange | null }).range;
+          const newest = commits.findIndex((commit) => commit.sha === wanted?.newest);
+          const oldest = commits.findIndex((commit) => commit.sha === wanted?.oldest);
+          const range = newest === -1 || oldest === -1 ? null : { newest: commits[newest].sha, oldest: commits[oldest].sha };
           return {
             base: args.base,
             head: args.head,
-            mergeBase: "b481a92f122e44c0d840c722ded1ab11d334c7dd",
-            headCommit: "7d3e9a1f0c5b2e8d4a6f1b3c9e7d5a2f8b4c6e1d",
-            files: changedFiles(),
+            mergeBase: range ? (commits[oldest + 1]?.sha ?? MERGE_BASE) : MERGE_BASE,
+            headCommit: range?.newest ?? TIP,
+            tipCommit: TIP,
+            range,
+            commits: commits.map(({ paths: _, ...commit }) => commit),
+            files: changedFiles(range ? commits.slice(newest, oldest + 1) : commits),
           } satisfies Comparison;
+        }
         case "list_files": {
           // A few files that are not part of the diff, so the explorer has more to show.
           const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
