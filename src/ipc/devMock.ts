@@ -11,6 +11,8 @@ import type {
   Comparison,
   FilePair,
   LspEvent,
+  NewPullRequest,
+  NewPullRequestPlan,
   NewThreadPlace,
   PrChange,
   PrRemote,
@@ -530,6 +532,42 @@ const pullRequestThreads: PrThread[] = [
   },
 ];
 
+// Branches on the mock Azure DevOps. feature/agent-work has !1287 open
+// already; feature/agent-work-wt is not pushed, or with `?serverbranch=behind`
+// one commit behind, with `?serverbranch=ahead` ahead with a commit not reviewed.
+const serverBranches = new Map<string, string>([
+  ["main", MERGE_BASE],
+  ["feature/agent-work", TIP],
+]);
+const serverBranch = searchParams.get("serverbranch");
+if (serverBranch === "behind") serverBranches.set("feature/agent-work-wt", commits[1].sha);
+if (serverBranch === "ahead") serverBranches.set("feature/agent-work-wt", "f00dfeedf00dfeedf00dfeedf00dfeedf00dfeed");
+
+let nextPullRequestId = 1290;
+
+const hostBranch = (name: string) => name.replace(/^origin\//, "");
+
+function planPullRequest(head: string, base: string, commit: string): NewPullRequestPlan {
+  const sourceBranch = hostBranch(head);
+  const targetBranch = hostBranch(base);
+  if (!serverBranches.has(targetBranch)) throw { kind: "notFound", message: `Azure DevOps has no branch ${targetBranch} to merge into.` };
+  const serverCommit = serverBranches.get(sourceBranch) ?? null;
+  const at = commits.findIndex((candidate) => candidate.sha === serverCommit);
+  const push = serverCommit === null ? "create" : serverCommit === commit ? "none" : at > 0 ? "update" : "conflict";
+  const existing = mockPullRequests.find(
+    (candidate) => candidate.status === "active" && candidate.sourceBranch === sourceBranch && candidate.targetBranch === targetBranch,
+  );
+  return {
+    sourceBranch,
+    targetBranch,
+    serverCommit,
+    push,
+    commits: commits.length,
+    pushCommits: push === "create" ? commits.length : push === "update" ? at : 0,
+    existing: existing ? asSeenByYou(existing) : null,
+  };
+}
+
 let nextThreadId = 100;
 
 // `?readonlytoken`: the token can read but not write, as with the Code (Read) scope.
@@ -663,6 +701,40 @@ export function install() {
             else found.draft = change.draft;
             return asSeenByYou(found);
           }, 900);
+        case "plan_pull_request":
+          return slowly(() => {
+            checkToken();
+            return planPullRequest(args.head, args.base, args.commit);
+          }, 600);
+        case "create_pull_request":
+          return slowly(() => {
+            checkToken();
+            const { request } = payload as { request: NewPullRequest };
+            const plan = planPullRequest(request.head, request.base, request.commit);
+            if (plan.existing) throw { kind: "other", message: `Pull request !${plan.existing.id} is open already.` };
+            if (plan.push === "conflict") throw { kind: "other", message: `${plan.sourceBranch} on Azure DevOps has commits that are not in what you reviewed.` };
+            checkWrite();
+            console.info("devMock: create pull request", plan.push === "none" ? "(no push)" : `after pushing ${request.commit}`, request);
+            serverBranches.set(plan.sourceBranch, request.commit);
+            const created: PullRequest = {
+              id: nextPullRequestId++,
+              title: request.title,
+              description: request.description,
+              author: YOU.name,
+              created: new Date().toISOString(),
+              draft: request.draft,
+              status: "active",
+              sourceBranch: plan.sourceBranch,
+              targetBranch: plan.targetBranch,
+              sourceCommit: request.commit,
+              targetCommit: MERGE_BASE,
+              url: `https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/${nextPullRequestId - 1}`,
+              reviewers: [reviewer("[Shop]\\Shop Team", "none", true)],
+              mergeStatus: "succeeded",
+            };
+            mockPullRequests.unshift(created);
+            return asSeenByYou(created);
+          }, 1500);
         case "create_pull_request_thread":
           return slowly(() => {
             checkToken();

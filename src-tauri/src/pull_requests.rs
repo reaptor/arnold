@@ -10,8 +10,8 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote};
-use serde::Serialize;
+use arnold_pr::{NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::commands::AppState;
@@ -343,4 +343,218 @@ pub async fn reply_to_pull_request_thread(
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
     blocking(move || azure::reply(&repo, &token, id, thread, parent, &content)).await?
+}
+
+// ------------------------------------------------------- creating one
+
+/// What creating a pull request from a reviewed branch would do, worked
+/// out before anything is sent.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPullRequestPlan {
+    /// The branches on the host, without `refs/heads/`.
+    source_branch: String,
+    target_branch: String,
+    /// Where the host's source branch is now; `None` when it has none.
+    server_commit: Option<String>,
+    push: PushPlan,
+    /// Commits of the reviewed commit that the target branch lacks: what
+    /// the pull request will have.
+    commits: u32,
+    /// Commits the push sends.
+    push_commits: u32,
+    /// An active pull request between the same branches, which the host
+    /// allows only one of.
+    existing: Option<PullRequest>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PushPlan {
+    /// The host's branch is at the reviewed commit already.
+    None,
+    /// The host has no such branch: it is pushed as a new one.
+    Create,
+    /// The host's branch is behind the reviewed commit: fast-forwarded.
+    Update,
+    /// The host's branch has commits that were not reviewed; nothing is
+    /// pushed over them.
+    Conflict,
+}
+
+/// The branch a reviewed branch is on the host: its own name for a local
+/// branch, without the remote for a remote-tracking one (`origin/feature/x`).
+async fn host_branch(root: &Path, name: &str) -> Result<String, PrError> {
+    let branches = arnold_git::list_branches(root).await.map_err(other)?;
+    let branch = branches
+        .iter()
+        .find(|branch| branch.name == name)
+        .ok_or_else(|| PrError::NotFound(format!("There is no branch {name} in this repository.")))?;
+    if !branch.is_remote {
+        return Ok(name.to_string());
+    }
+    let remotes = arnold_git::remotes(root).await.map_err(other)?;
+    remotes
+        .iter()
+        .filter_map(|remote| name.strip_prefix(&format!("{}/", remote.name)))
+        // The longest remote name that fits: `team/x` before `team`.
+        .min_by_key(|rest| rest.len())
+        .map(str::to_string)
+        .ok_or_else(|| PrError::Other(format!("Could not tell which remote {name} belongs to.")))
+}
+
+async fn plan_new(
+    root: &Path,
+    repo: &AzureRepo,
+    token: &str,
+    head: &str,
+    base: &str,
+    commit: &str,
+) -> Result<NewPullRequestPlan, PrError> {
+    if !arnold_git::has_commits(root, &[commit]).await {
+        return Err(PrError::Other(format!("Commit {commit} is not in this repository.")));
+    }
+    let source_branch = host_branch(root, head).await?;
+    let target_branch = host_branch(root, base).await?;
+    if source_branch == target_branch {
+        return Err(PrError::Other(format!("{head} and {base} are the same branch on Azure DevOps.")));
+    }
+    let (server_commit, target_commit, existing) = {
+        let (repo, token) = (repo.clone(), token.to_string());
+        let (source, target) = (source_branch.clone(), target_branch.clone());
+        blocking(move || {
+            let server = azure::branch_commit(&repo, &token, &source)?;
+            let target_commit = azure::branch_commit(&repo, &token, &target)?;
+            let existing = azure::active_pull_requests_between(&repo, &token, &source, &target)?;
+            Ok::<_, PrError>((server, target_commit, existing.into_iter().next()))
+        })
+        .await??
+    };
+    let target_commit = target_commit
+        .ok_or_else(|| PrError::NotFound(format!("Azure DevOps has no branch {target_branch} to merge into.")))?;
+    // What the pull request will have: compared with the host's target when
+    // that commit is here, else with the local base branch.
+    let compared = if arnold_git::has_commits(root, &[&target_commit]).await { target_commit.as_str() } else { base };
+    let commits = arnold_git::count_commits(root, Some(compared), commit).await.map_err(other)?;
+
+    let (push, push_commits) = match &server_commit {
+        None => (PushPlan::Create, commits),
+        Some(server) if server == commit => (PushPlan::None, 0),
+        Some(server) if arnold_git::is_ancestor(root, server, commit).await => {
+            (PushPlan::Update, arnold_git::count_commits(root, Some(server), commit).await.map_err(other)?)
+        }
+        Some(_) => (PushPlan::Conflict, 0),
+    };
+    Ok(NewPullRequestPlan {
+        source_branch,
+        target_branch,
+        server_commit,
+        push,
+        commits,
+        push_commits,
+        existing,
+    })
+}
+
+/// What creating a pull request from `head` (as of `commit`, the one
+/// reviewed) into `base` would do: whether the branch has to be pushed
+/// first, and whether one is open already.
+#[tauri::command]
+pub async fn plan_pull_request(
+    root: String,
+    remote: String,
+    head: String,
+    base: String,
+    commit: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<NewPullRequestPlan, PrError> {
+    let (root, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let plan = plan_new(&root, &repo, &token, &head, &base, &commit).await?;
+    Ok(NewPullRequestPlan {
+        existing: match plan.existing {
+            Some(existing) => Some(prs.mark_you(&repo, &token, existing).await),
+            None => None,
+        },
+        ..plan
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRequest {
+    head: String,
+    base: String,
+    /// The commit reviewed: what is pushed, whatever `head` points at by now.
+    commit: String,
+    title: String,
+    description: String,
+    draft: bool,
+}
+
+/// Opens a pull request from `head` into `base` on `remote`'s Azure DevOps,
+/// pushing the reviewed commit to the host's branch first when it is not
+/// there yet. Never forced: a host branch with commits that were not
+/// reviewed stops it.
+#[tauri::command]
+pub async fn create_pull_request(
+    root: String,
+    remote: String,
+    request: CreateRequest,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<PullRequest, PrError> {
+    let (root, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let title = request.title.trim().to_string();
+    if title.is_empty() {
+        return Err(PrError::Other("The pull request needs a title.".into()));
+    }
+    let plan = plan_new(&root, &repo, &token, &request.head, &request.base, &request.commit).await?;
+    if let Some(existing) = &plan.existing {
+        return Err(PrError::Other(format!(
+            "Pull request !{} from {} into {} is open already.",
+            existing.id, plan.source_branch, plan.target_branch
+        )));
+    }
+    if plan.commits == 0 {
+        return Err(PrError::Other(format!("{} has nothing that {} lacks.", request.head, plan.target_branch)));
+    }
+    match plan.push {
+        PushPlan::None => {}
+        PushPlan::Conflict => return Err(PrError::Other(conflict_text(&plan))),
+        PushPlan::Create | PushPlan::Update => {
+            let header = format!("Authorization: {}", azure::authorization(&token));
+            arnold_git::push_commit(&root, &repo.web_url(), &request.commit, &plan.source_branch, Some(&header))
+                .await
+                .map_err(|e| match e {
+                    arnold_git::GitError::Failed { stderr, .. } if stderr.contains("rejected") => PrError::Other(conflict_text(&plan)),
+                    e => PrError::Other(format!("Could not push {} to Azure DevOps: {e}", plan.source_branch)),
+                })?;
+            // As `git push origin` would; the push itself does not depend on it.
+            if let Err(e) = arnold_git::set_remote_tracking(&root, &remote, &plan.source_branch, &request.commit).await {
+                crate::commands::dev_trace(format!("updating {remote}/{}: {e}", plan.source_branch));
+            }
+        }
+    }
+    let new = NewPullRequest {
+        source_branch: plan.source_branch,
+        target_branch: plan.target_branch,
+        title,
+        description: request.description,
+        draft: request.draft,
+    };
+    let pull_request = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::create_pull_request(&repo, &token, &new)).await??
+    };
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+fn conflict_text(plan: &NewPullRequestPlan) -> String {
+    format!(
+        "{} on Azure DevOps has commits that are not in what you reviewed. Fetch, review the branch as it is there, then create the pull request.",
+        plan.source_branch
+    )
 }

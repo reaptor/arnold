@@ -70,6 +70,8 @@ fn main() {
             pull_requests::reply_to_pull_request_thread,
             pull_requests::vote_on_pull_request,
             pull_requests::update_pull_request,
+            pull_requests::plan_pull_request,
+            pull_requests::create_pull_request,
             workspace::prepare_workspace,
             lsp::lsp_start,
             lsp::lsp_send,

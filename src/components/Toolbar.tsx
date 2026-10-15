@@ -16,6 +16,7 @@ import { prs } from "../state/pullRequests";
 import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
+import { CreatePullRequestButton } from "./CreatePullRequest";
 import { DiscussionPicker } from "./DiscussionPicker";
 import { PullRequestActions } from "./PullRequestActions";
 import { PullRequestPicker } from "./PullRequestPicker";
@@ -115,6 +116,10 @@ export function Toolbar() {
       <span class="toolbar-space" />
       <Show when={state.repo && state.source === "pullRequest" && state.pullRequest}>
         <PullRequestActions />
+        <span class="toolbar-separator" />
+      </Show>
+      <Show when={state.repo && state.source === "branches" && prs.remotes.length > 0}>
+        <CreatePullRequestButton />
         <span class="toolbar-separator" />
       </Show>
       <Show when={state.repo && (state.source === "branches" || state.pullRequest)}>

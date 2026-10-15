@@ -248,6 +248,45 @@ export const voteOnPullRequest = (root: string, remote: string, id: number, vote
 export const updatePullRequest = (root: string, remote: string, id: number, change: PrChange) =>
   invoke<PullRequest>("update_pull_request", { root, remote, id, change });
 
+/** What creating a pull request from a reviewed branch would do; nothing is sent yet. */
+export interface NewPullRequestPlan {
+  /** The branches on the host, without `refs/heads/`. */
+  sourceBranch: string;
+  targetBranch: string;
+  /** Where the host's source branch is now; null when it has none. */
+  serverCommit: string | null;
+  /**
+   * `none`: the host's branch is at the reviewed commit; `create`: pushed as a
+   * new branch; `update`: fast-forwarded; `conflict`: the host's branch has
+   * commits that were not reviewed, so nothing can be pushed.
+   */
+  push: "none" | "create" | "update" | "conflict";
+  /** Commits the pull request will have. */
+  commits: number;
+  /** Commits the push sends. */
+  pushCommits: number;
+  /** An active pull request between the same branches; the host allows only one. */
+  existing: PullRequest | null;
+}
+
+export interface NewPullRequest {
+  head: string;
+  base: string;
+  /** The commit reviewed: what is pushed, wherever `head` points by now. */
+  commit: string;
+  title: string;
+  /** Markdown. */
+  description: string;
+  draft: boolean;
+}
+
+export const planPullRequest = (root: string, remote: string, head: string, base: string, commit: string) =>
+  invoke<NewPullRequestPlan>("plan_pull_request", { root, remote, head, base, commit });
+
+/** Pushes the reviewed commit if the host lacks it (never forced), then opens the pull request. */
+export const createPullRequest = (root: string, remote: string, request: NewPullRequest) =>
+  invoke<PullRequest>("create_pull_request", { root, remote, request });
+
 /** The repository's branches, read again. */
 export const listBranches = (root: string) => invoke<Branch[]>("list_branches", { root });
 

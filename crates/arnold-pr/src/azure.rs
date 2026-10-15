@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
-use crate::{Comment, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
+use crate::{Comment, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
 
 /// A repository hosted on Azure DevOps.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -214,6 +214,76 @@ pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullReques
     let url = repo.api(&format!("/pullrequests/{id}?api-version={API_VERSION}"));
     let body = get(&url, token)?;
     parse_pull_request(&body, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+/// The active pull requests of `repo` from `source` into `target` (branch
+/// names without `refs/heads/`); the host allows only one.
+pub fn active_pull_requests_between(
+    repo: &AzureRepo,
+    token: &str,
+    source: &str,
+    target: &str,
+) -> Result<Vec<PullRequest>, PrError> {
+    let url = repo.api(&format!(
+        "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName={}&searchCriteria.targetRefName={}&api-version={API_VERSION}",
+        query_encode(&format!("refs/heads/{source}")),
+        query_encode(&format!("refs/heads/{target}")),
+    ));
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(list.iter().filter_map(|value| parse_pull_request(value, repo)).collect())
+}
+
+/// The commit branch `branch` (without `refs/heads/`) of `repo` points at,
+/// or `None` when the host has no such branch.
+pub fn branch_commit(repo: &AzureRepo, token: &str, branch: &str) -> Result<Option<String>, PrError> {
+    let name = format!("refs/heads/{branch}");
+    // `filter` matches the start of names: `heads/feature` also finds `heads/feature-2`.
+    let url = repo.api(&format!("/refs?filter={}&api-version={API_VERSION}", query_encode(&name["refs/".len()..])));
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(exact_ref(list, &name))
+}
+
+fn exact_ref(list: &[Value], name: &str) -> Option<String> {
+    list.iter()
+        .find(|entry| entry["name"].as_str() == Some(name))
+        .and_then(|entry| entry["objectId"].as_str())
+        .map(str::to_string)
+}
+
+/// Opens a pull request; its source branch has to be on the host.
+pub fn create_pull_request(repo: &AzureRepo, token: &str, new: &NewPullRequest) -> Result<PullRequest, PrError> {
+    let url = repo.api(&format!("/pullrequests?api-version={API_VERSION}"));
+    let answer = post(&url, token, &create_body(new))?;
+    parse_pull_request(&answer, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+fn create_body(new: &NewPullRequest) -> Value {
+    json!({
+        "sourceRefName": format!("refs/heads/{}", new.source_branch),
+        "targetRefName": format!("refs/heads/{}", new.target_branch),
+        "title": new.title,
+        "description": new.description,
+        "isDraft": new.draft,
+    })
+}
+
+/// Percent-encodes a query parameter's value; `/` is left as it is.
+fn query_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// The host's id of the token's owner, which is how a reviewer is known.
@@ -808,6 +878,37 @@ mod tests {
             vec![("b0", Vote::Approved, false), ("t1", Vote::None, true), ("c2", Vote::WaitingForAuthor, false)]
         );
         assert_eq!(pr.merge_status, "conflicts");
+    }
+
+    #[test]
+    fn finds_exact_refs_and_builds_create_bodies() {
+        let list: Vec<Value> = serde_json::from_value(json!([
+            { "name": "refs/heads/agent/task-2", "objectId": "2222" },
+            { "name": "refs/heads/agent/task", "objectId": "1111" },
+        ]))
+        .unwrap();
+        assert_eq!(exact_ref(&list, "refs/heads/agent/task").as_deref(), Some("1111"));
+        assert_eq!(exact_ref(&list, "refs/heads/agent"), None);
+        assert_eq!(query_encode("heads/feature/a b+c&d"), "heads/feature/a%20b%2Bc%26d");
+        assert_eq!(query_encode("heads/öl"), "heads/%C3%B6l");
+
+        let new = NewPullRequest {
+            source_branch: "agent/task".into(),
+            target_branch: "main".into(),
+            title: "Add loyalty discount".into(),
+            description: "- one\n- two".into(),
+            draft: true,
+        };
+        assert_eq!(
+            create_body(&new),
+            json!({
+                "sourceRefName": "refs/heads/agent/task",
+                "targetRefName": "refs/heads/main",
+                "title": "Add loyalty discount",
+                "description": "- one\n- two",
+                "isDraft": true,
+            })
+        );
     }
 
     #[test]

@@ -119,8 +119,9 @@ export function DevOpsSetup(props: Props) {
           </Show>
           <p class="connect-note">
             Arnold checks the token with Azure DevOps first, then keeps it in {STORE_NAME}. It is sent only to{" "}
-            {new URL(props.remote.tokenSettingsUrl).host}, to list pull requests and fetch their commits. Arnold never
-            changes anything there.
+            {new URL(props.remote.tokenSettingsUrl).host}, to list pull requests and fetch their commits. Arnold changes
+            things there only when you ask it to: comments, votes, and creating or completing a pull request (creating
+            one pushes the branch you reviewed if Azure DevOps does not have it yet).
           </p>
           <p class="connect-note">
             Already using the Azure CLI? Arnold also reads a token from the <code>{ENVIRONMENT_VARIABLE}</code>{" "}

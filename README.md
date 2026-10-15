@@ -4,7 +4,7 @@
 
 **Review what your AI agents wrote before it gets merged.**
 
-Arnold is a desktop app for macOS and Windows for reviewing a git branch the way you review a pull request: every change against the branch it goes into, one file at a time or all at once, with an F# language server in the diff. Azure DevOps pull requests can be reviewed from start to finish, including commenting, voting and completing. Arnold never changes your repository; fixes are made elsewhere.
+Arnold is a desktop app for macOS and Windows for reviewing a git branch the way you review a pull request: every change against the branch it goes into, one file at a time or all at once, with an F# language server in the diff. Once a branch is reviewed, Arnold creates the pull request for colleagues, and Azure DevOps pull requests can be reviewed from start to finish, including commenting, voting and completing. Arnold never changes your working copy; fixes are made elsewhere.
 
 ![Arnold reviewing an Azure DevOps pull request: the files dock on the left, the side-by-side diff with discussions on the right, and Approve and Complete in the toolbar](docs/screenshots/review.png)
 
@@ -12,10 +12,10 @@ Arnold is a desktop app for macOS and Windows for reviewing a git branch the way
 
 - **A pull request's diff for any branch:** merge-base → the branch's last commit, the way pull requests show changes. It updates on its own when the branch moves.
 - **Built for big reviews:** every changed file in one scrolling list, a file explorer next to it, and `F7` to step from change to change across files.
-- **Azure DevOps pull requests:** pick one from the active ones, read its discussions in the diff, comment on lines or files, approve and complete.
+- **Azure DevOps pull requests:** create one from a branch you reviewed, or pick one from the active ones, read its discussions in the diff, comment on lines or files, approve and complete.
 - **F# language features in the diff:** errors, hover, go to definition, find references and Rider's colors, from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and updates itself.
 - **Looks like Rider:** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
-- **Read-only by design:** Arnold never edits, commits, checks out or pushes.
+- **Read-only by design:** Arnold never edits, commits or checks out; it pushes only the reviewed commit when you create a pull request.
 
 **Contents:** [Install](#install) · [Getting started](#getting-started) · [Reviewing a branch](#reviewing-a-branch) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F# language features](#f-language-features) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
@@ -99,13 +99,19 @@ When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudi
 
 ### Connecting
 
-Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; commenting, voting and completing need **Code (Read & write)**. Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
+Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, voting and completing need **Code (Read & write)**. Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
 
 1. In Azure DevOps, open *User settings → Personal access tokens* (`https://dev.azure.com/<organization>/_usersSettings/tokens`) and select *New Token*.
 2. Pick the organization and an expiry date, choose *Custom defined* scopes and tick *Code → Read & write* (or *Read* only, to only read). Create it and copy the token.
 3. In Arnold, switch to *Pull request*, paste the token and select *Connect*.
 
 Arnold checks the token with Azure DevOps before saving it, one per organization, in the macOS Keychain or Windows Credential Manager. Without a saved token it uses the `AZURE_DEVOPS_EXT_PAT` environment variable (the Azure CLI's). The token goes only to the remote's Azure DevOps host: to read and change pull requests and to fetch their commits. The key button in the pull request list changes or removes it. HTTPS certificates are checked against the system's certificate store, so company proxies and internal certificate authorities work as they do for git.
+
+### Creating a pull request
+
+Once a branch is reviewed (an AI agent's, say), *Create pull request* in the toolbar opens one on Azure DevOps from the branch to review into the base branch, for colleagues to review. The title and description start out as Azure DevOps fills them in (the commit's subject for one commit; otherwise the branch name, with the commits listed), the description is Markdown with a preview, and *Create as a draft* is remembered.
+
+When Azure DevOps does not have the branch yet, or has an older commit of it, Arnold first pushes the commit you reviewed, not whatever the branch points at by now, and says so in the dialog. It never forces: if the branch on Azure DevOps has commits you have not reviewed, nothing is pushed or created. The push goes to the remote's HTTPS address with the token and moves the remote-tracking branch (`origin/<branch>`) along, as `git push` would; the local branch and its upstream setting are left alone. When a pull request between the two branches is open already, the dialog offers to review it instead. The new pull request opens in Arnold.
 
 ### Picking a pull request
 
@@ -167,11 +173,12 @@ How it works:
 
 ## What Arnold writes
 
-Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out. It writes only:
+Arnold never edits, resets, stages, commits or checks out. It writes only:
 
 - the objects of a pull request it fetched;
+- when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
 - a copy of the reviewed commit for the language server, in `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`, and it is not a registered git worktree);
-- to Azure DevOps, when you ask it to: comments, votes, and completing, abandoning, drafting or publishing a pull request.
+- to Azure DevOps, when you ask it to: new pull requests, comments, votes, and completing, abandoning, drafting or publishing a pull request.
 
 ## Status
 
@@ -246,6 +253,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and four pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty` |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
+| `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |
 | `lsp` | A stand-in language server that answers go-to-definition and reports unused `open`s; `projectfail` makes a project fail to load |
 | `setupslow`, `setupfail` | Preparing the language server's copy is slow, or fails |
 | `files=40` | Adds that many changed files, for a large diff |

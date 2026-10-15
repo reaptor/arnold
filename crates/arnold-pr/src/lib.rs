@@ -66,6 +66,19 @@ pub enum Vote {
     Rejected,
 }
 
+/// A pull request to open, from a branch that is on the host already.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPullRequest {
+    /// Branch names without `refs/heads/`.
+    pub source_branch: String,
+    pub target_branch: String,
+    pub title: String,
+    /// Markdown.
+    pub description: String,
+    pub draft: bool,
+}
+
 /// A change to a pull request as a whole.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
