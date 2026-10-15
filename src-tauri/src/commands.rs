@@ -60,7 +60,8 @@ pub fn startup_path() -> Option<String> {
     // PowerShell completes a folder with spaces as `'.\my repo\'`; on its way through
     // `arnold.cmd` the backslash turns the closing quote into part of the argument.
     let argument = argument.trim_end_matches('"');
-    let path = Path::new(argument).canonicalize().ok()?;
+    // Without the `\\?\` prefix `std` canonicalize adds on Windows.
+    let path = dunce::canonicalize(argument).ok()?;
     path.is_dir().then(|| path.to_string_lossy().into_owned())
 }
 

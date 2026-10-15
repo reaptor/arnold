@@ -108,7 +108,9 @@ async fn prepare(root: &Path, head: &str, commit: &str, events: &Channel<SetupEv
         .await
         .map_err(|e| e.to_string())?;
     // The server reports resolved paths (on macOS the temp folder is a symlink).
-    let checkout = checkout.canonicalize().map_err(|e| e.to_string())?;
+    // Not `std` canonicalize: on Windows that gives `\\?\C:\…`, which becomes a
+    // root URI FsAutoComplete cannot load, so it never finishes loading.
+    let checkout = dunce::canonicalize(&checkout).map_err(|e| e.to_string())?;
 
     let dotnet = dotnet::locate(&checkout).await?;
     run_plan(&plan, &dotnet, &checkout, &folder.join("prepared.json"), &emit).await;

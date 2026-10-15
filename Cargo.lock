@@ -62,6 +62,7 @@ version = "0.1.0"
 dependencies = [
  "arnold-git",
  "arnold-lsp",
+ "dunce",
  "notify",
  "notify-debouncer-full",
  "serde",
