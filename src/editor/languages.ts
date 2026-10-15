@@ -1,5 +1,6 @@
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { MSSQL, sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import type { Extension } from "@codemirror/state";
 import { csharp } from "@replit/codemirror-lang-csharp";
@@ -17,6 +18,8 @@ export function languageFor(path: string): Extension {
   if (XML_LIKE.has(extension)) return xml();
   if (extension === "json") return json();
   if (extension === "md") return markdown();
+  // T-SQL: SQL Server keywords, types and functions, @variables, [quoted] names.
+  if (extension === "sql") return sql({ dialect: MSSQL });
   return [];
 }
 

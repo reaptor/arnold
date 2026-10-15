@@ -91,11 +91,29 @@ const CSHARP_WORKING = CSHARP_BASE.replace(
   '        if (order is null) throw new ArgumentException("Unknown order", nameof(id));\n        return $"Order {order.Id}: {order.Lines.Count} lines";',
 );
 
+const SQL_BASE = `-- Open orders per customer
+CREATE PROCEDURE [dbo].[OpenOrders] @CustomerId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT o.[Id], o.[Total], GETDATE() AS [Now]
+    FROM [dbo].[Orders] o WITH (NOLOCK)
+    WHERE o.CustomerId = @CustomerId AND o.Status = N'Open';
+END
+GO
+`;
+
+const SQL_WORKING = SQL_BASE.replace(
+  "    SELECT o.[Id], o.[Total], GETDATE() AS [Now]",
+  "    DECLARE @Since DATETIME2 = DATEADD(DAY, -30, SYSUTCDATETIME());\n    SELECT TOP (100) o.[Id], o.[Total], ISNULL(o.[Note], '') AS [Note]",
+).replace("N'Open';", "N'Open' AND o.Created >= @Since;");
+
 const files = new Map<string, FakeFile>([
   ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WORKING }],
   ["Pricing.fs", { base: PRICING_BASE, working: PRICING_WORKING }],
   ["src/Api/OrderController.cs", { base: CSHARP_BASE, working: CSHARP_WORKING }],
   ["Audit.fs", { base: null, working: 'module ZedTrial.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n' }],
+  ["db/Orders.sql", { base: SQL_BASE, working: SQL_WORKING }],
   ["docs/Legacy.md", { base: "# Legacy notes\n\nRemoved by the agent.\n", working: null }],
 ]);
 
