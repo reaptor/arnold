@@ -146,6 +146,29 @@ export interface PullRequest {
   reviewers: { name: string; vote: Vote; group: boolean }[];
 }
 
+/** A discussion on a pull request: about lines of a file, or (without a path) about all of it. */
+export interface PrThread {
+  id: number;
+  path: string | null;
+  /** As of the pull request's latest push; null when the host lost track of the lines. */
+  position: { side: "base" | "head"; startLine: number; endLine: number } | null;
+  /** `active`, `pending`, `fixed`, `wontFix`, `closed`, `byDesign` or `unknown`. */
+  status: string;
+  comments: PrComment[];
+}
+
+export interface PrComment {
+  id: number;
+  /** The comment answered; 0 for none. */
+  parentId: number;
+  author: string;
+  /** Markdown. */
+  content: string;
+  /** ISO 8601. */
+  published: string;
+  edited: boolean;
+}
+
 /** How the pull request commands fail. */
 export type PrError =
   | { kind: "noToken" }
@@ -173,6 +196,10 @@ export const openPullRequest = (root: string, remote: string, id: number) =>
 
 /** The repository's branches, read again. */
 export const listBranches = (root: string) => invoke<Branch[]>("list_branches", { root });
+
+/** The discussions of a pull request, positioned as of its latest push. */
+export const pullRequestThreads = (root: string, remote: string, id: number) =>
+  invoke<PrThread[]>("pull_request_threads", { root, remote, id });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());

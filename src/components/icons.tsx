@@ -98,6 +98,13 @@ export const PullRequestIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A comment: a speech bubble. */
+export const CommentIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 3v-3h-.5a1 1 0 0 1-1-1z" />
+  </Icon>
+);
+
 /** Opens a web page in the browser. */
 export const ExternalIcon = (props: IconProps) => (
   <Icon {...props}>

@@ -1,9 +1,11 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, branchNames, openFile, selectFile, state } from "../state/review";
+import { allFiles, branchNames, fileThreads, openFile, selectFile, state } from "../state/review";
+import { isOpen } from "../editor/threads";
 import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
 import { FileTree } from "./FileTree";
+import { CommentIcon } from "./icons";
 
 export const STATUS_LETTER: Record<FileStatus, string> = {
   added: "A",
@@ -171,6 +173,16 @@ export function FileDock(props: { width: number }) {
                         <span class="file-name">{parts.name}</span>
                         <span class="file-directory">{parts.directory}</span>
                       </span>
+                      <Show when={fileThreads(file.path).length > 0}>
+                        <span
+                          class="file-threads"
+                          classList={{ open: fileThreads(file.path).some(isOpen) }}
+                          title={`${fileThreads(file.path).filter(isOpen).length} active of ${fileThreads(file.path).length} discussions`}
+                        >
+                          <CommentIcon />
+                          {fileThreads(file.path).length}
+                        </span>
+                      </Show>
                       <span class="counts">
                         <Show when={file.binary} fallback={<Counts file={file} />}>
                           <span class="binary">bin</span>

@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{PrError, PullRequest};
+use arnold_pr::{PrError, PullRequest, Thread};
 use serde::Serialize;
 use tauri::State;
 
@@ -218,4 +218,18 @@ pub async fn open_pull_request(
         }
     }
     Ok(pull_request)
+}
+
+/// The discussions of pull request `id`, with positions as of its latest push.
+#[tauri::command]
+pub async fn pull_request_threads(
+    root: String,
+    remote: String,
+    id: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<Vec<Thread>, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::threads(&repo, &token, id)).await?
 }

@@ -1826,3 +1826,230 @@ button.primary:hover:not(:disabled) {
 .vote-rejected {
   color: var(--removed);
 }
+
+/* ------------------------------------------------------- pull request threads */
+
+.cm-thread {
+  padding: 6px 12px 8px;
+  /* Readable text, not code. */
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: normal;
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Lines a thread is about; changed lines keep their diff color. Drawn by lineTints.ts. */
+.diff-host .cm-editor .cm-thread-line:not(.cm-changedLine) {
+  --line-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The card fits the editor's visible width, whatever the length of the code lines. */
+.cm-editor:has(.cm-thread) {
+  container-type: inline-size;
+}
+
+.thread {
+  max-width: min(760px, calc(100cqw - 90px));
+  border: 1px solid var(--popup-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--popup);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.thread[data-status="fixed"],
+.thread[data-status="closed"],
+.thread[data-status="wontFix"],
+.thread[data-status="byDesign"] {
+  border-left-color: var(--added);
+}
+
+.thread-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.thread-head:hover {
+  background: var(--hover);
+}
+
+.thread-status {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.thread[data-status="fixed"] .thread-status,
+.thread[data-status="closed"] .thread-status,
+.thread[data-status="wontFix"] .thread-status,
+.thread[data-status="byDesign"] .thread-status {
+  color: var(--added);
+}
+
+.thread-who {
+  flex: none;
+  font-weight: 600;
+}
+
+.thread-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.thread-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Open: the comments say it all, so the head keeps only the status. */
+.thread:not(.folded) :is(.thread-who, .thread-summary) {
+  visibility: hidden;
+}
+
+.thread.folded .thread-body {
+  display: none;
+}
+
+.thread-body {
+  border-top: 1px solid var(--popup-border);
+}
+
+.thread-comment {
+  padding: 6px 10px 8px;
+}
+
+.thread-comment + .thread-comment {
+  border-top: 1px solid var(--border);
+}
+
+.thread-comment.reply {
+  padding-left: 22px;
+}
+
+.thread-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.thread-meta strong {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.thread-text {
+  overflow-wrap: anywhere;
+}
+
+.thread-text pre {
+  white-space: pre-wrap;
+}
+
+.discussion-popup {
+  width: min(640px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.discussion-list {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.discussion-list h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.discussion-list h3:first-child {
+  margin-top: 0;
+}
+
+.discussion-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.discussion-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.discussion-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.discussion-jump {
+  align-self: flex-start;
+  padding: 0 4px;
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.discussion-jump:disabled {
+  color: var(--muted);
+}
+
+.discussion-list .thread {
+  max-width: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.discussion-picker .picker-value {
+  flex: none;
+}
+
+/* Discussions about a changed file, in the dock. */
+.file-threads {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.file-threads.open {
+  color: var(--accent);
+}
+
+.file-threads .icon {
+  width: 12px;
+  height: 12px;
+}

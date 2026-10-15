@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use ureq::tls::{RootCerts, TlsConfig};
 
-use crate::{PrError, PullRequest, Reviewer, Vote};
+use crate::{Comment, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
 
 /// A repository hosted on Azure DevOps.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -216,6 +216,23 @@ pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullReques
     parse_pull_request(&body, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
 }
 
+/// The discussions of pull request `id`. Positions in files are tracked by
+/// the host up to the latest push, compared with the merge-base, which is
+/// the diff Arnold shows.
+pub fn threads(repo: &AzureRepo, token: &str, id: u64) -> Result<Vec<Thread>, PrError> {
+    let iterations = get(&repo.api(&format!("/pullRequests/{id}/iterations?api-version={API_VERSION}")), token)?;
+    let latest = iterations["value"]
+        .as_array()
+        .and_then(|list| list.iter().filter_map(|iteration| iteration["id"].as_u64()).max());
+    let tracking = latest.map_or_else(String::new, |latest| format!("&$iteration={latest}&$baseIteration=0"));
+    let url = repo.api(&format!("/pullRequests/{id}/threads?api-version={API_VERSION}{tracking}"));
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(list.iter().filter_map(parse_thread).collect())
+}
+
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(15)))
@@ -326,6 +343,64 @@ fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
     })
 }
 
+/// A thread with something people wrote in it; votes, pushes and other
+/// notes of the host are system comments and are left out.
+fn parse_thread(value: &Value) -> Option<Thread> {
+    if value["isDeleted"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let text = |value: &Value| value.as_str().unwrap_or_default().to_string();
+    let comments: Vec<Comment> = value["comments"]
+        .as_array()?
+        .iter()
+        .filter(|comment| comment["commentType"].as_str() == Some("text"))
+        .filter(|comment| !comment["isDeleted"].as_bool().unwrap_or(false))
+        .filter_map(|comment| {
+            let content = text(&comment["content"]);
+            if content.trim().is_empty() {
+                return None;
+            }
+            let published = text(&comment["publishedDate"]);
+            let updated = text(&comment["lastContentUpdatedDate"]);
+            Some(Comment {
+                id: comment["id"].as_u64()?,
+                parent_id: comment["parentCommentId"].as_u64().unwrap_or(0),
+                author: text(&comment["author"]["displayName"]),
+                content,
+                edited: !updated.is_empty() && updated != published,
+                published,
+            })
+        })
+        .collect();
+    if comments.is_empty() {
+        return None;
+    }
+    let context = &value["threadContext"];
+    let path = context["filePath"]
+        .as_str()
+        .map(|path| path.trim_start_matches('/').to_string())
+        .filter(|path| !path.is_empty());
+    let lines = |start: &Value, end: &Value| {
+        let start = start["line"].as_u64().filter(|line| *line > 0)? as u32;
+        let end = end["line"].as_u64().map_or(start, |line| line as u32).max(start);
+        Some((start, end))
+    };
+    let position = path.as_ref().and_then(|_| {
+        let (side, (start_line, end_line)) = match lines(&context["rightFileStart"], &context["rightFileEnd"]) {
+            Some(lines) => (Side::Head, lines),
+            None => (Side::Base, lines(&context["leftFileStart"], &context["leftFileEnd"])?),
+        };
+        Some(ThreadPosition { side, start_line, end_line })
+    });
+    Some(Thread {
+        id: value["id"].as_u64()?,
+        path,
+        position,
+        status: value["status"].as_str().unwrap_or("unknown").to_string(),
+        comments,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +503,68 @@ mod tests {
         let repo = parse_remote_url("https://dev.azure.com/microsoft/OS/_git/os").unwrap();
         let result = active_pull_requests(&repo, "not-a-real-token");
         assert!(matches!(result, Err(PrError::TokenRejected(_))), "{result:?}");
+    }
+
+    #[test]
+    fn parses_threads() {
+        let value: Value = serde_json::from_str(
+            r#"{ "value": [
+              {
+                "id": 1,
+                "status": "active",
+                "threadContext": {
+                  "filePath": "/src/Api/OrderController.cs",
+                  "rightFileStart": { "line": 14, "offset": 1 },
+                  "rightFileEnd": { "line": 15, "offset": 20 }
+                },
+                "comments": [
+                  { "id": 1, "parentCommentId": 0, "author": { "displayName": "Bo" }, "content": "Why 404?",
+                    "publishedDate": "2026-10-14T08:30:00Z", "lastContentUpdatedDate": "2026-10-14T08:30:00Z",
+                    "commentType": "text" },
+                  { "id": 2, "parentCommentId": 1, "author": { "displayName": "Ada" }, "content": "As agreed.",
+                    "publishedDate": "2026-10-14T09:00:00Z", "lastContentUpdatedDate": "2026-10-14T09:05:00Z",
+                    "commentType": "text" },
+                  { "id": 3, "author": { "displayName": "Cy" }, "content": "gone", "commentType": "text", "isDeleted": true }
+                ]
+              },
+              {
+                "id": 2,
+                "status": "fixed",
+                "threadContext": { "filePath": "/docs/Legacy.md", "leftFileStart": { "line": 3 }, "leftFileEnd": { "line": 3 } },
+                "comments": [ { "id": 1, "author": { "displayName": "Bo" }, "content": "Keep this?", "commentType": "text" } ]
+              },
+              {
+                "id": 3,
+                "status": "active",
+                "threadContext": null,
+                "comments": [ { "id": 1, "author": { "displayName": "Bo" }, "content": "Looks good overall", "commentType": "text" } ]
+              },
+              {
+                "id": 4,
+                "comments": [ { "id": 1, "author": { "displayName": "Azure DevOps" }, "content": "Bo voted 10", "commentType": "system" } ]
+              },
+              {
+                "id": 5,
+                "status": "active",
+                "isDeleted": true,
+                "comments": [ { "id": 1, "author": { "displayName": "Bo" }, "content": "x", "commentType": "text" } ]
+              }
+            ] }"#,
+        )
+        .unwrap();
+        let threads: Vec<Thread> = value["value"].as_array().unwrap().iter().filter_map(parse_thread).collect();
+        assert_eq!(threads.iter().map(|thread| thread.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+
+        let first = &threads[0];
+        assert_eq!(first.path.as_deref(), Some("src/Api/OrderController.cs"));
+        assert_eq!(first.position, Some(ThreadPosition { side: Side::Head, start_line: 14, end_line: 15 }));
+        assert_eq!(first.comments.len(), 2);
+        assert_eq!((first.comments[1].parent_id, first.comments[1].edited), (1, true));
+        assert!(!first.comments[0].edited);
+
+        assert_eq!(threads[1].position, Some(ThreadPosition { side: Side::Base, start_line: 3, end_line: 3 }));
+        assert_eq!(threads[1].status, "fixed");
+        assert_eq!((threads[2].path.as_deref(), threads[2].position), (None, None));
     }
 
     #[test]

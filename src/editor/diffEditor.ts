@@ -2,7 +2,7 @@
 // the same working text. Switching mode or file keeps the selection and scroll
 // position.
 
-import { getChunks, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
+import { getChunks, getOriginalDoc, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
@@ -13,6 +13,9 @@ import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
+import { matchingLine } from "./matchingLine";
+import { showThreadMarks, type ThreadMark, threadMarks } from "./threads";
+import type { PrThread } from "../ipc/commands";
 
 export type DiffMode = "split" | "unified";
 
@@ -26,6 +29,8 @@ export interface DiffDocument {
   plain?: boolean;
   /** The file is removed by the branch; `working` holds its base text. */
   deleted?: boolean;
+  /** Pull request discussions about lines of the file. */
+  threads?: readonly PrThread[];
 }
 
 /** Editor state kept while a file is not on screen. */
@@ -84,6 +89,25 @@ export class DiffEditor {
     this.document = document;
     this.mode = mode;
     this.build(snapshot);
+  }
+
+  /** Replaces the discussions shown in the file. */
+  setThreads(threads: readonly PrThread[]) {
+    if (!this.document || JSON.stringify(threads) === JSON.stringify(this.document.threads ?? [])) return;
+    this.document = { ...this.document, threads };
+    this.showThreads();
+  }
+
+  /** Scrolls the card of thread `id` into view; false when the file does not show it. */
+  revealThread(id: number): boolean {
+    const thread = this.document?.threads?.find((candidate) => candidate.id === id);
+    const position = thread?.position;
+    if (!position) return false;
+    const view = this.merge ? (position.side === "base" ? this.merge.a : this.merge.b) : this.unified;
+    if (!view) return false;
+    const line = view.state.doc.line(Math.min(Math.max(position.startLine, 1), view.state.doc.lines));
+    view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: "center" }) });
+    return true;
   }
 
   /** Attaches language-server support (errors, hover, completion, ...) to the working editor. */
@@ -277,7 +301,58 @@ export class DiffEditor {
         ],
       });
     }
+    this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
+  }
+
+  /**
+   * A card under the last line each thread is about, on its side. The split
+   * view gives the other side an empty block as high as the card; the
+   * unified view puts base-side threads under the matching working line.
+   */
+  private showThreads() {
+    const document = this.document;
+    const threads = (document?.threads ?? []).filter((thread) => thread.position);
+    const own = (thread: PrThread): ThreadMark => ({
+      thread,
+      line: thread.position!.endLine,
+      lines: { from: thread.position!.startLine, to: thread.position!.endLine },
+      spacer: false,
+    });
+    if (this.merge) {
+      const { a, b, chunks } = this.merge;
+      const marksA: ThreadMark[] = [];
+      const marksB: ThreadMark[] = [];
+      for (const thread of threads) {
+        const onBase = thread.position!.side === "base";
+        const [from, to] = onBase ? [a, b] : [b, a];
+        (onBase ? marksA : marksB).push(own(thread));
+        const line = matchingLine(thread.position!.endLine, chunks, from.state.doc, to.state.doc, onBase);
+        (onBase ? marksB : marksA).push({ thread, line, lines: null, spacer: true });
+      }
+      showThreadMarks(a, marksA);
+      showThreadMarks(b, marksB);
+    } else if (this.unified && document) {
+      const view = this.unified;
+      const marks: ThreadMark[] = [];
+      if (document.plain) {
+        // Only one side is shown: the base text of a deleted file, the working text of the rest.
+        const side = document.deleted ? "base" : "head";
+        for (const thread of threads) if (thread.position!.side === side) marks.push(own(thread));
+      } else {
+        const chunks = getChunks(view.state)?.chunks ?? [];
+        const original = getOriginalDoc(view.state);
+        for (const thread of threads) {
+          if (thread.position!.side === "head") {
+            marks.push(own(thread));
+            continue;
+          }
+          const line = matchingLine(thread.position!.endLine, chunks, original, view.state.doc, true);
+          marks.push({ thread, line, lines: null, spacer: false });
+        }
+      }
+      showThreadMarks(view, marks);
+    }
   }
 
   /**
@@ -351,6 +426,7 @@ export class DiffEditor {
       prefersDark() ? riderIslandsDark : [],
       changeKindColors,
       lineTints,
+      threadMarks,
       EditorView.domEventHandlers({
         focus: () => {
           this.callbacks.onFocus();

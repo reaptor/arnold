@@ -18,6 +18,17 @@ export function renderMarkdown(text: string): string {
   });
 }
 
+/** Opens a clicked link of rendered Markdown in the browser (never inside Arnold). Returns whether it was one. */
+export function openClickedLink(event: MouseEvent): boolean {
+  const link = (event.target as Element).closest("a");
+  if (!link) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const href = link.getAttribute("href") ?? "";
+  if (/^(https?|mailto):/i.test(href)) openInBrowser(href);
+  return true;
+}
+
 interface Props {
   text: string;
   class?: string;
@@ -25,13 +36,5 @@ interface Props {
 
 /** Rendered Markdown. */
 export function Markdown(props: Props) {
-  const onClick = (event: MouseEvent) => {
-    const link = (event.target as Element).closest("a");
-    if (!link) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const href = link.getAttribute("href") ?? "";
-    if (/^(https?|mailto):/i.test(href)) openInBrowser(href);
-  };
-  return <div class={`markdown ${props.class ?? ""}`} innerHTML={renderMarkdown(props.text)} onClick={onClick} />;
+  return <div class={`markdown ${props.class ?? ""}`} innerHTML={renderMarkdown(props.text)} onClick={openClickedLink} />;
 }

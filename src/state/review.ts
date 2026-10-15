@@ -20,6 +20,7 @@ import type {
   Comparison,
   FilePair,
   FileStatus,
+  PrThread,
   PullRequest,
   RepoInfo,
   SetupEvent,
@@ -157,6 +158,26 @@ const sameItems = (a: readonly string[], b: readonly string[]) =>
 const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sameItems });
 export { allFiles };
 
+/** The discussions of a pull request, and which one (`remote/id`) they belong to. Kept out of the store. */
+const [discussion, setDiscussion] = createSignal<{ key: string; threads: readonly PrThread[] }>({ key: "", threads: [] });
+
+const pullRequestKey = (pullRequest: ReviewedPullRequest | null) =>
+  pullRequest ? `${pullRequest.remote}/${pullRequest.id}` : "";
+
+/** The discussions of the pull request under review; empty for branches. */
+export const threads = (): readonly PrThread[] =>
+  state.source === "pullRequest" && discussion().key === pullRequestKey(state.pullRequest) && discussion().key !== ""
+    ? discussion().threads
+    : [];
+
+/**
+ * Threads about lines of `path`, to show in its diff. Their lines are those
+ * of the pull request's latest push against the merge-base, so they are left
+ * out while only some of the commits are shown.
+ */
+export const fileThreads = (path: string): readonly PrThread[] =>
+  state.range === null ? threads().filter((thread) => thread.path === path && thread.position !== null) : [];
+
 /** What the preparation steps printed, last lines only. Kept out of the store. */
 const [setupOutput, setSetupOutput] = createSignal<readonly string[]>([]);
 export { setupOutput };
@@ -216,6 +237,7 @@ function documentOf(file: ChangedFile, session: Session): DiffDocument {
     working: file.status === "deleted" ? base : working,
     plain: WHOLE_FILE.includes(file.status),
     deleted: file.status === "deleted",
+    threads: fileThreads(file.path),
   };
 }
 
@@ -363,6 +385,7 @@ export async function openPullRequest(remote: string, id: number, options: { qui
     resetSessions();
     setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
     rememberSource();
+    void loadThreads();
     await setView("all");
     await refresh();
   } catch (error) {
@@ -1053,6 +1076,46 @@ export async function goBack() {
   editor?.focus();
 }
 
+// ---------------------------------------------------------------- discussions
+
+/** (Re-)reads the discussions of the pull request under review and shows them in the open files. */
+export async function loadThreads() {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || state.source !== "pullRequest" || !pullRequest) return;
+  const key = pullRequestKey(pullRequest);
+  try {
+    const list = await ipc.pullRequestThreads(repo.root, pullRequest.remote, pullRequest.id);
+    if (repo !== state.repo || pullRequestKey(state.pullRequest) !== key) return;
+    setDiscussion({ key, threads: list });
+    showThreadsInEditors();
+  } catch (error) {
+    // Tried again with the next check of the pull request.
+    ipc.devTrace(`reading the discussions of !${pullRequest.id}: ${pullRequests.prErrorText(error)}`);
+  }
+}
+
+function showThreadsInEditors() {
+  if (editor && state.selected && state.view === "file") editor.setThreads(fileThreads(state.selected));
+  for (const [path, target] of sectionEditors) target.setThreads(fileThreads(path));
+}
+
+/** Shows the file a thread is about, scrolled to the thread. */
+export async function revealThread(thread: PrThread) {
+  const path = thread.path;
+  if (!path || !isChanged(path)) return;
+  if (state.range !== null) await setRange(null);
+  if (state.view === "all") {
+    const target = await showFileSection(path);
+    revealSection(path);
+    // After the section has scrolled in, so the editor's own scrolling wins.
+    requestAnimationFrame(() => target?.revealThread(thread.id));
+    return;
+  }
+  if (state.selected !== path) await selectFile(path);
+  editor?.revealThread(thread.id);
+}
+
 // ------------------------------------------------------------------ watching
 
 /** How often the open pull request is checked for new pushes while Arnold is shown. */
@@ -1107,6 +1170,7 @@ export async function checkPullRequest() {
     const moved = fresh.sourceCommit !== pullRequest.sourceCommit || fresh.targetCommit !== pullRequest.targetCommit;
     setState("pullRequest", { ...fresh, remote: pullRequest.remote });
     if (moved) await refresh();
+    await loadThreads();
   } catch (error) {
     // Asked again on the next round; opening the list shows a lasting problem.
     ipc.devTrace(`checking pull request !${pullRequest.id}: ${pullRequests.prErrorText(error)}`);

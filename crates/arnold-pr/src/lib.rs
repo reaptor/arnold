@@ -58,6 +58,57 @@ pub enum Vote {
     Rejected,
 }
 
+/// A discussion on a pull request: about lines of a file, or about the pull
+/// request as a whole.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Thread {
+    pub id: u64,
+    /// The file, from the repository's root (no leading slash); `None` for
+    /// the pull request as a whole.
+    pub path: Option<String>,
+    /// Where in the file, as of the pull request's latest push; `None` when
+    /// the host lost track of the lines (or for the pull request as a whole).
+    pub position: Option<ThreadPosition>,
+    /// `active`, `pending`, `fixed`, `wontFix`, `closed`, `byDesign` or `unknown`.
+    pub status: String,
+    /// What people wrote, oldest first; the host's own notes are left out.
+    pub comments: Vec<Comment>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadPosition {
+    pub side: Side,
+    /// 1-based, both included.
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
+/// Which side of the diff a thread is on.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    /// The merge-base: lines the pull request removes or leaves alone.
+    Base,
+    /// The source branch.
+    Head,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub id: u64,
+    /// The comment this one answers; 0 for none.
+    pub parent_id: u64,
+    pub author: String,
+    /// Markdown.
+    pub content: String,
+    /// ISO 8601.
+    pub published: String,
+    pub edited: bool,
+}
+
 /// Why pull requests could not be read. Sent to the webview as
 /// `{ kind, message }`.
 #[derive(Debug, Clone, thiserror::Error, Serialize, PartialEq)]

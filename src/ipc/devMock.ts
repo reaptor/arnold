@@ -12,6 +12,7 @@ import type {
   FilePair,
   LspEvent,
   PrRemote,
+  PrThread,
   PullRequest,
   RepoInfo,
   SetupEvent,
@@ -426,6 +427,77 @@ const pullRequestList = (): PullRequest[] =>
         },
       ];
 
+// Discussions of every mock pull request (they all show the same files).
+const comment = (id: number, author: string, content: string, hours: number, parentId = 0) => ({
+  id,
+  parentId,
+  author,
+  content,
+  published: hoursAgo(hours),
+  edited: false,
+});
+const pullRequestThreads: PrThread[] = [
+  {
+    id: 11,
+    path: "src/Api/OrderController.cs",
+    position: { side: "head", startLine: 14, endLine: 14 },
+    status: "active",
+    comments: [
+      comment(1, "Bo Svensson", "Should this be a **404** instead? The middleware turns `ArgumentException` into a 500.", 2),
+      comment(2, "Ada Lovelace", "It maps it to 400, see [ErrorHandling.cs](https://example.com/error-handling).", 1.5, 1),
+      comment(3, "Bo Svensson", "Ah, fine then.", 1, 2),
+    ],
+  },
+  {
+    id: 12,
+    path: "db/Orders.sql",
+    position: { side: "base", startLine: 6, endLine: 6 },
+    status: "fixed",
+    comments: [
+      comment(1, "Cy Young", "Was anything still reading `[Now]`?", 5),
+      comment(2, "Ada Lovelace", "No, I checked the callers.", 4, 1),
+    ],
+  },
+  {
+    id: 13,
+    path: "db/Orders.sql",
+    position: { side: "head", startLine: 7, endLine: 7 },
+    status: "active",
+    comments: [comment(1, "Cy Young", "`TOP (100)` without an `ORDER BY` returns arbitrary rows.\n\n```sql\nORDER BY o.Created DESC\n```", 3)],
+  },
+  {
+    id: 14,
+    path: "docs/Legacy.md",
+    position: { side: "base", startLine: 3, endLine: 3 },
+    status: "closed",
+    comments: [comment(1, "Bo Svensson", "Fine to remove.", 20)],
+  },
+  {
+    id: 15,
+    path: "src/Large/Inventory.fs",
+    position: { side: "head", startLine: 1000, endLine: 1001 },
+    status: "active",
+    comments: [comment(1, "Grace Hopper", "Far away from any change: the unchanged lines around it unfold.", 6)],
+  },
+  {
+    id: 16,
+    path: null,
+    position: null,
+    status: "active",
+    comments: [
+      comment(1, "Bo Svensson", "Looks good overall, just the question about errors.", 2),
+      comment(2, "Ada Lovelace", "@<6D1C8E2A-1234-4F00-9A00-ABCDEF012345> could you check the SQL too?", 1, 1),
+    ],
+  },
+  {
+    id: 17,
+    path: null,
+    position: null,
+    status: "fixed",
+    comments: [comment(1, "Cy Young", "Please link the work item.", 30), comment(2, "Ada Lovelace", "Linked AB#4512.", 29, 1)],
+  },
+];
+
 function checkToken() {
   if (!mockToken) throw { kind: "noToken" };
   if (!tokenWorks) throw { kind: "tokenRejected", message: "TF400813: The user is not authorized to access this resource." };
@@ -517,6 +589,11 @@ export function install() {
             if (!found) throw { kind: "notFound", message: `Pull request ${args.id} does not exist.` };
             return found;
           }, 700);
+        case "pull_request_threads":
+          return slowly(() => {
+            checkToken();
+            return pullRequestThreads;
+          }, 400);
         case "plugin:opener|open_url":
           console.info("devMock: would open", args.url);
           return null;

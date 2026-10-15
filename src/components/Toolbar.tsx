@@ -16,6 +16,7 @@ import { prs } from "../state/pullRequests";
 import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
+import { DiscussionPicker } from "./DiscussionPicker";
 import { PullRequestPicker } from "./PullRequestPicker";
 import {
   ArrowDownIcon,
@@ -103,6 +104,9 @@ export function Toolbar() {
                 value={state.range}
                 onChange={(range) => void setRange(range)}
               />
+            </Show>
+            <Show when={state.source === "pullRequest" && state.pullRequest}>
+              <DiscussionPicker />
             </Show>
           </>
         )}
