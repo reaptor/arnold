@@ -1,5 +1,6 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Branch } from "../ipc/commands";
+import { BranchIcon, ChevronDownIcon } from "./icons";
 
 interface Props {
   label: string;
@@ -52,12 +53,12 @@ export function BranchPicker(props: Props) {
   return (
     <div class="picker" ref={root}>
       <button class="picker-button" onClick={toggle} title={`${props.label}: ${props.value}`}>
-        <span class="picker-label">{props.label}</span>
+        <BranchIcon />
         <span class="picker-value">{props.value || "—"}</span>
-        <span class="picker-caret">▾</span>
+        <ChevronDownIcon />
       </button>
       <Show when={open()}>
-        <div class="picker-popup">
+        <div class="picker-popup" data-tauri-drag-region="false">
           <input
             ref={input}
             class="picker-search"

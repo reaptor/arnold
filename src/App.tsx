@@ -4,6 +4,7 @@ import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { Toolbar } from "./components/Toolbar";
 import { startupPath } from "./ipc/commands";
+import { isMac } from "./platform";
 import {
   attachEditor,
   goBack,
@@ -13,8 +14,6 @@ import {
   startWatching,
   state,
 } from "./state/review";
-
-const isMac = navigator.platform.toLowerCase().includes("mac");
 
 /** "Go back" as editors have it: Ctrl+- on macOS, Alt+Left elsewhere. */
 const isBackShortcut = (event: KeyboardEvent) =>

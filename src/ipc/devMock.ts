@@ -340,6 +340,13 @@ export function install() {
           }
           return buttons === "YesNo" ? "Yes" : "Ok";
         }
+        case "plugin:window|is_maximized":
+        case "plugin:window|is_fullscreen":
+          return false;
+        case "plugin:window|minimize":
+        case "plugin:window|toggle_maximize":
+        case "plugin:window|close":
+          return null;
         default:
           console.warn("devMock: unhandled command", command, payload);
           return null;

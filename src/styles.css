@@ -17,6 +17,7 @@
   --control-border: #c9ccd6;
   --text: #1e1f22;
   --muted: #6c707e;
+  --icon: #6c707e;
   --hover: rgb(0 0 0 / 0.05);
   --pressed: rgb(0 0 0 / 0.09);
   --selected: #d4e2ff;
@@ -58,6 +59,7 @@
     --control-border: #40434a;
     --text: #d1d3d9;
     --muted: #9fa2a8;
+    --icon: #ced0d6;
     --hover: rgb(255 255 255 / 0.063);
     --pressed: rgb(255 255 255 / 0.13);
     --selected: #2a4371;
@@ -203,18 +205,62 @@ button.primary:hover:not(:disabled) {
   flex: none;
 }
 
+/* Rider's main toolbar, which is also the title bar: 40px high, flat widgets. */
 .toolbar {
-  padding: 7px 12px;
+  height: 40px;
+  gap: 2px;
+  padding: 0 8px;
+}
+
+/* macOS draws its window buttons over the left end (tauri.conf.json
+   trafficLightPosition centers them in the 40px bar; they end at 74px). */
+.toolbar.traffic-lights {
+  padding-left: 78px;
+}
+
+/* Windows: the app's own window buttons sit flush with the right edge. */
+.toolbar.window-buttons {
+  padding-right: 0;
 }
 
 /* Main-toolbar widgets are flat until hovered. */
 .toolbar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
   border-color: transparent;
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 0 8px;
+}
+
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--icon);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon.chevron-down {
+  stroke: var(--muted);
+  stroke-width: 1.3;
+  margin: 0 -2px 0 -2px;
+}
+
+.toolbar .icon-button {
+  flex: none;
+  width: 30px;
+  padding: 0;
+  justify-content: center;
 }
 
 .toolbar-word {
+  flex: none;
+  padding: 0 4px;
   color: var(--muted);
 }
 
@@ -222,17 +268,27 @@ button.primary:hover:not(:disabled) {
   flex: 1;
 }
 
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--popup-border);
+}
+
 .segmented {
+  flex: none;
   display: flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 7px;
+  margin: 0 4px;
+  border-radius: 8px;
   background: var(--hover);
 }
 
 .toolbar .segmented button {
-  border-radius: 5px;
-  padding: 1px 8px;
+  height: 26px;
+  border-radius: 6px;
+  padding: 0 8px;
 }
 
 .segmented button.on {
@@ -240,26 +296,75 @@ button.primary:hover:not(:disabled) {
   border-color: var(--control-border);
 }
 
+.segmented button:not(.on) {
+  color: var(--muted);
+}
+
+/* In the toolbar, branch names shorten when the window is narrow; the
+   repository name keeps its place at the left. */
 .picker {
   position: relative;
+  display: flex;
+  min-width: 0;
 }
 
 .picker-button {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
+  min-width: 0;
   max-width: 320px;
 }
 
-.picker-label,
-.picker-caret {
-  color: var(--muted);
+.toolbar > .picker:first-child {
+  flex-shrink: 0;
+}
+
+/* …then the view switch keeps only its icons. */
+@media (max-width: 1100px) {
+  .segmented-label {
+    display: none;
+  }
 }
 
 .picker-value {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Windows title-bar buttons: 46px wide, the full toolbar height. */
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  margin-left: 8px;
+}
+
+.toolbar .window-controls button {
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.window-controls svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.window-controls .close:hover:not(:disabled) {
+  background: #c42b1c;
+}
+
+.window-controls .close:hover svg {
+  stroke: #fff;
+}
+
+.window-controls .close:active:not(:disabled) {
+  background: #b22a1b;
 }
 
 .picker-popup {

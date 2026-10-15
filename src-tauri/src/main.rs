@@ -7,6 +7,7 @@ mod lsp;
 mod watcher;
 mod workspace;
 
+use tauri::WebviewWindowBuilder;
 use tauri_plugin_window_state::StateFlags;
 
 fn main() {
@@ -25,6 +26,26 @@ fn main() {
                 )
                 .build(),
         )
+        // The main window is created here rather than from tauri.conf.json so
+        // it can differ per platform: the toolbar is the title bar, as in
+        // Rider. macOS keeps its window buttons over the toolbar (the config's
+        // overlay title bar); Windows gets no system title bar and the
+        // toolbar draws minimize/maximize/close itself.
+        .setup(|app| {
+            let mut config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .expect("tauri.conf.json defines the main window");
+            if cfg!(windows) {
+                config.decorations = false;
+            }
+            WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+            Ok(())
+        })
         .manage(commands::AppState::default())
         .manage(lsp::LspState::default())
         .manage(workspace::PrepareState::default())

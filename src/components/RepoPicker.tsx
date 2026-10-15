@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { favorites, folderName, isFavorite, sortFavorites, toggleFavorite } from "../state/favorites";
 import { chooseRepo, openRepoAt, state } from "../state/review";
+import { ChevronDownIcon } from "./icons";
 
 const parentPath = (path: string) => path.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]*$/, "");
 
@@ -51,17 +52,17 @@ export function RepoPicker() {
         <Show when={state.repo} fallback={<span class="picker-value">Open repository…</span>}>
           {(repo) => (
             <>
-              <Show when={isFavorite(repo().root)}>
-                <span class="star on">★</span>
-              </Show>
               <span class="picker-value">{folderName(repo().root)}</span>
+              <Show when={isFavorite(repo().root)}>
+                <span class="star on" title="In favorites">★</span>
+              </Show>
             </>
           )}
         </Show>
-        <span class="picker-caret">▾</span>
+        <ChevronDownIcon />
       </button>
       <Show when={open()}>
-        <div class="picker-popup repo-popup" ref={popup} tabIndex={-1} onKeyDown={onKeyDown}>
+        <div class="picker-popup repo-popup" ref={popup} data-tauri-drag-region="false" tabIndex={-1} onKeyDown={onKeyDown}>
           <Show when={state.repo}>
             {(repo) => (
               <button class="repo-star-current" onClick={() => toggleFavorite(repo().root)}>

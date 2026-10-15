@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The webview may use dialogs and events. Files, git and processes are reached only through Arnold's own commands.",
+  "description": "The webview may use dialogs and events, and move, minimize, maximize and close its window (the toolbar is the title bar). Files, git and processes are reached only through Arnold's own commands.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "dialog:allow-open",
+    "dialog:allow-message"
+  ]
 }
