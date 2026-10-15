@@ -160,11 +160,6 @@ export function FileDock(props: { width: number }) {
                         <span class="file-name">{parts.name}</span>
                         <span class="file-directory">{parts.directory}</span>
                       </span>
-                      <Show when={state.problems[file.path]?.errors}>
-                        <span class="problems" title="Errors reported by the language server">
-                          {state.problems[file.path].errors}
-                        </span>
-                      </Show>
                       <span class="counts">
                         <Show when={file.binary} fallback={<Counts file={file} />}>
                           <span class="binary">bin</span>
