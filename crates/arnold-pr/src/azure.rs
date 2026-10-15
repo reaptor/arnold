@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
-use crate::{Comment, NewThreadPlace, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
+use crate::{Comment, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
 
 /// A repository hosted on Azure DevOps.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -216,6 +216,61 @@ pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullReques
     parse_pull_request(&body, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
 }
 
+/// The host's id of the token's owner, which is how a reviewer is known.
+pub fn current_user(repo: &AzureRepo, token: &str) -> Result<String, PrError> {
+    // Not versioned: it has looked the same since the first servers.
+    let body = get(&format!("{}/_apis/connectionData", repo.collection_url), token)?;
+    body["authenticatedUser"]["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| PrError::Other("Azure DevOps did not say who the token belongs to".into()))
+}
+
+/// Votes on pull request `id` as `user` (from `current_user`), who becomes a
+/// reviewer if not one already. `Vote::None` resets the vote.
+pub fn vote(repo: &AzureRepo, token: &str, id: u64, user: &str, vote: Vote) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/reviewers/{user}?api-version={API_VERSION}"));
+    send(agent().put(&url), &url, token, &json!({ "vote": vote_value(vote) }))?;
+    Ok(())
+}
+
+fn vote_value(vote: Vote) -> i64 {
+    match vote {
+        Vote::Approved => 10,
+        Vote::ApprovedWithSuggestions => 5,
+        Vote::None => 0,
+        Vote::WaitingForAuthor => -5,
+        Vote::Rejected => -10,
+    }
+}
+
+/// Completes, abandons, reactivates, drafts or publishes pull request `id`.
+/// Resolves to the pull request as the host has it afterwards; completing
+/// may still be going on then (`merge_status` `queued`).
+pub fn update(repo: &AzureRepo, token: &str, id: u64, change: &PrChange) -> Result<PullRequest, PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}?api-version={API_VERSION}"));
+    let answer = send(agent().patch(&url), &url, token, &update_body(change))?;
+    parse_pull_request(&answer, repo).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+fn update_body(change: &PrChange) -> Value {
+    match change {
+        PrChange::Complete(completion) => json!({
+            "status": "completed",
+            "lastMergeSourceCommit": { "commitId": completion.source_commit },
+            "completionOptions": {
+                "mergeStrategy": completion.merge_strategy,
+                "mergeCommitMessage": completion.message,
+                "deleteSourceBranch": completion.delete_source_branch,
+                "transitionWorkItems": completion.complete_work_items,
+            },
+        }),
+        PrChange::Abandon => json!({ "status": "abandoned" }),
+        PrChange::Reactivate => json!({ "status": "active" }),
+        PrChange::Draft { draft } => json!({ "isDraft": draft }),
+    }
+}
+
 /// The discussions of pull request `id`. Positions in files are tracked by
 /// the host up to the latest push, compared with the merge-base, which is
 /// the diff Arnold shows.
@@ -353,8 +408,12 @@ fn get(url: &str, token: &str) -> Result<Value, PrError> {
 }
 
 fn post(url: &str, token: &str, body: &Value) -> Result<Value, PrError> {
-    let mut response = agent()
-        .post(url)
+    send(agent().post(url), url, token, body)
+}
+
+/// Sends `body` as JSON with `request` (a POST, PUT or PATCH of `url`).
+fn send(request: ureq::RequestBuilder<ureq::typestate::WithBody>, url: &str, token: &str, body: &Value) -> Result<Value, PrError> {
+    let mut response = request
         .header("Authorization", authorization(token))
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
@@ -419,6 +478,7 @@ fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
         .map(|list| {
             list.iter()
                 .map(|reviewer| Reviewer {
+                    id: text(&reviewer["id"]),
                     name: text(&reviewer["displayName"]),
                     vote: match reviewer["vote"].as_i64().unwrap_or(0) {
                         10 => Vote::Approved,
@@ -428,6 +488,7 @@ fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
                         _ => Vote::None,
                     },
                     group: reviewer["isContainer"].as_bool().unwrap_or(false),
+                    you: false,
                 })
                 .collect()
         })
@@ -446,6 +507,7 @@ fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
         target_commit: commit(&value["lastMergeTargetCommit"]),
         url: repo.pull_request_url(id),
         reviewers,
+        merge_status: value["mergeStatus"].as_str().unwrap_or("notSet").to_string(),
     })
 }
 
@@ -722,10 +784,11 @@ mod tests {
               "targetRefName": "refs/heads/main",
               "lastMergeSourceCommit": { "commitId": "aaaa" },
               "lastMergeTargetCommit": { "commitId": "bbbb" },
+              "mergeStatus": "conflicts",
               "reviewers": [
-                { "displayName": "Bo", "vote": 10 },
-                { "displayName": "[Shop]\\Shop Team", "vote": 0, "isContainer": true },
-                { "displayName": "Cy", "vote": -5 }
+                { "id": "b0", "displayName": "Bo", "vote": 10 },
+                { "id": "t1", "displayName": "[Shop]\\Shop Team", "vote": 0, "isContainer": true },
+                { "id": "c2", "displayName": "Cy", "vote": -5 }
               ]
             }"#,
         )
@@ -741,8 +804,43 @@ mod tests {
         assert_eq!(pr.target_commit.as_deref(), Some("bbbb"));
         assert_eq!(pr.url, "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/42");
         assert_eq!(
-            pr.reviewers.iter().map(|r| (r.vote, r.group)).collect::<Vec<_>>(),
-            vec![(Vote::Approved, false), (Vote::None, true), (Vote::WaitingForAuthor, false)]
+            pr.reviewers.iter().map(|r| (r.id.as_str(), r.vote, r.group)).collect::<Vec<_>>(),
+            vec![("b0", Vote::Approved, false), ("t1", Vote::None, true), ("c2", Vote::WaitingForAuthor, false)]
+        );
+        assert_eq!(pr.merge_status, "conflicts");
+    }
+
+    #[test]
+    fn builds_update_bodies() {
+        let change: PrChange = serde_json::from_value(json!({
+            "kind": "complete",
+            "sourceCommit": "aaaa",
+            "mergeStrategy": "squash",
+            "message": "Merged PR 42: Add loyalty discount",
+            "deleteSourceBranch": true,
+            "completeWorkItems": false,
+        }))
+        .unwrap();
+        assert_eq!(
+            update_body(&change),
+            json!({
+                "status": "completed",
+                "lastMergeSourceCommit": { "commitId": "aaaa" },
+                "completionOptions": {
+                    "mergeStrategy": "squash",
+                    "mergeCommitMessage": "Merged PR 42: Add loyalty discount",
+                    "deleteSourceBranch": true,
+                    "transitionWorkItems": false,
+                },
+            })
+        );
+        let parse = |value: Value| serde_json::from_value::<PrChange>(value).unwrap();
+        assert_eq!(update_body(&parse(json!({ "kind": "abandon" }))), json!({ "status": "abandoned" }));
+        assert_eq!(update_body(&parse(json!({ "kind": "reactivate" }))), json!({ "status": "active" }));
+        assert_eq!(update_body(&parse(json!({ "kind": "draft", "draft": true }))), json!({ "isDraft": true }));
+        assert_eq!(
+            [Vote::Approved, Vote::ApprovedWithSuggestions, Vote::None, Vote::WaitingForAuthor, Vote::Rejected].map(vote_value),
+            [10, 5, 0, -5, -10]
         );
     }
 }

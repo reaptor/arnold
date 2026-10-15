@@ -21,10 +21,12 @@ import type {
   FilePair,
   FileStatus,
   NewThreadPlace,
+  PrChange,
   PrThread,
   PullRequest,
   RepoInfo,
   SetupEvent,
+  Vote,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
@@ -87,6 +89,8 @@ interface State {
   pullRequest: ReviewedPullRequest | null;
   /** The pull request being opened (read, its commits fetched), by id. */
   openingPullRequest: number | null;
+  /** What is being sent to the host about the pull request under review: a vote or a change. */
+  updatingPullRequest: "vote" | PrChange["kind"] | null;
   /** The commits of `head` being shown, or null for all of its changes. */
   range: CommitRange | null;
   comparison: Comparison | null;
@@ -130,6 +134,7 @@ export const [state, setState] = createStore<State>({
   head: "",
   pullRequest: null,
   openingPullRequest: null,
+  updatingPullRequest: null,
   range: null,
   comparison: null,
   visited: [],
@@ -1168,10 +1173,10 @@ export async function addComment() {
   }
 }
 
-/** Text for a failed attempt to write to the pull request. */
-function writeErrorText(error: unknown): string {
+/** Text for a failed attempt to write to the pull request; `what` was sent ("the comment"). */
+function writeErrorText(error: unknown, what = "the comment"): string {
   if (ipc.isPrError(error) && error.kind === "tokenRejected") {
-    return `Azure DevOps did not accept the comment${error.message ? ` (${error.message})` : ""}. Writing comments needs a token with the Code (Read & write) scope.`;
+    return `Azure DevOps did not accept ${what}${error.message ? ` (${error.message})` : ""}. Writing to pull requests needs a token with the Code (Read & write) scope.`;
   }
   return pullRequests.prErrorText(error);
 }
@@ -1229,6 +1234,64 @@ export async function revealThread(thread: PrThread) {
   editor?.revealThread(thread.id);
 }
 
+// ------------------------------------------------------ voting and completing
+
+/** How the owner of the token voted on the pull request under review. */
+export const yourVote = (): Vote => state.pullRequest?.reviewers.find((reviewer) => reviewer.you)?.vote ?? "none";
+
+/**
+ * Sends a vote or a change of the pull request under review to the host and
+ * shows the pull request as it is afterwards. Throws the error text.
+ */
+async function changePullRequest(
+  action: NonNullable<State["updatingPullRequest"]>,
+  what: string,
+  send: (root: string, pullRequest: ReviewedPullRequest) => Promise<PullRequest>,
+) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest || state.updatingPullRequest !== null) return;
+  setState({ updatingPullRequest: action, error: null });
+  try {
+    const fresh = await send(repo.root, pullRequest);
+    if (state.repo === repo && pullRequestKey(state.pullRequest) === pullRequestKey(pullRequest)) {
+      // A new push has to be fetched first, which checking does.
+      const { sourceCommit, targetCommit } = state.pullRequest!;
+      if (fresh.sourceCommit !== sourceCommit || fresh.targetCommit !== targetCommit) void checkPullRequest();
+      setState("pullRequest", { ...fresh, sourceCommit, targetCommit, remote: pullRequest.remote });
+    }
+  } catch (error) {
+    throw writeErrorText(error, what);
+  } finally {
+    setState("updatingPullRequest", null);
+  }
+  // The list's votes and states.
+  void pullRequests.loadPullRequests();
+}
+
+/** Votes on the pull request under review; `none` resets the vote. */
+export function votePullRequest(vote: Vote) {
+  return changePullRequest("vote", "the vote", (root, pullRequest) =>
+    ipc.voteOnPullRequest(root, pullRequest.remote, pullRequest.id, vote),
+  ).catch(fail);
+}
+
+const CHANGE_NAMES: Record<PrChange["kind"], string> = {
+  complete: "completing the pull request",
+  abandon: "abandoning the pull request",
+  reactivate: "reactivating the pull request",
+  draft: "the change",
+};
+
+/** Completes, abandons, reactivates, drafts or publishes the pull request under review. Throws the error text. */
+export async function updatePullRequest(change: PrChange) {
+  await changePullRequest(change.kind, CHANGE_NAMES[change.kind], (root, pullRequest) =>
+    ipc.updatePullRequest(root, pullRequest.remote, pullRequest.id, change),
+  );
+  // The host merges after answering; its outcome shows with the next check.
+  if (change.kind === "complete") window.setTimeout(() => void checkPullRequest(), 3000);
+}
+
 // ------------------------------------------------------------------ watching
 
 /** How often the open pull request is checked for new pushes while Arnold is shown. */
@@ -1279,7 +1342,7 @@ export async function checkPullRequest() {
   pullRequestCheckedAt = Date.now();
   try {
     const fresh = await ipc.openPullRequest(repo.root, pullRequest.remote, pullRequest.id);
-    if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id || state.pullRequest.remote !== pullRequest.remote) return;
+    if (state.repo !== repo || pullRequestKey(state.pullRequest) !== pullRequestKey(pullRequest)) return;
     const moved = fresh.sourceCommit !== pullRequest.sourceCommit || fresh.targetCommit !== pullRequest.targetCommit;
     setState("pullRequest", { ...fresh, remote: pullRequest.remote });
     if (moved) await refresh();
@@ -1291,3 +1354,4 @@ export async function checkPullRequest() {
     checkingPullRequest = false;
   }
 }
+

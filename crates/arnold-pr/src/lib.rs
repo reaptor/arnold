@@ -37,25 +37,74 @@ pub struct PullRequest {
     /// The pull request's page on the host.
     pub url: String,
     pub reviewers: Vec<Reviewer>,
+    /// How merging the source into the target went when the host last tried:
+    /// `succeeded`, `conflicts`, `rejectedByPolicy`, `failure`, `queued` or `notSet`.
+    pub merge_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Reviewer {
+    /// The host's id of the person or group.
+    pub id: String,
     pub name: String,
     pub vote: Vote,
     /// A group (team) rather than a person.
     pub group: bool,
+    /// The owner of the token: whoever votes from Arnold.
+    pub you: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Vote {
     Approved,
     ApprovedWithSuggestions,
+    /// No vote yet, or the vote was reset.
     None,
     WaitingForAuthor,
     Rejected,
+}
+
+/// A change to a pull request as a whole.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PrChange {
+    /// Merges it into the target branch.
+    Complete(Completion),
+    /// Closes it without merging.
+    Abandon,
+    /// Opens an abandoned one again.
+    Reactivate,
+    /// Marks it as a draft (`true`) or publishes it for review (`false`).
+    Draft { draft: bool },
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Completion {
+    /// The source commit that was reviewed: the host refuses to complete if
+    /// the branch has moved on since.
+    pub source_commit: String,
+    pub merge_strategy: MergeStrategy,
+    pub message: String,
+    pub delete_source_branch: bool,
+    /// Moves the linked work items to their next state.
+    pub complete_work_items: bool,
+}
+
+/// How a completed pull request is merged; the names are Azure DevOps' own.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MergeStrategy {
+    /// A merge commit.
+    NoFastForward,
+    /// One new commit with all of the changes.
+    Squash,
+    /// The source commits rebased onto the target, which then fast-forwards.
+    Rebase,
+    /// The source commits rebased onto the target, then a merge commit.
+    RebaseMerge,
 }
 
 /// A discussion on a pull request: about lines of a file, or about the pull

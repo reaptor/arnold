@@ -17,6 +17,7 @@ import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
 import { DiscussionPicker } from "./DiscussionPicker";
+import { PullRequestActions } from "./PullRequestActions";
 import { PullRequestPicker } from "./PullRequestPicker";
 import {
   ArrowDownIcon,
@@ -112,6 +113,10 @@ export function Toolbar() {
         )}
       </Show>
       <span class="toolbar-space" />
+      <Show when={state.repo && state.source === "pullRequest" && state.pullRequest}>
+        <PullRequestActions />
+        <span class="toolbar-separator" />
+      </Show>
       <Show when={state.repo && (state.source === "branches" || state.pullRequest)}>
         <Show when={state.backCount > 0}>
           <button class="icon-button" onClick={() => goBack()} title="Back to where you jumped from">

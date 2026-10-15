@@ -143,8 +143,39 @@ export interface PullRequest {
   targetCommit: string | null;
   /** The pull request's page on the host. */
   url: string;
-  reviewers: { name: string; vote: Vote; group: boolean }[];
+  reviewers: Reviewer[];
+  /** How merging went when the host last tried: `succeeded`, `conflicts`, `rejectedByPolicy`, `failure`, `queued` or `notSet`. */
+  mergeStatus: string;
 }
+
+export interface Reviewer {
+  /** The host's id. */
+  id: string;
+  name: string;
+  vote: Vote;
+  /** A group (team) rather than a person. */
+  group: boolean;
+  /** The owner of the token: whoever votes from Arnold. */
+  you: boolean;
+}
+
+/** How a completed pull request is merged; Azure DevOps' own names. */
+export type MergeStrategy = "noFastForward" | "squash" | "rebase" | "rebaseMerge";
+
+/** A change to a pull request as a whole. */
+export type PrChange =
+  | {
+      kind: "complete";
+      /** The source commit reviewed: the host refuses if the branch has moved on since. */
+      sourceCommit: string;
+      mergeStrategy: MergeStrategy;
+      message: string;
+      deleteSourceBranch: boolean;
+      completeWorkItems: boolean;
+    }
+  | { kind: "abandon" }
+  | { kind: "reactivate" }
+  | { kind: "draft"; draft: boolean };
 
 /** A discussion on a pull request: about lines of a file, or (without a path) about all of it. */
 export interface PrThread {
@@ -208,6 +239,14 @@ export const removePullRequestToken = (root: string, remote: string) =>
 /** Reads the pull request and fetches its commits into the repository if they are missing. */
 export const openPullRequest = (root: string, remote: string, id: number) =>
   invoke<PullRequest>("open_pull_request", { root, remote, id });
+
+/** Votes as the token's owner (`none` resets the vote); resolves to the pull request as it is now. */
+export const voteOnPullRequest = (root: string, remote: string, id: number, vote: Vote) =>
+  invoke<PullRequest>("vote_on_pull_request", { root, remote, id, vote });
+
+/** Completes, abandons, reactivates, drafts or publishes a pull request; resolves to it as it is now. */
+export const updatePullRequest = (root: string, remote: string, id: number, change: PrChange) =>
+  invoke<PullRequest>("update_pull_request", { root, remote, id, change });
 
 /** The repository's branches, read again. */
 export const listBranches = (root: string) => invoke<Branch[]>("list_branches", { root });

@@ -119,3 +119,20 @@ export const KeyIcon = (props: IconProps) => (
     <path d="M6.8 9.2 13 3M11 5l1.5 1.5M9.5 6.5 11 8" />
   </Icon>
 );
+
+/** Done, approved. */
+export const CheckIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3 8.5 6.5 12 13 4.5" />
+  </Icon>
+);
+
+/** Merging a branch into another. */
+export const MergeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="4.5" cy="3.5" r="1.5" />
+    <circle cx="4.5" cy="12.5" r="1.5" />
+    <circle cx="11.5" cy="8" r="1.5" />
+    <path d="M4.5 5v6M4.5 5a5 3 0 0 0 5.5 3" />
+  </Icon>
+);

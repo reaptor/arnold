@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{NewThreadPlace, PrError, PullRequest, Thread};
+use arnold_pr::{NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote};
 use serde::Serialize;
 use tauri::State;
 
@@ -21,6 +21,8 @@ pub struct PrState {
     /// Tokens read so far, by `AzureRepo::token_key`, so the credential store
     /// (which may ask the user for access) is read once per run.
     tokens: Mutex<HashMap<String, Option<(String, TokenSource)>>>,
+    /// Who each of those tokens belongs to (the host's id), once asked.
+    users: Mutex<HashMap<String, String>>,
 }
 
 /// A remote whose pull requests Arnold can list.
@@ -90,6 +92,35 @@ impl PrState {
     async fn required_token(&self, repo: &AzureRepo) -> Result<String, PrError> {
         self.token(repo).await?.map(|(token, _)| token).ok_or(PrError::NoToken)
     }
+
+    /// The host's id of whoever the token belongs to.
+    async fn user(&self, repo: &AzureRepo, token: &str) -> Result<String, PrError> {
+        let key = repo.token_key();
+        if let Some(known) = self.users.lock().unwrap().get(&key) {
+            return Ok(known.clone());
+        }
+        let user = {
+            let (repo, token) = (repo.clone(), token.to_string());
+            blocking(move || azure::current_user(&repo, &token)).await??
+        };
+        self.users.lock().unwrap().insert(key, user.clone());
+        Ok(user)
+    }
+
+    /// Marks the token's owner among the reviewers, when the host can say who that is.
+    async fn mark_you(&self, repo: &AzureRepo, token: &str, mut pull_request: PullRequest) -> PullRequest {
+        if let Ok(user) = self.user(repo, token).await {
+            for reviewer in &mut pull_request.reviewers {
+                reviewer.you = reviewer.id.eq_ignore_ascii_case(&user);
+            }
+        }
+        pull_request
+    }
+
+    fn forget(&self, key: &str) {
+        self.tokens.lock().unwrap().remove(key);
+        self.users.lock().unwrap().remove(key);
+    }
 }
 
 /// The repository's Azure DevOps remotes, and whether a token is set up for each.
@@ -156,6 +187,7 @@ pub async fn set_pull_request_token(
         let (key, token) = (key.clone(), token.clone());
         blocking(move || token::save(&key, &token)).await?.map_err(PrError::Other)?;
     }
+    prs.forget(&key);
     prs.tokens.lock().unwrap().insert(key, Some((token, TokenSource::Keychain)));
     Ok(pull_requests)
 }
@@ -175,7 +207,7 @@ pub async fn remove_pull_request_token(
         let key = key.clone();
         blocking(move || token::delete(&key)).await?.map_err(PrError::Other)?;
     }
-    prs.tokens.lock().unwrap().remove(&key);
+    prs.forget(&key);
     Ok(prs.token(&repo).await?.map(|(_, source)| source))
 }
 
@@ -217,7 +249,51 @@ pub async fn open_pull_request(
             ));
         }
     }
-    Ok(pull_request)
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+/// Votes on pull request `id` as the token's owner; `none` resets the vote.
+/// Resolves to the pull request with the votes as they are now.
+#[tauri::command]
+pub async fn vote_on_pull_request(
+    root: String,
+    remote: String,
+    id: u64,
+    vote: Vote,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<PullRequest, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let user = prs.user(&repo, &token).await?;
+    let pull_request = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || {
+            azure::vote(&repo, &token, id, &user, vote)?;
+            azure::pull_request(&repo, &token, id)
+        })
+        .await??
+    };
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+/// Completes, abandons, reactivates, drafts or publishes pull request `id`.
+#[tauri::command]
+pub async fn update_pull_request(
+    root: String,
+    remote: String,
+    id: u64,
+    change: PrChange,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<PullRequest, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let pull_request = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::update(&repo, &token, id, &change)).await??
+    };
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
 }
 
 /// The discussions of pull request `id`, with positions as of its latest push.

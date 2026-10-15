@@ -12,11 +12,14 @@ import type {
   FilePair,
   LspEvent,
   NewThreadPlace,
+  PrChange,
   PrRemote,
   PrThread,
   PullRequest,
   RepoInfo,
+  Reviewer,
   SetupEvent,
+  Vote,
 } from "./commands";
 
 interface FakeFile {
@@ -353,7 +356,19 @@ const prRemote = (): PrRemote => ({
   token: mockToken,
 });
 
-const pullRequestList = (): PullRequest[] =>
+const reviewer = (name: string, vote: Vote, group = false): Reviewer => ({
+  id: name.toLowerCase().replace(/\W+/g, "-"),
+  name,
+  vote,
+  group,
+  you: false,
+});
+
+/** The token's owner, who votes from Arnold. */
+const YOU = { id: "you", name: "You (dev mock)" };
+
+// Kept between calls, so votes and changes stick.
+const mockPullRequests: PullRequest[] =
   devops === "empty"
     ? []
     : [
@@ -371,10 +386,11 @@ const pullRequestList = (): PullRequest[] =>
           targetCommit: MERGE_BASE,
           url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1287",
           reviewers: [
-            { name: "Bo Svensson", vote: "approved", group: false },
-            { name: "[Shop]\\Shop Team", vote: "none", group: true },
-            { name: "Cy Young", vote: "waitingForAuthor", group: false },
+            reviewer("Bo Svensson", "approved"),
+            reviewer("[Shop]\\Shop Team", "none", true),
+            reviewer("Cy Young", "waitingForAuthor"),
           ],
+          mergeStatus: "succeeded",
         },
         {
           id: 1284,
@@ -390,10 +406,11 @@ const pullRequestList = (): PullRequest[] =>
           targetCommit: MERGE_BASE,
           url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1284",
           reviewers: [
-            { name: "Ada Lovelace", vote: "approved", group: false },
-            { name: "Cy Young", vote: "approvedWithSuggestions", group: false },
-            { name: "[Shop]\\Shop Team", vote: "none", group: true },
+            reviewer("Ada Lovelace", "approved"),
+            reviewer("Cy Young", "approvedWithSuggestions"),
+            reviewer("[Shop]\\Shop Team", "none", true),
           ],
+          mergeStatus: "succeeded",
         },
         {
           id: 1281,
@@ -409,6 +426,7 @@ const pullRequestList = (): PullRequest[] =>
           targetCommit: MERGE_BASE,
           url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1281",
           reviewers: [],
+          mergeStatus: "succeeded",
         },
         {
           id: 1270,
@@ -424,9 +442,22 @@ const pullRequestList = (): PullRequest[] =>
           sourceCommit: TIP,
           targetCommit: MERGE_BASE,
           url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1270",
-          reviewers: [{ name: "Bo Svensson", vote: "rejected", group: false }],
+          reviewers: [reviewer("Bo Svensson", "rejected")],
+          mergeStatus: "conflicts",
         },
       ];
+
+const pullRequestList = () => mockPullRequests.filter((pullRequest) => pullRequest.status === "active");
+
+/** The pull request with the token owner marked among its reviewers, as the backend sends it. */
+const asSeenByYou = (pullRequest: PullRequest): PullRequest =>
+  structuredClone({ ...pullRequest, reviewers: pullRequest.reviewers.map((entry) => ({ ...entry, you: entry.id === YOU.id })) });
+
+function findPullRequest(id: unknown): PullRequest {
+  const found = mockPullRequests.find((pullRequest) => pullRequest.id === Number(id));
+  if (!found) throw { kind: "notFound", message: `Pull request ${id} does not exist.` };
+  return found;
+}
 
 // Discussions of every mock pull request (they all show the same files).
 const comment = (id: number, author: string, content: string, hours: number, parentId = 0) => ({
@@ -580,14 +611,14 @@ export function install() {
         case "list_pull_requests":
           return slowly(() => {
             checkToken();
-            return pullRequestList();
+            return pullRequestList().map(asSeenByYou);
           });
         case "set_pull_request_token":
           return slowly(() => {
             if (args.token.trim() === "bad") throw { kind: "tokenRejected", message: "" };
             mockToken = "keychain";
             tokenWorks = true;
-            return pullRequestList();
+            return pullRequestList().map(asSeenByYou);
           }, 800);
         case "remove_pull_request_token":
           mockToken = null;
@@ -595,10 +626,43 @@ export function install() {
         case "open_pull_request":
           return slowly(() => {
             checkToken();
-            const found = pullRequestList().find((pullRequest) => pullRequest.id === Number(args.id));
-            if (!found) throw { kind: "notFound", message: `Pull request ${args.id} does not exist.` };
-            return found;
+            return asSeenByYou(findPullRequest(args.id));
           }, 700);
+        case "vote_on_pull_request":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const found = findPullRequest(args.id);
+            const vote = (payload as { vote: Vote }).vote;
+            const mine = found.reviewers.find((entry) => entry.id === YOU.id);
+            if (mine) mine.vote = vote;
+            else found.reviewers.push({ ...reviewer(YOU.name, vote), id: YOU.id });
+            return asSeenByYou(found);
+          }, 600);
+        case "update_pull_request":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const found = findPullRequest(args.id);
+            const change = (payload as { change: PrChange }).change;
+            console.info("devMock: update pull request", found.id, change);
+            if (change.kind === "complete") {
+              if (found.draft) throw { kind: "other", message: "Azure DevOps answered with status 400: TF401395: Draft pull requests cannot be completed." };
+              if (found.mergeStatus === "conflicts") {
+                throw { kind: "other", message: `Azure DevOps answered with status 409: TF401181: The pull request cannot be completed because it has merge conflicts.` };
+              }
+              if (change.sourceCommit !== found.sourceCommit) {
+                throw { kind: "other", message: "Azure DevOps answered with status 409: TF401192: The source branch has been updated since the changes were reviewed." };
+              }
+              found.status = "completed";
+              found.mergeStatus = "queued";
+              // The merge finishes a moment later.
+              setTimeout(() => (found.mergeStatus = "succeeded"), 2000);
+            } else if (change.kind === "abandon") found.status = "abandoned";
+            else if (change.kind === "reactivate") found.status = "active";
+            else found.draft = change.draft;
+            return asSeenByYou(found);
+          }, 900);
         case "create_pull_request_thread":
           return slowly(() => {
             checkToken();

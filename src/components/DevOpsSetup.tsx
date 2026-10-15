@@ -89,7 +89,7 @@ export function DevOpsSetup(props: Props) {
             </li>
             <li>
               Under <strong>Scopes</strong>, choose <strong>Custom defined</strong>, then tick{" "}
-              <strong>Code → Read &amp; write</strong> (<strong>Read</strong> is enough if you will not comment). Nothing
+              <strong>Code → Read &amp; write</strong> (<strong>Read</strong> is enough if you will not comment, vote or complete). Nothing
               else is needed.
             </li>
             <li>
