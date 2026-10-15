@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -21,6 +22,15 @@ pub(crate) struct Output {
 
 /// Runs git in `cwd` and returns its output whatever the exit code.
 pub(crate) async fn run_raw(cwd: &Path, args: &[&str]) -> Result<Output, GitError> {
+    run_raw_with(cwd, args, &[]).await
+}
+
+/// `run_raw` with extra environment variables.
+pub(crate) async fn run_raw_with(
+    cwd: &Path,
+    args: &[&str],
+    environment: &[(&str, &OsStr)],
+) -> Result<Output, GitError> {
     let mut command = Command::new("git");
     command
         .current_dir(cwd)
@@ -31,6 +41,7 @@ pub(crate) async fn run_raw(cwd: &Path, args: &[&str]) -> Result<Output, GitErro
         // and our own file watcher would see the write and refresh in a loop.
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(environment.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

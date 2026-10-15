@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { AllFilesView } from "./components/AllFilesView";
 import { FileDock } from "./components/FileDock";
+import { LanguageStatus } from "./components/LanguageStatus";
 import { Toolbar } from "./components/Toolbar";
 import { startupPath } from "./ipc/commands";
 import {
@@ -135,26 +136,12 @@ function StatusBar() {
               {comparison().files.length} files <span class="added">+{totals().added}</span>{" "}
               <span class="removed">−{totals().removed}</span>
             </span>
-            <span title={comparison().mergeBase}>from {comparison().mergeBase.slice(0, 8)}</span>
-            <Show
-              when={comparison().worktreePath}
-              fallback={
-                <span class="warning">
-                  {comparison().head} is not checked out anywhere: showing its last commit, without language
-                  features
-                </span>
-              }
-            >
-              <span class="status-path" title="Checkout being reviewed">
-                {comparison().worktreePath}
-              </span>
-            </Show>
+            <span title={`Commits only: ${comparison().mergeBase} to ${comparison().headCommit}`}>
+              from {comparison().mergeBase.slice(0, 8)} to {comparison().headCommit.slice(0, 8)}
+            </span>
             <span class="toolbar-space" />
-            <Show when={state.lspStatus} fallback={<span class="hint">F12 go to definition · F7 next change</span>}>
-              <span class="status-path" title={state.lspStatus ?? ""}>
-                {state.lspStatus}
-              </span>
-            </Show>
+            <span class="hint">F12 go to definition · F7 next change</span>
+            <LanguageStatus />
           </>
         )}
       </Show>

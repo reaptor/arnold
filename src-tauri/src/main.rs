@@ -5,6 +5,7 @@ mod commands;
 mod fsio;
 mod lsp;
 mod watcher;
+mod workspace;
 
 use tauri_plugin_window_state::StateFlags;
 
@@ -26,6 +27,7 @@ fn main() {
         )
         .manage(commands::AppState::default())
         .manage(lsp::LspState::default())
+        .manage(workspace::PrepareState::default())
         .invoke_handler(tauri::generate_handler![
             commands::dev_trace,
             commands::startup_path,
@@ -33,6 +35,7 @@ fn main() {
             commands::compare_branches,
             commands::list_files,
             commands::read_file_pair,
+            workspace::prepare_workspace,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_open_background,

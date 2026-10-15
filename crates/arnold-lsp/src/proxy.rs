@@ -7,8 +7,8 @@
 //!   server-specific options);
 //! - it answers the housekeeping requests servers send to clients, which the
 //!   editor client does not handle;
-//! - it reports progress and per-file diagnostic counts as events, for the
-//!   status bar and the files dock;
+//! - it reports progress, per-file diagnostic counts and FsAutoComplete's
+//!   workspace loading as events, for the status bar and the files dock;
 //! - it can keep files open with the server that no editor shows, so that
 //!   errors are known for the whole change, and hands such a file over
 //!   cleanly when an editor opens it.
@@ -33,6 +33,10 @@ pub enum Event {
     Progress(Option<String>),
     /// Diagnostics the server published for one file.
     Diagnostics { uri: String, errors: u32, warnings: u32 },
+    /// FsAutoComplete finished loading the projects of the workspace.
+    WorkspaceLoaded,
+    /// FsAutoComplete could not load a project.
+    ProjectFailed { project: String, message: String },
     /// A line the server wrote to stderr.
     Log(String),
     /// The server's output ended: it exited or crashed.
@@ -379,9 +383,24 @@ fn handle_server_message(message: &str, shared: &Shared, progress: &mut Progress
                 });
             }
         }
+        "fsharp/notifyWorkspace" => handled.events.extend(workspace_event(&value["params"])),
         _ => {}
     }
     handled
+}
+
+/// FsAutoComplete reports workspace loading as JSON text in `content`.
+fn workspace_event(params: &Value) -> Option<Event> {
+    let content: Value = serde_json::from_str(params["content"].as_str()?).ok()?;
+    let data = &content["Data"];
+    match content["Kind"].as_str()? {
+        "workspaceLoad" if data["Status"] == "finished" => Some(Event::WorkspaceLoaded),
+        "error" => Some(Event::ProjectFailed {
+            project: data["Project"].as_str().unwrap_or_default().to_string(),
+            message: data["Message"].as_str().unwrap_or("could not be loaded").to_string(),
+        }),
+        _ => None,
+    }
 }
 
 fn answer_server_request(method: &str, params: &Value, shared: &Shared) -> Result<Value, ()> {
@@ -559,6 +578,29 @@ mod tests {
                 Event::Progress(Some("Checking".into())),
                 Event::Progress(Some("Loading projects: ZedTrial.fsproj".into())),
                 Event::Progress(None),
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reports_workspace_loading() {
+        let mut h = harness(SessionConfig::default());
+        let notify = |content: Value| {
+            json!({ "jsonrpc": "2.0", "method": "fsharp/notifyWorkspace", "params": { "content": content.to_string() } })
+        };
+        h.server_says(notify(json!({ "Kind": "projectLoading", "Data": { "Project": "/w/A.fsproj" } }))).await;
+        h.server_says(notify(json!({ "Kind": "error", "Data": { "Project": "/w/B.fsproj", "Message": "no SDK" } })))
+            .await;
+        h.server_says(notify(json!({ "Kind": "workspaceLoad", "Data": { "Status": "finished" } }))).await;
+        let events: Vec<_> = (0..5).map(|_| h.next_event()).filter(|e| !matches!(e, Event::Message(_))).collect();
+        assert_eq!(
+            events,
+            vec![
+                Event::ProjectFailed {
+                    project: "/w/B.fsproj".into(),
+                    message: "no SDK".into()
+                },
+                Event::WorkspaceLoaded,
             ]
         );
     }

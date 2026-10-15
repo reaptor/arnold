@@ -7,11 +7,9 @@ use std::sync::{Arc, Mutex};
 use arnold_lsp::{dotnet, fsautocomplete, Event, Session};
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::commands::AppState;
-
-pub const EVENT: &str = "lsp-event";
 
 #[derive(Default)]
 pub struct LspState {
@@ -22,21 +20,25 @@ pub struct LspState {
 /// What the webview is told about a server, besides the LSP messages themselves.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-enum LspEvent {
+pub enum LspEvent {
     /// What the server (or its installer) is doing; `text` is null when idle.
     Status { text: Option<String> },
     Diagnostics { uri: String, errors: u32, warnings: u32 },
+    /// The server has loaded the workspace's projects: features are ready.
+    WorkspaceLoaded,
+    ProjectFailed { project: String, message: String },
     Exited,
 }
 
 /// Starts the language server for `language` in the checkout `root` and
-/// returns its id. Server messages arrive on `on_message`; everything else as
-/// `lsp-event` events. The server is downloaded first if it is not installed.
+/// returns its id. Server messages arrive on `on_message`; everything else on
+/// `on_event`. The server is downloaded first if it is not installed.
 #[tauri::command]
 pub async fn lsp_start(
     language: String,
     root: String,
     on_message: Channel<String>,
+    on_event: Channel<LspEvent>,
     app: AppHandle,
     app_state: State<'_, AppState>,
     lsp: State<'_, LspState>,
@@ -45,11 +47,8 @@ pub async fn lsp_start(
         return Err(format!("There is no language server for {language} yet."));
     }
     let root = app_state.checked_root(&root)?;
-    let emit = {
-        let app = app.clone();
-        move |event: LspEvent| {
-            let _ = app.emit(EVENT, event);
-        }
+    let emit = move |event: LspEvent| {
+        let _ = on_event.send(event);
     };
     let status = {
         let emit = emit.clone();
@@ -85,6 +84,8 @@ pub async fn lsp_start(
             Event::Diagnostics { uri, errors, warnings } => {
                 emit(LspEvent::Diagnostics { uri, errors, warnings })
             }
+            Event::WorkspaceLoaded => emit(LspEvent::WorkspaceLoaded),
+            Event::ProjectFailed { project, message } => emit(LspEvent::ProjectFailed { project, message }),
             Event::Log(line) => {
                 if cfg!(debug_assertions) && !line.trim().is_empty() {
                     eprintln!("[fsautocomplete] {line}");

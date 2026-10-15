@@ -29,6 +29,14 @@ impl AppState {
             Err(format!("{root} is not part of the opened repository"))
         }
     }
+
+    /// Lets file and language-server commands use `path` (a prepared copy of
+    /// the reviewed commit).
+    pub(crate) fn allow_root(&self, path: &Path) {
+        if let Ok(canonical) = path.canonicalize() {
+            self.roots.lock().unwrap().insert(canonical);
+        }
+    }
 }
 
 fn text_error(error: impl std::fmt::Display) -> String {
@@ -71,7 +79,7 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
 }
 
 /// Compares `head` against its merge-base with `base` and starts watching the
-/// checkout that holds `head`.
+/// repository's branches, so new commits show up.
 #[tauri::command]
 pub async fn compare_branches(
     root: String,
@@ -85,29 +93,21 @@ pub async fn compare_branches(
         .await
         .map_err(text_error)?;
 
-    // A worktree created after the repository was opened is still part of it.
-    if let Some(worktree) = &comparison.worktree_path {
-        if let Ok(canonical) = worktree.canonicalize() {
-            state.roots.lock().unwrap().insert(canonical);
-        }
-    }
-    let watched = comparison.worktree_path.clone().unwrap_or(root);
-    let handle = watcher::watch(app, watched).ok();
+    let git_dir = arnold_git::common_dir(&root).await.map_err(text_error)?;
+    let handle = watcher::watch(app, git_dir).ok();
     *state.watch.lock().unwrap() = handle;
     Ok(comparison)
 }
 
-/// Every file of `head` (in its checkout when it has one), for the file explorer.
+/// Every file of `commit`, for the file explorer.
 #[tauri::command]
 pub async fn list_files(
     root: String,
-    head: String,
-    worktree: Option<String>,
+    commit: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let root = state.checked_root(&root)?;
-    let worktree = worktree.map(|worktree| state.checked_root(&worktree)).transpose()?;
-    arnold_git::list_files(&root, &head, worktree.as_deref())
+    arnold_git::list_files(&root, &commit)
         .await
         .map_err(text_error)
 }
@@ -127,8 +127,7 @@ pub struct FilePair {
 pub async fn read_file_pair(
     root: String,
     merge_base: String,
-    head: String,
-    worktree: Option<String>,
+    commit: String,
     path: String,
     old_path: Option<String>,
     state: State<'_, AppState>,
@@ -139,19 +138,9 @@ pub async fn read_file_pair(
         .await
         .map_err(text_error)?;
 
-    let working_bytes = match &worktree {
-        Some(worktree) => {
-            let worktree = state.checked_root(worktree)?;
-            match tokio::fs::read(fsio::resolve(&worktree, &path)?).await {
-                Ok(bytes) => Some(bytes),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(format!("{path}: {error}")),
-            }
-        }
-        None => arnold_git::read_blob(&root, &head, &path)
-            .await
-            .map_err(text_error)?,
-    };
+    let working_bytes = arnold_git::read_blob(&root, &commit, &path)
+        .await
+        .map_err(text_error)?;
 
     let mut pair = FilePair::default();
     for (bytes, is_working) in [(working_bytes, true), (base_bytes, false)] {

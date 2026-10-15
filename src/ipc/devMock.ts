@@ -4,12 +4,11 @@
 
 import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { ChangedFile, Comparison, FilePair, RepoInfo } from "./commands";
+import type { ChangedFile, Comparison, FilePair, LspEvent, RepoInfo, SetupEvent } from "./commands";
 
 interface FakeFile {
   base: string | null;
   working: string | null;
-  untracked?: boolean;
 }
 
 const ORDERS_BASE = `module ZedTrial.Orders
@@ -96,7 +95,7 @@ const files = new Map<string, FakeFile>([
   ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WORKING }],
   ["Pricing.fs", { base: PRICING_BASE, working: PRICING_WORKING }],
   ["src/Api/OrderController.cs", { base: CSHARP_BASE, working: CSHARP_WORKING }],
-  ["Audit.fs", { base: null, working: 'module ZedTrial.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n', untracked: true }],
+  ["Audit.fs", { base: null, working: 'module ZedTrial.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n' }],
   ["docs/Legacy.md", { base: "# Legacy notes\n\nRemoved by the agent.\n", working: null }],
 ]);
 
@@ -140,6 +139,32 @@ const serverDocs = new Map<string, string>();
 
 let serverChannel: Channel<string> | null = null;
 
+// The preparation of the F# workspace is simulated with pauses; `?setupfail`
+// makes the build fail, `?setupslow` makes every step take 4 seconds.
+const searchParams = new URLSearchParams(location.search);
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, searchParams.has("setupslow") ? 4000 : ms));
+let preparation = 0;
+
+async function fakePrepare(onEvent: Channel<SetupEvent>) {
+  const run = ++preparation;
+  const send = async (event: SetupEvent, ms = 0) => {
+    if (ms) await pause(ms);
+    if (run !== preparation) throw "cancelled";
+    onEvent.onmessage(event);
+  };
+  await send({ kind: "step", title: "Copying 7d3e9a1f out of the repository" });
+  await send({ kind: "skipped", title: "Restore packages", reason: "already restored for these project files" }, 600);
+  await send({ kind: "step", title: "Building src/Api/Api.csproj (dotnet build): F# code uses its compiled assembly" });
+  await send({ kind: "output", line: "  Determining projects to restore..." }, 500);
+  if (searchParams.has("setupfail")) {
+    await send({ kind: "output", line: "src/Api/Startup.cs(12,5): error CS1002: ; expected [src/Api/Api.csproj]" }, 800);
+    await send({ kind: "warning", text: "dotnet build failed (exit status: 1)" });
+  } else {
+    await send({ kind: "output", line: "  Api -> /fake/arnold-tmp/repo/src/Api/bin/Debug/net10.0/Api.dll" }, 800);
+  }
+  return { path: "/fake/arnold-tmp/repo" };
+}
+
 function fakeServerAnswer(raw: string): unknown {
   const message = JSON.parse(raw) as { id?: number; method: string; params?: any };
   const params = message.params;
@@ -175,7 +200,7 @@ function changedFiles(): ChangedFile[] {
   for (const [path, file] of files) {
     if (file.base === file.working) continue;
     const status =
-      file.base === null ? (file.untracked ? "untracked" : "added") : file.working === null ? "deleted" : "modified";
+      file.base === null ? "added" : file.working === null ? "deleted" : "modified";
     // Rough counts are enough for the mock.
     const baseLines = new Set((file.base ?? "").split("\n"));
     const workLines = new Set((file.working ?? "").split("\n"));
@@ -224,7 +249,7 @@ export function install() {
             base: args.base,
             head: args.head,
             mergeBase: "b481a92f122e44c0d840c722ded1ab11d334c7dd",
-            worktreePath: repo.branches.find((branch) => branch.name === args.head)?.worktreePath ?? null,
+            headCommit: "7d3e9a1f0c5b2e8d4a6f1b3c9e7d5a2f8b4c6e1d",
             files: changedFiles(),
           } satisfies Comparison;
         case "list_files": {
@@ -247,10 +272,21 @@ export function install() {
             tooLarge: false,
           } satisfies FilePair;
         }
+        case "prepare_workspace":
+          return fakePrepare((payload as { onEvent: Channel<SetupEvent> }).onEvent);
         case "lsp_start": {
           if (!fakeServer) throw new Error("No language server in the browser preview (add ?lsp for a stand-in).");
           serverDocs.clear();
-          serverChannel = (payload as { onMessage: Channel<string> }).onMessage;
+          const channels = payload as { onMessage: Channel<string>; onEvent: Channel<LspEvent> };
+          serverChannel = channels.onMessage;
+          const events = channels.onEvent;
+          void pause(400)
+            .then(() => events.onmessage({ kind: "status", text: "Loading 2 Projects" }))
+            .then(() => pause(1200))
+            .then(() => {
+              events.onmessage({ kind: "workspaceLoaded" });
+              events.onmessage({ kind: "status", text: null });
+            });
           return 1;
         }
         case "lsp_send": {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
 
@@ -13,7 +13,6 @@ pub enum FileStatus {
     Modified,
     Deleted,
     Renamed,
-    Untracked,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -36,40 +35,28 @@ pub struct Comparison {
     pub head: String,
     /// Commit the diff starts from: what a pull request would compare against.
     pub merge_base: String,
-    /// Checkout holding `head`. When set, the diff runs to its working tree
-    /// (uncommitted and untracked files included) and files can be edited.
-    pub worktree_path: Option<PathBuf>,
+    /// The commit `head` pointed at: everything shown comes from it, even if
+    /// the branch moves on meanwhile.
+    pub head_commit: String,
     pub files: Vec<ChangedFile>,
 }
 
-/// Untracked files larger than this are listed without a line count.
-const MAX_COUNTED_BYTES: u64 = 2 * 1024 * 1024;
-
-/// PR-style comparison: merge-base of `base` and `head` → `head`.
+/// PR-style comparison: merge-base of `base` and `head` → the tip commit of
+/// `head`. Uncommitted and untracked files are never part of it.
 pub async fn compare(root: &Path, base: &str, head: &str) -> Result<Comparison> {
     // Unrelated histories have no merge-base; compare against `base` itself then.
     let merge_base = match run_text(root, &["merge-base", base, head]).await {
         Ok(sha) if !sha.is_empty() => sha,
         _ => run_text(root, &["rev-parse", "--verify", &format!("{base}^{{commit}}")]).await?,
     };
-    let worktree_path = worktree_of(root, head).await?;
-
-    let files = match &worktree_path {
-        Some(worktree) => {
-            let mut files = diff_files(worktree, &[merge_base.as_str()]).await?;
-            files.extend(untracked_files(worktree).await?);
-            files
-        }
-        None => diff_files(root, &[merge_base.as_str(), head]).await?,
-    };
-
-    let mut files = files;
+    let head_commit = run_text(root, &["rev-parse", "--verify", &format!("{head}^{{commit}}")]).await?;
+    let mut files = diff_files(root, &[merge_base.as_str(), head_commit.as_str()]).await?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(Comparison {
         base: base.to_string(),
         head: head.to_string(),
         merge_base,
-        worktree_path,
+        head_commit,
         files,
     })
 }
@@ -78,22 +65,6 @@ pub async fn compare(root: &Path, base: &str, head: &str) -> Result<Comparison> 
 pub async fn read_blob(root: &Path, rev: &str, path: &str) -> Result<Option<Vec<u8>>> {
     let out = run_raw(root, &["cat-file", "blob", &format!("{rev}:{path}")]).await?;
     Ok(out.success.then_some(out.stdout))
-}
-
-async fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
-    let out = run_text(
-        root,
-        &[
-            "for-each-ref",
-            "--format=%(worktreepath)",
-            &format!("refs/heads/{branch}"),
-        ],
-    )
-    .await?;
-    Ok(out
-        .lines()
-        .find(|line| !line.is_empty())
-        .map(PathBuf::from))
 }
 
 async fn diff_files(cwd: &Path, revs: &[&str]) -> Result<Vec<ChangedFile>> {
@@ -136,7 +107,7 @@ fn parse_name_status(out: &str) -> Result<Vec<ChangedFile>> {
                 let old = next_path()?;
                 (FileStatus::Renamed, Some(old), next_path()?)
             }
-            // A copy is a new file as far as the working tree is concerned.
+            // A copy is a new file as far as the review is concerned.
             Some('C') => {
                 next_path()?;
                 (FileStatus::Added, None, next_path()?)
@@ -184,47 +155,6 @@ fn parse_numstat(out: &str) -> HashMap<String, Option<(u32, u32)>> {
         counts.insert(path.to_string(), count);
     }
     counts
-}
-
-async fn untracked_files(worktree: &Path) -> Result<Vec<ChangedFile>> {
-    let out = run(
-        worktree,
-        &["ls-files", "--others", "--exclude-standard", "-z"],
-    )
-    .await?;
-    let listing = String::from_utf8_lossy(&out).into_owned();
-    let mut files = Vec::new();
-    for path in listing.split('\0').filter(|p| !p.is_empty()) {
-        let (additions, binary) = count_lines(&worktree.join(path)).await;
-        files.push(ChangedFile {
-            path: path.to_string(),
-            old_path: None,
-            status: FileStatus::Untracked,
-            additions,
-            deletions: additions.map(|_| 0),
-            binary,
-        });
-    }
-    Ok(files)
-}
-
-/// Line count of a text file, or `(None, true)` when it looks binary.
-async fn count_lines(path: &Path) -> (Option<u32>, bool) {
-    let Ok(metadata) = tokio::fs::metadata(path).await else {
-        return (None, false);
-    };
-    if metadata.len() > MAX_COUNTED_BYTES {
-        return (None, false);
-    }
-    let Ok(bytes) = tokio::fs::read(path).await else {
-        return (None, false);
-    };
-    if bytes.contains(&0) {
-        return (None, true);
-    }
-    let newlines = bytes.iter().filter(|b| **b == b'\n').count();
-    let unterminated_last_line = bytes.last().is_some_and(|b| *b != b'\n');
-    (Some((newlines + usize::from(unterminated_last_line)) as u32), false)
 }
 
 #[cfg(test)]

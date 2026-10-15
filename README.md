@@ -4,14 +4,14 @@
 
 Desktop app for reviewing a git branch before it becomes a pull request, built for checking what AI agents wrote. Arnold only reads: the diff is read-only, and fixes are made elsewhere.
 
-- **PR-style comparison:** merge-base of the base branch → the working tree of the reviewed branch, including uncommitted and untracked files. Works with branches checked out in git worktrees.
-- **Files dock:** on top, *Changes*: every file in the diff, with status and line counts. Below it, *All files*: a file explorer with every file of the branch under review (its checkout, or its last commit when it is not checked out), changed files marked with their status and folders holding changes with a dot. Files outside the diff open on their own, without a diff. Drag the line between the two to resize them; click a heading to fold that part away. The filter applies to both.
+- **PR-style comparison:** merge-base of the base branch → the last commit of the reviewed branch. Only commits count: uncommitted and untracked files in any checkout are left out. The diff refreshes when a branch moves (a new commit, a fetch).
+- **Files dock:** on top, *Changes*: every file in the diff, with status and line counts. Below it, *All files*: a file explorer with every file in the last commit of the branch under review, changed files marked with their status and folders holding changes with a dot. Files outside the diff open on their own, without a diff. Drag the line between the two to resize them; click a heading to fold that part away. The filter applies to both.
 - **One file or all files:** review one file at a time, or every file of the diff in one scrolling list, as in a pull request's "all files" view. Each file has a header that stays in view while you scroll through it, with its counts; click it to fold the file away. Clicking a file in the dock scrolls to it, and the dock follows as you scroll. Files load as they come near the screen, so large diffs stay fast.
-- **Read-only diff:** side-by-side or unified, updated when the files change on disk. `F7` / `Shift+F7` step through the changes. Drag the divider between the sides to resize them (double-click to make them equal again).
+- **Read-only diff:** side-by-side or unified. `F7` / `Shift+F7` step through the changes. Drag the divider between the sides to resize them (double-click to make them equal again).
 - **Syntax highlighting:** F#, C#, project files, JSON, Markdown.
-- **F# language server in the diff:** errors, hover, go-to-definition (`F12` or Ctrl/Cmd+click; *Back* returns), find references. Error counts for every changed F# file show in the files dock. It needs the branch checked out somewhere (in the repository or one of its worktrees); a branch that is not is shown from its last commit, without language features.
+- **F# language server in the diff:** errors, hover, go-to-definition (`F12` or Ctrl/Cmd+click; *Back* returns), find references. Error counts for every changed F# file show in the files dock. When a branch is selected, Arnold copies its last commit to a folder of its own under the system temp folder (`arnold/<repository>/<branch>`; not a git worktree, the repository knows nothing of it) and does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. The status bar shows each step, and its popup lists the steps, problems and the output of `dotnet`; the diff can be used all along, and language features switch on once the server has loaded the projects. If something fails, the review goes on without them (or with gaps). A new commit on the branch updates the copy in place, so restore and build output are reused.
 
-Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out.
+Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out. The only copy of the code it writes is the temp folder for the language server.
 
 Not there yet: C# language server, a problems list with messages, settings.
 
@@ -108,7 +108,7 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | Path | Contents |
 |---|---|
 | `src/` | UI: SolidJS + CodeMirror 6 (`@codemirror/merge`) |
-| `src-tauri/` | Tauri shell: commands, file I/O, file watcher |
+| `src-tauri/` | Tauri shell: commands, file decoding, branch watcher, preparing the language server's copy |
 | `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
-| `crates/arnold-git/` | Read-only git access through the `git` CLI |
-| `crates/arnold-lsp/` | Language servers: install/update, and the proxy between editor and server |
+| `crates/arnold-git/` | Read-only git access through the `git` CLI, and copying a commit's files out |
+| `crates/arnold-lsp/` | Language servers: install/update, the minimal restore/build plan, and the proxy between editor and server |

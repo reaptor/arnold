@@ -9,7 +9,6 @@ export const STATUS_LETTER: Record<FileStatus, string> = {
   modified: "M",
   deleted: "D",
   renamed: "R",
-  untracked: "A",
   unchanged: "·",
 };
 
@@ -18,7 +17,6 @@ export const STATUS_NAME: Record<FileStatus, string> = {
   modified: "Modified",
   deleted: "Deleted",
   renamed: "Renamed",
-  untracked: "Added (not committed yet)",
   unchanged: "Not changed (opened by go-to-definition)",
 };
 
@@ -98,11 +96,6 @@ export function FileDock(props: { width: number }) {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     down.preventDefault();
-  };
-
-  const checkout = () => {
-    const worktree = state.comparison?.worktreePath;
-    return worktree ? `the checkout at ${worktree}` : `the last commit of ${state.head}`;
   };
 
   return (
@@ -199,7 +192,7 @@ export function FileDock(props: { width: number }) {
           detail={state.head ? `in ${state.head}` : ""}
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
-          explanation={`File explorer: every file in ${checkout()}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
+          explanation={`File explorer: every file in the last commit of ${state.head}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
         />
         <Show when={explorerOpen()}>
           <FileTree filter={filter()} />

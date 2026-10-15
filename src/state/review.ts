@@ -14,13 +14,35 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
+import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo, SetupEvent } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
 
 /** One file at a time, or every file of the diff in one scrolling list. */
 export type ViewMode = "file" | "all";
+
+/**
+ * Getting F# language features for the reviewed commit: preparing a copy of
+ * it, starting FsAutoComplete, waiting for it to load the projects.
+ */
+export type SetupPhase = "preparing" | "starting" | "loading" | "ready" | "failed";
+
+export interface SetupStep {
+  title: string;
+  state: "running" | "done" | "failed" | "skipped";
+  note: string | null;
+}
+
+export interface LanguageSetup {
+  commit: string;
+  phase: SetupPhase;
+  /** The prepared copy the server runs in, once there is one. */
+  path: string | null;
+  steps: SetupStep[];
+  /** Why features are off or may be incomplete. */
+  problems: string[];
+}
 
 interface State {
   repo: RepoInfo | null;
@@ -38,8 +60,10 @@ interface State {
   mode: DiffMode;
   /** Errors and warnings the language server reported, by file path. */
   problems: Record<string, { errors: number; warnings: number }>;
-  /** What the language server is doing, or why it is not running. */
+  /** What the language server is busy with, if anything. */
   lspStatus: string | null;
+  /** F# language features for the reviewed commit; null when it has no F# projects. */
+  languageSetup: LanguageSetup | null;
   /** Number of files that "back" can return to. */
   backCount: number;
   busy: boolean;
@@ -66,6 +90,7 @@ export const [state, setState] = createStore<State>({
   mode: (localStorage.getItem("arnold.mode") as DiffMode | null) ?? "split",
   problems: {},
   lspStatus: null,
+  languageSetup: null,
   backCount: 0,
   busy: false,
   error: null,
@@ -90,6 +115,11 @@ const sameItems = (a: readonly string[], b: readonly string[]) =>
  */
 const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sameItems });
 export { allFiles };
+
+/** What the preparation steps printed, last lines only. Kept out of the store. */
+const [setupOutput, setSetupOutput] = createSignal<readonly string[]>([]);
+export { setupOutput };
+const MAX_OUTPUT_LINES = 400;
 
 const sessions = new Map<string, Session>();
 /** Text last handed to the language server for files no editor shows, by path. */
@@ -134,7 +164,7 @@ export const isChanged = (path: string | null) =>
  * Created and deleted files are shown whole (a deleted one read-only) instead
  * of as a diff with one side empty. Unchanged files have no diff at all.
  */
-const WHOLE_FILE: FileStatus[] = ["added", "untracked", "deleted", "unchanged"];
+const WHOLE_FILE: FileStatus[] = ["added", "deleted", "unchanged"];
 
 function documentOf(file: ChangedFile, session: Session): DiffDocument {
   const base = session.pair.base ?? "";
@@ -180,7 +210,8 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, callbacksFor(() => state.selected));
   lsp.onDisplayFile(displayUri);
-  lsp.onStartFailed((reason) => setState("lspStatus", String(reason)));
+  lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
+  lsp.onServerEvent(onServerEvent);
 }
 
 // ---------------------------------------------------------------- repository
@@ -227,16 +258,19 @@ export async function setBranches(change: { base?: string; head?: string }) {
   await refresh();
 }
 
+/**
+ * Forgets the files of the last comparison. The language server keeps
+ * running: it is replaced only when the reviewed commit changes.
+ */
 function resetSessions() {
   sessions.clear();
   backgroundSent.clear();
   backStack.length = 0;
   editor?.close();
-  void lsp.stop();
   setState("problems", reconcile({}));
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
-  setState({ comparison: null, visited: [], backCount: 0, lspStatus: null });
+  setState({ comparison: null, visited: [], backCount: 0 });
   setAllFiles([]);
 }
 
@@ -258,6 +292,7 @@ export async function refresh() {
       visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
     );
     setState("error", null);
+    if (setupKey(repo, comparison) !== preparedKey) void setUpLanguageFeatures(repo, comparison);
 
     const selected = fileAt(state.selected);
     if (state.view === "all") {
@@ -282,7 +317,7 @@ export async function refresh() {
 async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
   try {
     const files = await ipc.listFiles(repo.root, comparison);
-    if (repo === state.repo && comparison.head === state.comparison?.head) setAllFiles(files);
+    if (repo === state.repo && comparison.headCommit === state.comparison?.headCommit) setAllFiles(files);
   } catch (error) {
     fail(error);
   }
@@ -512,16 +547,175 @@ export const previousChange = () => activeEditor()?.previousChange();
 
 // ----------------------------------------------------------- language server
 
+/** Commit the language server was last set up for, with its repository and branch. */
+let preparedKey: string | null = null;
+/** Bumped for each setup, so that a superseded one stops quietly. */
+let setupRun = 0;
+
+const setupKey = (repo: RepoInfo, comparison: Comparison) =>
+  `${repo.root}\n${comparison.head}\n${comparison.headCommit}`;
+
+/** The prepared copy of the reviewed commit, once a server may run there. */
+function serverRoot(): string | null {
+  const setup = state.languageSetup;
+  return setup && setup.phase !== "preparing" && setup.phase !== "failed" ? setup.path : null;
+}
+
+/**
+ * Gets F# language features going for the reviewed commit: a copy of it is
+ * prepared (restored, built where needed), then FsAutoComplete starts there
+ * and loads the projects. The diff can be used all along; editors get
+ * language features once the server runs.
+ */
+async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
+  preparedKey = setupKey(repo, comparison);
+  const run = ++setupRun;
+  const current = () => run === setupRun;
+  await lsp.stop();
+  forEachShownEditor((target) => target.setLanguageSupport([]));
+  backgroundSent.clear();
+  setState("problems", reconcile({}));
+  setSetupOutput([]);
+  setState({
+    lspStatus: null,
+    languageSetup: { commit: comparison.headCommit, phase: "preparing", path: null, steps: [], problems: [] },
+  });
+
+  let prepared: { path: string | null };
+  try {
+    prepared = await ipc.prepareWorkspace(repo.root, comparison.head, comparison.headCommit, (event) => {
+      if (current()) onSetupEvent(event);
+    });
+  } catch (error) {
+    if (!current()) return;
+    finishStep("failed");
+    addSetupProblem(String(error));
+    setState("languageSetup", "phase", "failed");
+    return;
+  }
+  if (!current()) return;
+  finishStep("done");
+  if (prepared.path === null) {
+    setState("languageSetup", null);
+    return;
+  }
+
+  setState("languageSetup", { path: prepared.path, phase: "starting" });
+  startStep("Starting FsAutoComplete");
+  const client = await lsp.clientFor(prepared.path, "fsharp");
+  if (!current()) return;
+  if (!client) {
+    finishStep("failed");
+    setState("languageSetup", "phase", "failed");
+    return;
+  }
+  finishStep("done");
+  startStep("Loading projects");
+  setState("languageSetup", "phase", "loading");
+  ipc.devTrace(`language server running in ${prepared.path}`);
+  forEachShownEditor((target, file) => void attachLanguageServer(file, target));
+  void checkChangedFiles();
+}
+
+function onSetupEvent(event: SetupEvent) {
+  if (event.kind !== "output") ipc.devTrace(`setup ${event.kind}: ${"title" in event ? event.title : event.text}`);
+  switch (event.kind) {
+    case "step":
+      finishStep("done");
+      startStep(event.title);
+      break;
+    case "skipped":
+      finishStep("done");
+      setState("languageSetup", "steps", (steps): SetupStep[] => [
+        ...steps,
+        { title: event.title, state: "skipped", note: event.reason },
+      ]);
+      break;
+    case "warning":
+      finishStep("failed", event.text);
+      addSetupProblem(event.text);
+      break;
+    case "output":
+      setSetupOutput((lines) => [...lines.slice(-(MAX_OUTPUT_LINES - 1)), event.line]);
+      break;
+  }
+}
+
+function startStep(title: string) {
+  if (!state.languageSetup) return;
+  setState("languageSetup", "steps", (steps): SetupStep[] => [...steps, { title, state: "running", note: null }]);
+}
+
+/** Ends the running step, if any. */
+function finishStep(outcome: "done" | "failed", note?: string) {
+  const steps = state.languageSetup?.steps ?? [];
+  const index = steps.findIndex((step) => step.state === "running");
+  if (index < 0) return;
+  setState("languageSetup", "steps", index, { state: outcome, note: note ?? steps[index].note });
+}
+
+function addSetupProblem(problem: string) {
+  if (state.languageSetup) setState("languageSetup", "problems", (problems) => [...problems, problem]);
+}
+
+function onServerEvent(event: ipc.LspEvent) {
+  switch (event.kind) {
+    case "status":
+      setState("lspStatus", event.text);
+      if (event.text) ipc.devTrace(`lsp status: ${event.text}`);
+      break;
+    case "workspaceLoaded":
+      if (state.languageSetup?.phase === "loading") {
+        finishStep("done");
+        setState("languageSetup", "phase", "ready");
+        ipc.devTrace("language features ready");
+      }
+      break;
+    case "projectFailed": {
+      const name = event.project.split(/[\\/]/).pop() || event.project;
+      addSetupProblem(`${name} could not be loaded: ${event.message}`);
+      break;
+    }
+    case "exited":
+      finishStep("failed");
+      addSetupProblem("The language server stopped.");
+      setState({ lspStatus: null });
+      if (state.languageSetup) setState("languageSetup", "phase", "failed");
+      break;
+    case "diagnostics": {
+      const root = serverRoot();
+      const absolute = uriToPath(event.uri);
+      const path = root && absolute ? relativeTo(root, absolute) : null;
+      if (path !== null) setState("problems", path, { errors: event.errors, warnings: event.warnings });
+      ipc.devTrace(`diagnostics ${path ?? event.uri}: ${event.errors} errors, ${event.warnings} warnings`);
+      break;
+    }
+  }
+}
+
+/** Every editor on screen, with its file. */
+function forEachShownEditor(action: (target: DiffEditor, file: ChangedFile) => void) {
+  if (state.view === "all") {
+    for (const [path, target] of sectionEditors) {
+      const file = fileAt(path);
+      if (file) action(target, file);
+    }
+  } else {
+    const file = fileAt(state.selected);
+    if (file && editor) action(editor, file);
+  }
+}
+
 /** Connects a file being shown to its language server, once that is running. */
 async function attachLanguageServer(file: ChangedFile, target: DiffEditor) {
-  // Only a checkout on disk has a server; a deleted file is not there.
-  const worktree = state.comparison?.worktreePath;
+  // A deleted file is not in the prepared copy.
+  const root = serverRoot();
   const language = languageIdFor(file.path);
-  if (!worktree || !language || file.status === "deleted") return;
-  const client = await lsp.clientFor(worktree, language);
+  if (!root || !language || file.status === "deleted") return;
+  const client = await lsp.clientFor(root, language);
   // The user may have moved on while the server was starting.
   if (!client || editorFor(file.path) !== target) return;
-  target.setLanguageSupport(client.plugin(pathToUri(joinPath(worktree, file.path)), language));
+  target.setLanguageSupport(client.plugin(pathToUri(joinPath(root, file.path)), language));
   ipc.devTrace(`language server attached to ${file.path}`);
   // The file shown before this one is closed now; it goes back to the background.
   void checkChangedFiles();
@@ -546,12 +740,12 @@ async function checkChangedFiles() {
       checkAgain = false;
       const repo = state.repo;
       const comparison = state.comparison;
-      const worktree = comparison?.worktreePath;
-      if (!repo || !comparison || !worktree) return;
+      const root = serverRoot();
+      if (!repo || !comparison || !root) return;
       const files = comparison.files
         .filter((file) => languageIdFor(file.path) === "fsharp" && file.status !== "deleted" && !file.binary)
         .slice(0, MAX_BACKGROUND_FILES);
-      if (files.length === 0 || !(await lsp.clientFor(worktree, "fsharp"))) return;
+      if (files.length === 0 || !(await lsp.clientFor(root, "fsharp"))) return;
 
       for (const file of files) {
         if (comparison !== state.comparison) break;
@@ -563,7 +757,7 @@ async function checkChangedFiles() {
         const text = (await ipc.readFilePair(repo.root, comparison, file)).working;
         if (text == null || backgroundSent.get(file.path) === text) continue;
         backgroundSent.set(file.path, text);
-        await lsp.openInBackground(pathToUri(joinPath(worktree, file.path)), "fsharp", text);
+        await lsp.openInBackground(pathToUri(joinPath(root, file.path)), "fsharp", text);
       }
     } while (checkAgain);
   } finally {
@@ -576,9 +770,9 @@ async function checkChangedFiles() {
  * its editor. Files outside the diff open on their own, without a diff.
  */
 async function displayUri(uri: string): Promise<EditorView | null> {
-  const worktree = state.comparison?.worktreePath;
+  const root = serverRoot();
   const absolute = uriToPath(uri);
-  const path = worktree && absolute ? relativeTo(worktree, absolute) : null;
+  const path = root && absolute ? relativeTo(root, absolute) : null;
   if (path === null) {
     setState("lspStatus", `That definition is outside this repository: ${absolute ?? uri}`);
     return null;
@@ -621,24 +815,9 @@ export async function goBack() {
 let refreshTimer: number | undefined;
 
 export async function startWatching() {
-  // The backend watches one checkout at a time: the one being compared.
-  await ipc.onWorktreeChanged(() => {
+  // The backend watches the repository's branches: new commits refresh the diff.
+  await ipc.onRefsChanged(() => {
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => void refresh(), 150);
-  });
-
-  await ipc.onLspEvent((event) => {
-    if (event.kind === "status") {
-      setState("lspStatus", event.text);
-      if (event.text) ipc.devTrace(`lsp status: ${event.text}`);
-    } else if (event.kind === "exited") {
-      setState("lspStatus", "The language server stopped.");
-    } else {
-      const worktree = state.comparison?.worktreePath;
-      const absolute = uriToPath(event.uri);
-      const path = worktree && absolute ? relativeTo(worktree, absolute) : null;
-      if (path !== null) setState("problems", path, { errors: event.errors, warnings: event.warnings });
-      ipc.devTrace(`diagnostics ${path ?? event.uri}: ${event.errors} errors, ${event.warnings} warnings`);
-    }
   });
 }

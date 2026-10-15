@@ -2,7 +2,7 @@
 name = "arnold"
 version.workspace = true
 edition.workspace = true
-description = "Review git branches with an editable diff"
+description = "Review git branches as a PR-style diff"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -10,7 +10,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 arnold-git = { path = "../crates/arnold-git" }
 arnold-lsp = { path = "../crates/arnold-lsp" }
-ignore = "0.4"
 notify = "8"
 notify-debouncer-full = "0.7"
 serde.workspace = true
@@ -21,5 +20,3 @@ tauri-plugin-window-state = "2"
 thiserror.workspace = true
 tokio.workspace = true
 
-[dev-dependencies]
-tempfile = "3"

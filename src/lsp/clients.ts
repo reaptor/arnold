@@ -34,6 +34,7 @@ interface Running {
 let running: Running | null = null;
 let displayFile: DisplayFile = async () => null;
 let startFailed: (reason: unknown) => void = () => {};
+let serverEvent: (event: ipc.LspEvent) => void = () => {};
 
 export function onDisplayFile(handler: DisplayFile) {
   displayFile = handler;
@@ -42,6 +43,11 @@ export function onDisplayFile(handler: DisplayFile) {
 /** Called with the reason when a server could not be started. */
 export function onStartFailed(handler: (reason: unknown) => void) {
   startFailed = handler;
+}
+
+/** Called with what the running server reports besides LSP messages; never for a stopped one. */
+export function onServerEvent(handler: (event: ipc.LspEvent) => void) {
+  serverEvent = handler;
 }
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -98,7 +104,14 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
   void stop();
 
   const handlers = new Set<(message: string) => void>();
-  const id = ipc.lspStart(language, root, (message) => handlers.forEach((handler) => handler(message)));
+  const id = ipc.lspStart(
+    language,
+    root,
+    (message) => handlers.forEach((handler) => handler(message)),
+    (event) => {
+      if (running === entry) serverEvent(event);
+    },
+  );
   const client = id.then(
     (serverId) => {
       const transport: Transport = {
@@ -138,7 +151,8 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
       return null;
     },
   );
-  running = { key, id, client };
+  const entry: Running = { key, id, client };
+  running = entry;
   return client;
 }
 

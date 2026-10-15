@@ -609,8 +609,7 @@ button.primary:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
-.changed-added .tree-label,
-.changed-untracked .tree-label {
+.changed-added .tree-label {
   color: var(--added);
 }
 
@@ -656,8 +655,7 @@ button.primary:hover:not(:disabled) {
   font-weight: 700;
 }
 
-.status-added,
-.status-untracked {
+.status-added {
   color: var(--added);
 }
 
@@ -1026,4 +1024,163 @@ button.primary:hover:not(:disabled) {
 .menu kbd {
   font: inherit;
   color: var(--muted);
+}
+
+/* ------------------------------------------------------ language features */
+
+.language-status {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+}
+
+.language-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 520px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.language-button:hover {
+  background: var(--hover);
+}
+
+.language-button.working {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.language-button.warning {
+  color: var(--warning);
+}
+
+.language-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.language-mark {
+  flex: none;
+  font-weight: 700;
+}
+
+.spinner {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.language-popup {
+  position: fixed;
+  right: 12px;
+  bottom: 30px;
+  z-index: 30;
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 90px);
+  overflow: auto;
+  padding: 12px 14px;
+  background: var(--popup);
+  border: 1px solid var(--popup-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  color: var(--text);
+  font-size: 12px;
+  white-space: normal;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.language-popup h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.language-popup p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.setup-steps {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.setup-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.setup-steps .spinner {
+  color: var(--accent);
+  align-self: center;
+}
+
+.step-mark {
+  flex: none;
+  width: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.step-done .step-mark {
+  color: var(--added);
+}
+
+.step-failed {
+  color: var(--warning);
+}
+
+.step-skipped,
+.step-note {
+  color: var(--muted);
+}
+
+.setup-problems {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  color: var(--warning);
+}
+
+.language-popup .setup-path code {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.language-popup summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.setup-output {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--panel);
+  border-radius: 6px;
+  font: 11px/1.45 "JetBrains Mono", ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
 }

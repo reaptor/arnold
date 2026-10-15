@@ -45,6 +45,13 @@ pub async fn open(path: &Path) -> Result<RepoInfo> {
     })
 }
 
+/// The `.git` folder shared by every checkout of the repository at `root`:
+/// where branches live.
+pub async fn common_dir(root: &Path) -> Result<PathBuf> {
+    let out = run_text(root, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await?;
+    Ok(PathBuf::from(out))
+}
+
 async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
     let out = run_text(
         root,

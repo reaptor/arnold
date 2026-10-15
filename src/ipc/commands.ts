@@ -17,7 +17,7 @@ export interface RepoInfo {
 }
 
 /** `unchanged` is used only by the UI, for files opened from outside the diff. */
-export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked" | "unchanged";
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "unchanged";
 
 export interface ChangedFile {
   path: string;
@@ -32,8 +32,8 @@ export interface Comparison {
   base: string;
   head: string;
   mergeBase: string;
-  /** Checkout holding `head`; when null the diff is read-only. */
-  worktreePath: string | null;
+  /** The commit `head` pointed at; everything shown comes from it. */
+  headCommit: string;
   files: ChangedFile[];
 }
 
@@ -42,12 +42,6 @@ export interface FilePair {
   working: string | null;
   binary: boolean;
   tooLarge: boolean;
-}
-
-export interface WorktreeChanged {
-  root: string;
-  paths: string[];
-  gitStateChanged: boolean;
 }
 
 /** Calls the backend; in development each call and its outcome is echoed to the terminal. */
@@ -77,33 +71,60 @@ export const compareBranches = (root: string, base: string, head: string) =>
   invoke<Comparison>("compare_branches", { root, base, head });
 
 export const listFiles = (root: string, comparison: Comparison) =>
-  invoke<string[]>("list_files", { root, head: comparison.head, worktree: comparison.worktreePath });
+  invoke<string[]>("list_files", { root, commit: comparison.headCommit });
 
 export const readFilePair = (root: string, comparison: Comparison, file: ChangedFile) =>
   invoke<FilePair>("read_file_pair", {
     root,
     mergeBase: comparison.mergeBase,
-    head: comparison.head,
-    worktree: comparison.worktreePath,
+    commit: comparison.headCommit,
     path: file.path,
     oldPath: file.oldPath,
   });
 
-export const onWorktreeChanged = (handler: (event: WorktreeChanged) => void): Promise<UnlistenFn> =>
-  listen<WorktreeChanged>("worktree-changed", (event) => handler(event.payload));
+/** A branch or remote-tracking branch moved (commit, fetch, reset). */
+export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
 
 // ------------------------------------------------------------ language servers
+
+/** Progress of `prepareWorkspace`. */
+export type SetupEvent =
+  | { kind: "step"; title: string }
+  | { kind: "skipped"; title: string; reason: string }
+  | { kind: "output"; line: string }
+  | { kind: "warning"; text: string };
+
+/**
+ * Copies `commit` (the tip of `head`) to a folder of the app's own and
+ * restores, and where needed builds, what the F# language server needs.
+ * Resolves to that folder, or null when the commit has no F# projects.
+ * Starting another preparation makes this one fail with "cancelled".
+ */
+export function prepareWorkspace(root: string, head: string, commit: string, onEvent: (event: SetupEvent) => void) {
+  const channel = new Channel<SetupEvent>();
+  channel.onmessage = onEvent;
+  return invoke<{ path: string | null }>("prepare_workspace", { root, head, commit, onEvent: channel });
+}
 
 export type LspEvent =
   | { kind: "status"; text: string | null }
   | { kind: "diagnostics"; uri: string; errors: number; warnings: number }
+  | { kind: "workspaceLoaded" }
+  | { kind: "projectFailed"; project: string; message: string }
   | { kind: "exited" };
 
 /** Starts a language server; resolves to its id once it is running. */
-export function lspStart(language: string, root: string, onMessage: (message: string) => void) {
-  const channel = new Channel<string>();
-  channel.onmessage = onMessage;
-  return invoke<number>("lsp_start", { language, root, onMessage: channel });
+export function lspStart(
+  language: string,
+  root: string,
+  onMessage: (message: string) => void,
+  onEvent: (event: LspEvent) => void,
+) {
+  const messages = new Channel<string>();
+  messages.onmessage = onMessage;
+  const events = new Channel<LspEvent>();
+  events.onmessage = onEvent;
+  return invoke<number>("lsp_start", { language, root, onMessage: messages, onEvent: events });
 }
 
 // Not traced: these are far too frequent.
@@ -114,5 +135,3 @@ export const lspOpenBackground = (id: number, uri: string, language: string, tex
 
 export const lspStop = (id: number) => invoke<void>("lsp_stop", { id });
 
-export const onLspEvent = (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>
-  listen<LspEvent>("lsp-event", (event) => handler(event.payload));
