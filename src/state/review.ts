@@ -379,26 +379,6 @@ export function closePullRequest() {
   rememberSource();
 }
 
-/**
- * Refresh button: in a pull request, also asks the host for new pushes to it
- * (and for the list of pull requests); then re-reads the comparison.
- */
-export async function refreshAll() {
-  const pullRequest = state.pullRequest;
-  if (state.source === "pullRequest") {
-    void pullRequests.loadPullRequests();
-    if (pullRequest && state.repo) {
-      try {
-        const fresh = await ipc.openPullRequest(state.repo.root, pullRequest.remote, pullRequest.id);
-        if (state.pullRequest === pullRequest) setState("pullRequest", { ...fresh, remote: pullRequest.remote });
-      } catch (error) {
-        fail(pullRequests.prErrorText(error));
-      }
-    }
-  }
-  await refresh();
-}
-
 /** The two commits or branches compared, or null when nothing is picked yet. */
 function compared(): { base: string; head: string } | null {
   if (state.source === "pullRequest") {
@@ -1075,12 +1055,62 @@ export async function goBack() {
 
 // ------------------------------------------------------------------ watching
 
+/** How often the open pull request is checked for new pushes while Arnold is shown. */
+const PULL_REQUEST_POLL = 60_000;
+/** Coming back to Arnold checks it too, unless it was checked this recently. */
+const PULL_REQUEST_ON_FOCUS = 15_000;
+
 let refreshTimer: number | undefined;
+let pullRequestCheckedAt = 0;
+let checkingPullRequest = false;
 
 export async function startWatching() {
-  // The backend watches the repository's branches: new commits refresh the diff.
+  // The backend watches the repository's branches: a commit, fetch or new
+  // branch updates the branch pickers and the diff.
   await ipc.onRefsChanged(() => {
     window.clearTimeout(refreshTimer);
-    refreshTimer = window.setTimeout(() => void refresh(), 150);
+    refreshTimer = window.setTimeout(() => void refsChanged(), 150);
   });
+  // Pushes to a pull request are only known to the host, so it is asked.
+  window.setInterval(() => {
+    if (document.visibilityState === "visible") void checkPullRequest();
+  }, PULL_REQUEST_POLL);
+  window.addEventListener("focus", () => {
+    if (Date.now() - pullRequestCheckedAt > PULL_REQUEST_ON_FOCUS) void checkPullRequest();
+  });
+}
+
+async function refsChanged() {
+  const repo = state.repo;
+  if (repo) {
+    try {
+      const branches = await ipc.listBranches(repo.root);
+      if (state.repo === repo) setState("repo", "branches", reconcile(branches, { key: "name" }));
+    } catch (error) {
+      fail(error);
+    }
+  }
+  await refresh();
+}
+
+/** Asks the host whether the pull request under review has new pushes, and shows them. */
+export async function checkPullRequest() {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || state.source !== "pullRequest" || !pullRequest || state.openingPullRequest !== null) return;
+  if (checkingPullRequest) return;
+  checkingPullRequest = true;
+  pullRequestCheckedAt = Date.now();
+  try {
+    const fresh = await ipc.openPullRequest(repo.root, pullRequest.remote, pullRequest.id);
+    if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id || state.pullRequest.remote !== pullRequest.remote) return;
+    const moved = fresh.sourceCommit !== pullRequest.sourceCommit || fresh.targetCommit !== pullRequest.targetCommit;
+    setState("pullRequest", { ...fresh, remote: pullRequest.remote });
+    if (moved) await refresh();
+  } catch (error) {
+    // Asked again on the next round; opening the list shows a lasting problem.
+    ipc.devTrace(`checking pull request !${pullRequest.id}: ${pullRequests.prErrorText(error)}`);
+  } finally {
+    checkingPullRequest = false;
+  }
 }

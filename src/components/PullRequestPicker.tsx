@@ -7,9 +7,9 @@ import {
   prErrorText,
   prs,
 } from "../state/pullRequests";
-import { closePullRequest, openPullRequest, state } from "../state/review";
+import { checkPullRequest, closePullRequest, openPullRequest, state } from "../state/review";
 import { openInBrowser } from "./DevOpsSetup";
-import { ChevronDownIcon, ExternalIcon, KeyIcon, PullRequestIcon } from "./icons";
+import { ChevronDownIcon, ExternalIcon, KeyIcon, PullRequestIcon, RefreshIcon } from "./icons";
 import { RemoteSelect } from "./PullRequestPanel";
 import { PullRequestList } from "./PullRequestList";
 
@@ -52,19 +52,9 @@ export function PullRequestPicker() {
     <div class="picker pr-picker" ref={root}>
       <button class="picker-button" onClick={toggle} title={title()}>
         <PullRequestIcon />
-        <Show when={state.pullRequest && state.openingPullRequest === null}>
-          <span class="pr-id">!{state.pullRequest!.id}</span>
-        </Show>
         <span class="picker-value">{label()}</span>
         <ChevronDownIcon />
       </button>
-      <Show when={state.openingPullRequest === null && state.pullRequest}>
-        {(pullRequest) => (
-          <span class="toolbar-word pr-into" title={`${pullRequest().sourceBranch} into ${pullRequest().targetBranch}`}>
-            {pullRequest().sourceBranch} → {pullRequest().targetBranch}
-          </span>
-        )}
-      </Show>
       <Show when={open()}>
         <div ref={popup} class="picker-popup pr-popup" data-tauri-drag-region="false">
           <RemoteSelect />
@@ -129,6 +119,17 @@ export function PullRequestPicker() {
               </button>
             </Show>
             <Show when={currentRemote()?.token}>
+              <button
+                classList={{ "pr-reload": true, busy: prs.loading }}
+                onClick={() => {
+                  void loadPullRequests();
+                  void checkPullRequest();
+                }}
+                disabled={prs.loading}
+                title="Reload the pull requests"
+              >
+                <RefreshIcon />
+              </button>
               <button
                 onClick={() => {
                   close();

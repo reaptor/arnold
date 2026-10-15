@@ -318,13 +318,6 @@ button.primary:hover:not(:disabled) {
   flex-shrink: 0;
 }
 
-/* …then the view switch keeps only its icons. */
-@media (max-width: 1100px) {
-  .segmented-label {
-    display: none;
-  }
-}
-
 .picker-value {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1391,21 +1384,6 @@ button.primary:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
-.pr-into {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  max-width: 280px;
-  font-size: 12px;
-}
-
-@media (max-width: 1250px) {
-  .pr-into {
-    display: none;
-  }
-}
-
 .pr-popup {
   width: min(560px, calc(100vw - 16px));
   display: flex;
@@ -1436,6 +1414,10 @@ button.primary:hover:not(:disabled) {
   gap: 6px;
   border-color: transparent;
   color: var(--muted);
+}
+
+.pr-popup-footer .pr-reload.busy svg {
+  animation: spin 0.8s linear infinite;
 }
 
 .pr-list .picker-list li {

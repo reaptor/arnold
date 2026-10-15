@@ -52,7 +52,8 @@ pub async fn common_dir(root: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(out))
 }
 
-async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
+/// Local and remote-tracking branches, with where each local one is checked out.
+pub async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
     let out = run_text(
         root,
         &[

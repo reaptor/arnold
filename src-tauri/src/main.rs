@@ -56,6 +56,7 @@ fn main() {
             commands::dev_trace,
             commands::startup_path,
             commands::open_repo,
+            commands::list_branches,
             commands::compare_branches,
             commands::list_files,
             commands::read_file_pair,

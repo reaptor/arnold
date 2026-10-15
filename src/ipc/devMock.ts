@@ -435,6 +435,8 @@ export function install() {
         case "open_repo":
           // Any path opens the same files, under that path's name.
           return { ...repo, root: args.path };
+        case "list_branches":
+          return repo.branches;
         case "compare_branches": {
           const wanted = (payload as { range: CommitRange | null }).range;
           const newest = commits.findIndex((commit) => commit.sha === wanted?.newest);

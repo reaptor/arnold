@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{CommitRange, Comparison, RepoInfo};
+use arnold_git::{Branch, CommitRange, Comparison, RepoInfo};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -99,6 +99,13 @@ pub async fn compare_branches(
     let handle = watcher::watch(app, git_dir).ok();
     *state.watch.lock().unwrap() = handle;
     Ok(comparison)
+}
+
+/// The branches again, after the watcher saw them change.
+#[tauri::command]
+pub async fn list_branches(root: String, state: State<'_, AppState>) -> Result<Vec<Branch>, String> {
+    let root = state.checked_root(&root)?;
+    arnold_git::list_branches(&root).await.map_err(text_error)
 }
 
 /// Every file of `commit`, for the file explorer.

@@ -5,7 +5,6 @@ import {
   goBack,
   nextChange,
   previousChange,
-  refreshAll,
   setBranches,
   setRange,
   setMode,
@@ -26,7 +25,6 @@ import {
   FileIcon,
   FilesIcon,
   PullRequestIcon,
-  RefreshIcon,
   SplitIcon,
   UnifiedIcon,
 } from "./icons";
@@ -121,17 +119,17 @@ export function Toolbar() {
             classList={{ on: state.view === "file" }}
             onClick={() => setView("file")}
             title="One file: show the file selected in the dock"
+            aria-label="One file"
           >
             <FileIcon />
-            <span class="segmented-label">One file</span>
           </button>
           <button
             classList={{ on: state.view === "all" }}
             onClick={() => setView("all")}
             title="All files: show every file of the diff in one list"
+            aria-label="All files"
           >
             <FilesIcon />
-            <span class="segmented-label">All files</span>
           </button>
         </div>
         <div class="segmented" role="group" aria-label="Diff layout">
@@ -156,13 +154,6 @@ export function Toolbar() {
         </button>
         <button class="icon-button" onClick={nextChange} title="Next change (F7)">
           <ArrowDownIcon />
-        </button>
-        <button
-          class="icon-button"
-          onClick={() => void refreshAll()}
-          title={state.source === "pullRequest" ? "Refresh: new pushes to the pull request and the list of pull requests" : "Refresh the comparison"}
-        >
-          <RefreshIcon />
         </button>
       </Show>
       <Show when={platform === "windows"}>

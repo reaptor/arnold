@@ -171,6 +171,9 @@ export const removePullRequestToken = (root: string, remote: string) =>
 export const openPullRequest = (root: string, remote: string, id: number) =>
   invoke<PullRequest>("open_pull_request", { root, remote, id });
 
+/** The repository's branches, read again. */
+export const listBranches = (root: string) => invoke<Branch[]>("list_branches", { root });
+
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
 

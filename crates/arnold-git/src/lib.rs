@@ -18,7 +18,7 @@ pub use cli::GitError;
 pub use compare::{compare, read_blob, ChangedFile, Commit, CommitRange, Comparison, FileStatus};
 pub use export::{app_folder, export_commit};
 pub use files::{list_files, tree_files, TreeFile};
-pub use refs::{common_dir, open, Branch, RepoInfo};
+pub use refs::{common_dir, list_branches, open, Branch, RepoInfo};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 
 pub type Result<T> = std::result::Result<T, GitError>;
