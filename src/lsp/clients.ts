@@ -8,12 +8,12 @@ import {
   jumpToDefinitionKeymap,
   LSPClient,
   LSPPlugin,
-  serverDiagnostics,
   type Transport,
 } from "@codemirror/lsp-client";
 import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
+import { serverDiagnostics } from "./diagnostics";
 import { semanticTokens } from "./semanticTokens";
 import { canonicalUri, pathToUri } from "./uri";
 
@@ -128,8 +128,10 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         extensions: [
           hoverTooltips(),
           keymap.of([...jumpToDefinitionKeymap, ...findReferencesKeymap]),
-          serverDiagnostics(),
+          // Before diagnostics: its publishDiagnostics hook only refreshes
+          // and lets the notification through.
           semanticTokens(),
+          serverDiagnostics(),
           clickToDefinition,
         ],
         notificationHandlers: {

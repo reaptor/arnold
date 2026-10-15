@@ -132,6 +132,14 @@ const theme = EditorView.theme(
       backgroundColor: color.popupSelection,
       color: color.text,
     },
+    // Code the server tags as unnecessary, such as unused opens (see
+    // lsp/diagnostics.ts): faded like Rider's unused code, no underline.
+    ".cm-lintRange.cm-unnecessary, .cm-lintRange.cm-unnecessary *": {
+      color: color.inactive,
+    },
+    ".cm-lintRange.cm-unnecessary": {
+      backgroundImage: "none",
+    },
     ".cm-completionMatchedText": {
       textDecoration: "none",
       color: color.keyword,

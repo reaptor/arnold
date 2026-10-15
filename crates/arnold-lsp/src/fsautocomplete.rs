@@ -108,8 +108,12 @@ pub fn command(dotnet: &Dotnet, installed: &Installed, repository: &Path) -> Com
 
 pub fn session_config() -> SessionConfig {
     SessionConfig {
-        // Without this the server waits for an explicit "load workspace" request.
-        initialization_options: json!({ "AutomaticWorkspaceInit": true }),
+        initialization_options: json!({
+            // Without this the server waits for an explicit "load workspace" request.
+            "AutomaticWorkspaceInit": true,
+            // Off by default; reported as hints tagged "unnecessary".
+            "UnusedOpensAnalyzer": true,
+        }),
     }
 }
 

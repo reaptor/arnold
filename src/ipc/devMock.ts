@@ -13,6 +13,9 @@ interface FakeFile {
 
 const ORDERS_BASE = `module ZedTrial.Orders
 
+open System
+open System.IO
+
 type OrderLine =
     { Sku: string
       Quantity: int
@@ -149,7 +152,8 @@ const ROOT = "/fake/zed-trial/repo";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 
 // `?lsp` starts a stand-in language server that only answers go-to-definition,
-// with the first whole-word occurrence of the symbol in the same file.
+// with the first whole-word occurrence of the symbol in the same file, and
+// reports every `open` as unused the way FsAutoComplete does.
 const fakeServer = new URLSearchParams(location.search).has("lsp");
 
 /** The open documents of the stand-in server, by URI. */
@@ -219,10 +223,25 @@ async function fakePrepare(onEvent: Channel<SetupEvent>) {
   return { path: "/fake/arnold-tmp/repo" };
 }
 
+function publishUnusedOpens(uri: string, text: string) {
+  const diagnostics = text.split("\n").flatMap((line, index) => {
+    const name = /^\s*open\s+(\S+)/.exec(line);
+    if (!name) return [];
+    const start = line.indexOf(name[1], name[0].length - name[1].length);
+    const range = { start: { line: index, character: start }, end: { line: index, character: start + name[1].length } };
+    return [{ range, severity: 4, code: "FSAC0001", source: "FSAC", message: "Unused open statement", tags: [1] }];
+  });
+  const message = { jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: { uri, diagnostics } };
+  setTimeout(() => serverChannel?.onmessage(JSON.stringify(message)), 300);
+}
+
 function fakeServerAnswer(raw: string): unknown {
   const message = JSON.parse(raw) as { id?: number; method: string; params?: any };
   const params = message.params;
-  if (message.method === "textDocument/didOpen") serverDocs.set(params.textDocument.uri, params.textDocument.text);
+  if (message.method === "textDocument/didOpen") {
+    serverDocs.set(params.textDocument.uri, params.textDocument.text);
+    publishUnusedOpens(params.textDocument.uri, params.textDocument.text);
+  }
   if (message.method === "textDocument/didChange") {
     serverDocs.set(params.textDocument.uri, params.contentChanges.at(-1).text);
   }
