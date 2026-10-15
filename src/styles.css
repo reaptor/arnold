@@ -33,6 +33,8 @@
   --banner-error: #fde8e8;
   --scrollbar: rgb(0 0 0 / 0.2);
   --scrollbar-hover: rgb(0 0 0 / 0.35);
+  /* CodeMirror's light caret row; the dark one is the editor scheme's. */
+  --caret-row: #cceeff44;
   --diff-inserted: rgb(190 230 190 / 0.6);
   --diff-deleted: rgb(214 214 214 / 0.7);
   --diff-old-line: rgb(255 222 222 / 0.6);
@@ -77,6 +79,7 @@
     /* DIFF_INSERTED and DIFF_DELETED; the marks are lighter takes on them
        for the change gutter. Replaced lines are red on the old side and green
        on the new side, as in Azure DevOps. */
+    --caret-row: #202424;
     --diff-inserted: rgb(41 66 31 / 0.8);
     --diff-deleted: rgb(66 66 66 / 0.6);
     --diff-old-line: rgb(110 38 42 / 0.45);
@@ -768,7 +771,7 @@ button.primary:hover:not(:disabled) {
 
 /* Deleted files: red-tinted lines in the editor (deletedFile.ts). */
 .diff-host .cm-editor.cm-deletedFile .cm-line {
-  background: var(--diff-old-line);
+  --line-bg: var(--diff-old-line);
 }
 
 .diff-host .cm-editor.cm-deletedFile .cm-gutters {
@@ -880,37 +883,71 @@ button.primary:hover:not(:disabled) {
 /* Diff colors (classes from changeKinds.ts): added lines are green and
    removed lines gray as in the IDE. Replaced lines are red on the old side
    and green on the new side with the changed words a shade stronger, as in
-   Azure DevOps. The unified view shows the old lines as a deleted chunk. */
-.diff-host .cm-editor .cm-changedLine.cm-kind-inserted {
-  background: var(--diff-inserted);
+   Azure DevOps. The unified view shows the old lines as a deleted chunk.
+   Lines and changed words only name their color: lineTints.ts paints it in a
+   layer under the selection, which the line's own background would cover.
+   The deleted chunk is a widget with native selection, so it keeps its own. */
+@property --line-bg {
+  syntax: "*";
+  inherits: false;
 }
 
-.diff-host .cm-editor .cm-changedLine.cm-kind-deleted,
+@property --text-bg {
+  syntax: "*";
+  inherits: false;
+}
+
+.diff-host .cm-editor .cm-content > .cm-line,
+.diff-host .cm-editor .cm-content > .cm-line .cm-changedText {
+  background: none !important;
+}
+
+.diff-host .cm-editor .cm-activeLine {
+  --line-bg: var(--caret-row);
+}
+
+.diff-host .cm-editor .cm-changedLine.cm-kind-inserted {
+  --line-bg: var(--diff-inserted);
+}
+
+.diff-host .cm-editor .cm-changedLine.cm-kind-deleted {
+  --line-bg: var(--diff-deleted);
+}
+
 .diff-host .cm-editor .cm-deletedChunk {
   background: var(--diff-deleted);
 }
 
-.diff-host .cm-editor.cm-merge-a .cm-changedLine.cm-kind-modified,
+.diff-host .cm-editor.cm-merge-a .cm-changedLine.cm-kind-modified {
+  --line-bg: var(--diff-old-line);
+}
+
 .diff-host .cm-editor .cm-deletedChunk:has(+ .cm-kind-modified) {
   background: var(--diff-old-line);
 }
 
 .diff-host .cm-editor.cm-merge-b .cm-changedLine.cm-kind-modified {
-  background: var(--diff-new-line);
+  --line-bg: var(--diff-new-line);
 }
 
-.diff-host .cm-editor.cm-merge-a .cm-changedText,
+.diff-host .cm-editor.cm-merge-a .cm-changedText {
+  --text-bg: var(--diff-old-text);
+}
+
 .diff-host .cm-editor .cm-deletedChunk .cm-deletedText {
   background: var(--diff-old-text);
 }
 
 .diff-host .cm-editor.cm-merge-b .cm-changedText {
-  background: var(--diff-new-text);
+  --text-bg: var(--diff-new-text);
 }
 
 /* A whole new or removed line needs no word highlight. */
 .diff-host .cm-editor .cm-kind-inserted .cm-changedText,
-.diff-host .cm-editor .cm-kind-deleted .cm-changedText,
+.diff-host .cm-editor .cm-kind-deleted .cm-changedText {
+  --text-bg: initial;
+}
+
 .diff-host .cm-editor .cm-deletedChunk:not(:has(+ .cm-kind-modified)) .cm-deletedText {
   background: none;
 }

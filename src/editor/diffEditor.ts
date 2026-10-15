@@ -11,6 +11,7 @@ import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
+import { lineTints } from "./lineTints";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 
 export type DiffMode = "split" | "unified";
@@ -349,6 +350,7 @@ export class DiffEditor {
       semanticHighlight,
       prefersDark() ? riderIslandsDark : [],
       changeKindColors,
+      lineTints,
       EditorView.domEventHandlers({
         focus: () => {
           this.callbacks.onFocus();

@@ -16,6 +16,7 @@ const color = {
   text: "#d0d0d0",
   identifier: "#bdbdbd",
   caret: "#f0f0f0",
+  // Also --caret-row in styles.css, which paints the row itself (lineTints.ts).
   caretRow: "#202424",
   lineNumber: "#808080",
   selection: "#08335e",
@@ -64,9 +65,6 @@ const theme = EditorView.theme(
       { backgroundColor: color.selection },
     ".cm-selectionBackground": {
       backgroundColor: color.selectionInactive,
-    },
-    ".cm-activeLine": {
-      backgroundColor: color.caretRow,
     },
     ".cm-gutters": {
       backgroundColor: color.background,
