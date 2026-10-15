@@ -1,7 +1,7 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { isOpen, threadElement } from "../editor/threads";
+import { composerElement, isOpen, threadElement } from "../editor/threads";
 import type { PrThread } from "../ipc/commands";
-import { isChanged, loadThreads, revealThread, state, threads } from "../state/review";
+import { createGeneralThread, isChanged, loadThreads, revealThread, state, threads } from "../state/review";
 import { openInBrowser } from "./DevOpsSetup";
 import { splitPath } from "./FileDock";
 import { ChevronDownIcon, CommentIcon, ExternalIcon, RefreshIcon } from "./icons";
@@ -22,6 +22,7 @@ const where = (thread: PrThread) =>
 export function DiscussionPicker() {
   const [open, setOpen] = createSignal(false);
   const [reloading, setReloading] = createSignal(false);
+  const [writing, setWriting] = createSignal(false);
   let root!: HTMLDivElement;
   let popup!: HTMLDivElement;
 
@@ -75,6 +76,34 @@ export function DiscussionPicker() {
       <Show when={open()}>
         <div ref={popup} class="picker-popup discussion-popup" data-tauri-drag-region="false">
           <div class="discussion-list">
+            <Show
+              when={writing()}
+              fallback={
+                <button class="discussion-new" onClick={() => setWriting(true)}>
+                  <CommentIcon />
+                  Comment on the pull request…
+                </button>
+              }
+            >
+              <div
+                class="thread draft"
+                ref={(host) =>
+                  host.append(
+                    composerElement({
+                      key: "general",
+                      placeholder: "Comment on the pull request as a whole…",
+                      submitLabel: "Comment",
+                      autofocus: true,
+                      onSubmit: async (text) => {
+                        await createGeneralThread(text);
+                        setWriting(false);
+                      },
+                      onCancel: () => setWriting(false),
+                    }),
+                  )
+                }
+              />
+            </Show>
             <Show when={threads().length === 0}>
               <p class="picker-empty">No one has commented on this pull request yet.</p>
             </Show>
@@ -115,7 +144,7 @@ export function DiscussionPicker() {
             <Show when={state.pullRequest}>
               {(pullRequest) => (
                 <button onClick={() => openInBrowser(pullRequest().url)} title={pullRequest().url}>
-                  Comment in Azure DevOps
+                  Open in Azure DevOps
                   <ExternalIcon />
                 </button>
               )}

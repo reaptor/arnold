@@ -8,6 +8,7 @@ import { startupPath } from "./ipc/commands";
 import { isMac } from "./platform";
 import { prs } from "./state/pullRequests";
 import {
+  addComment,
   attachEditor,
   goBack,
   goToDefinition,
@@ -116,12 +117,30 @@ export function App() {
           <ul
             class="menu"
             style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
+            ref={(list) =>
+              // Inside the window, also when opened near its right or bottom edge.
+              queueMicrotask(() => {
+                const box = list.getBoundingClientRect();
+                if (box.right > window.innerWidth - 4) list.style.left = `${Math.max(4, window.innerWidth - box.width - 4)}px`;
+                if (box.bottom > window.innerHeight - 4) list.style.top = `${Math.max(4, window.innerHeight - box.height - 4)}px`;
+              })
+            }
             onPointerDown={(event) => event.stopPropagation()}
           >
             <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
               <span>Go to definition</span>
               <kbd>F12</kbd>
             </li>
+            <Show when={menu().comment !== undefined}>
+              <li
+                classList={{ disabled: !menu().comment }}
+                onClick={() => menu().comment && addComment()}
+                title={menu().comment ? undefined : "Comments go on the pull request's files, with all of its changes shown"}
+              >
+                <span>Add comment</span>
+                <kbd>{menu().comment ?? ""}</kbd>
+              </li>
+            </Show>
           </ul>
         )}
       </Show>

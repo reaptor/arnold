@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use base64::Engine;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
-use crate::{Comment, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
+use crate::{Comment, NewThreadPlace, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
 
 /// A repository hosted on Azure DevOps.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -220,10 +220,7 @@ pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullReques
 /// the host up to the latest push, compared with the merge-base, which is
 /// the diff Arnold shows.
 pub fn threads(repo: &AzureRepo, token: &str, id: u64) -> Result<Vec<Thread>, PrError> {
-    let iterations = get(&repo.api(&format!("/pullRequests/{id}/iterations?api-version={API_VERSION}")), token)?;
-    let latest = iterations["value"]
-        .as_array()
-        .and_then(|list| list.iter().filter_map(|iteration| iteration["id"].as_u64()).max());
+    let latest = latest_iteration(repo, token, id)?;
     let tracking = latest.map_or_else(String::new, |latest| format!("&$iteration={latest}&$baseIteration=0"));
     let url = repo.api(&format!("/pullRequests/{id}/threads?api-version={API_VERSION}{tracking}"));
     let body = get(&url, token)?;
@@ -231,6 +228,93 @@ pub fn threads(repo: &AzureRepo, token: &str, id: u64) -> Result<Vec<Thread>, Pr
         .as_array()
         .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
     Ok(list.iter().filter_map(parse_thread).collect())
+}
+
+fn latest_iteration(repo: &AzureRepo, token: &str, id: u64) -> Result<Option<u64>, PrError> {
+    let iterations = get(&repo.api(&format!("/pullRequests/{id}/iterations?api-version={API_VERSION}")), token)?;
+    Ok(iterations["value"]
+        .as_array()
+        .and_then(|list| list.iter().filter_map(|iteration| iteration["id"].as_u64()).max()))
+}
+
+/// Starts a discussion on pull request `id`: about lines of a file
+/// (`place`, as of the latest push against the merge-base) or, without
+/// one, about the pull request as a whole. `content` is Markdown.
+pub fn create_thread(
+    repo: &AzureRepo,
+    token: &str,
+    id: u64,
+    place: Option<&NewThreadPlace>,
+    content: &str,
+) -> Result<Thread, PrError> {
+    let (latest, tracking) = match place {
+        Some(place) => {
+            let latest = latest_iteration(repo, token, id)?;
+            let tracking = latest.and_then(|latest| change_tracking_id(repo, token, id, latest, &repo_path(&place.path)));
+            (latest, tracking)
+        }
+        None => (None, None),
+    };
+    let body = thread_body(place, content, latest, tracking);
+    let url = repo.api(&format!("/pullRequests/{id}/threads?api-version={API_VERSION}"));
+    let answer = post(&url, token, &body)?;
+    parse_thread(&answer).ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+/// `/src/file.cs`, as the host writes paths.
+fn repo_path(path: &str) -> String {
+    format!("/{}", path.trim_start_matches('/'))
+}
+
+/// What creating a thread sends. `latest` is the pull request's latest
+/// iteration and `tracking` the host's id of the file in it, when known.
+fn thread_body(place: Option<&NewThreadPlace>, content: &str, latest: Option<u64>, tracking: Option<u64>) -> Value {
+    let mut body = json!({
+        "comments": [{ "parentCommentId": 0, "content": content, "commentType": 1 }],
+        "status": 1,
+    });
+    let Some(place) = place else { return body };
+    let path = repo_path(&place.path);
+    let start = json!({ "line": place.start_line, "offset": place.start_offset });
+    let end = json!({ "line": place.end_line, "offset": place.end_offset });
+    body["threadContext"] = match place.side {
+        Side::Head => json!({ "filePath": path, "rightFileStart": start, "rightFileEnd": end }),
+        Side::Base => json!({ "filePath": path, "leftFileStart": start, "leftFileEnd": end }),
+    };
+    // Which diff the lines are from, as the web page sends it: every push
+    // against the merge-base. With the file's tracking id the host can
+    // follow the lines through later pushes.
+    if let Some(latest) = latest {
+        let mut context = json!({
+            "iterationContext": { "firstComparingIteration": 1, "secondComparingIteration": latest },
+        });
+        if let Some(tracking) = tracking {
+            context["changeTrackingId"] = json!(tracking);
+        }
+        body["pullRequestThreadContext"] = context;
+    }
+    body
+}
+
+/// Answers thread `thread` of pull request `id`. `content` is Markdown.
+pub fn reply(repo: &AzureRepo, token: &str, id: u64, thread: u64, parent: u64, content: &str) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/threads/{thread}/comments?api-version={API_VERSION}"));
+    post(&url, token, &json!({ "parentCommentId": parent, "content": content, "commentType": 1 }))?;
+    Ok(())
+}
+
+/// The host's id for `path` in the changes of iteration `iteration`; a
+/// thread without it still shows, so failing here is not an error.
+fn change_tracking_id(repo: &AzureRepo, token: &str, id: u64, iteration: u64, path: &str) -> Option<u64> {
+    let url = repo.api(&format!(
+        "/pullRequests/{id}/iterations/{iteration}/changes?$compareTo=0&$top=2000&api-version={API_VERSION}"
+    ));
+    let changes = get(&url, token).ok()?;
+    changes["changeEntries"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["item"]["path"].as_str() == Some(path))?["changeTrackingId"]
+        .as_u64()
 }
 
 fn agent() -> ureq::Agent {
@@ -263,6 +347,23 @@ fn get(url: &str, token: &str) -> Result<Value, PrError> {
     classify(status, &text)
 }
 
+fn post(url: &str, token: &str, body: &Value) -> Result<Value, PrError> {
+    let mut response = agent()
+        .post(url)
+        .header("Authorization", authorization(token))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("X-TFS-FedAuthRedirect", "Suppress")
+        .send(body.to_string())
+        .map_err(|e| PrError::Network(network_error(url, &e)))?;
+    let status = response.status().as_u16();
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| PrError::Network(format!("Could not read the answer from Azure DevOps: {e}")))?;
+    classify(status, &text)
+}
+
 fn network_error(url: &str, error: &ureq::Error) -> String {
     let host = url.split('/').nth(2).unwrap_or(url);
     let text = error.to_string();
@@ -285,7 +386,7 @@ fn classify(status: u16, text: &str) -> Result<Value, PrError> {
         .unwrap_or_default()
         .to_string();
     match (status, json) {
-        (200, Some(value)) => Ok(value),
+        (200 | 201, Some(value)) => Ok(value),
         // A sign-in page instead of JSON: the token was not accepted.
         (200 | 203 | 401 | 403, _) => Err(PrError::TokenRejected(message)),
         (404, _) => Err(PrError::NotFound(if message.is_empty() {
@@ -565,6 +666,38 @@ mod tests {
         assert_eq!(threads[1].position, Some(ThreadPosition { side: Side::Base, start_line: 3, end_line: 3 }));
         assert_eq!(threads[1].status, "fixed");
         assert_eq!((threads[2].path.as_deref(), threads[2].position), (None, None));
+    }
+
+    #[test]
+    fn builds_thread_bodies() {
+        let place = NewThreadPlace {
+            path: "src/Api/OrderController.cs".into(),
+            side: Side::Base,
+            start_line: 14,
+            start_offset: 9,
+            end_line: 15,
+            end_offset: 1,
+        };
+        let body = thread_body(Some(&place), "Why?", Some(3), Some(7));
+        assert_eq!(
+            body,
+            json!({
+                "comments": [{ "parentCommentId": 0, "content": "Why?", "commentType": 1 }],
+                "status": 1,
+                "threadContext": {
+                    "filePath": "/src/Api/OrderController.cs",
+                    "leftFileStart": { "line": 14, "offset": 9 },
+                    "leftFileEnd": { "line": 15, "offset": 1 }
+                },
+                "pullRequestThreadContext": {
+                    "iterationContext": { "firstComparingIteration": 1, "secondComparingIteration": 3 },
+                    "changeTrackingId": 7
+                }
+            })
+        );
+        let general = thread_body(None, "Looks good", None, None);
+        assert!(general.get("threadContext").is_none());
+        assert!(general.get("pullRequestThreadContext").is_none());
     }
 
     #[test]

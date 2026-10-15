@@ -88,8 +88,9 @@ export function DevOpsSetup(props: Props) {
               and pick when it expires.
             </li>
             <li>
-              Under <strong>Scopes</strong>, choose <strong>Custom defined</strong>, then tick <strong>Code → Read</strong>.
-              Nothing else is needed.
+              Under <strong>Scopes</strong>, choose <strong>Custom defined</strong>, then tick{" "}
+              <strong>Code → Read &amp; write</strong> (<strong>Read</strong> is enough if you will not comment). Nothing
+              else is needed.
             </li>
             <li>
               Select <strong>Create</strong> and copy the token. Azure DevOps shows it only once.

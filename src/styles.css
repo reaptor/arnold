@@ -1830,6 +1830,11 @@ button.primary:hover:not(:disabled) {
 /* ------------------------------------------------------- pull request threads */
 
 .cm-thread {
+  /* Stays in sight when long lines are scrolled sideways (over the line numbers). */
+  position: sticky;
+  left: 0;
+  z-index: 201;
+  width: fit-content;
   padding: 6px 12px 8px;
   /* Readable text, not code. */
   font-family: "Inter Variable", Inter, system-ui, sans-serif;
@@ -2052,4 +2057,152 @@ button.primary:hover:not(:disabled) {
 .file-threads .icon {
   width: 12px;
   height: 12px;
+}
+
+/* Writing a comment or a reply. */
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.composer-bar,
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-space {
+  flex: 1;
+}
+
+.composer-tab {
+  border-color: transparent;
+  color: var(--muted);
+  padding: 1px 8px;
+}
+
+.composer-tab.on {
+  color: var(--text);
+  background: var(--pressed);
+}
+
+.composer-help {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.composer-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.composer-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.composer-preview {
+  min-height: 72px;
+  padding: 6px 8px;
+  border: 1px dashed var(--popup-border);
+  border-radius: 4px;
+}
+
+.composer-error {
+  padding: 4px 8px;
+  border-left: 3px solid var(--removed);
+  border-radius: 4px;
+  background: var(--banner-error);
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.composer-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.thread-footer {
+  border-top: 1px solid var(--border);
+}
+
+.thread-footer:has(> .thread-reply) {
+  padding: 4px 6px;
+}
+
+.thread-reply {
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.thread.draft {
+  border-left-color: var(--warning);
+}
+
+.thread.draft .thread-status {
+  color: var(--warning);
+}
+
+.thread.draft .thread-head {
+  cursor: default;
+}
+
+.thread.draft .thread-summary {
+  visibility: visible;
+}
+
+.discussion-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  color: var(--accent);
+}
+
+/* ```suggestion blocks of Azure DevOps comments. */
+.markdown [data-suggestion] {
+  margin: 0 0 4px;
+  border: 1px solid var(--added);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.markdown [data-suggestion-title] {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--added);
+  background: color-mix(in srgb, var(--added) 12%, transparent);
+}
+
+.markdown [data-suggestion] pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+.markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -18px;
+}
+
+.markdown input[type="checkbox"] {
+  margin: 0 4px 0 0;
+  vertical-align: -2px;
+}
+
+.markdown del {
+  color: var(--muted);
 }

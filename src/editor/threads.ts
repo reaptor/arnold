@@ -1,23 +1,44 @@
 // Pull request discussions in the diff: a card under the lines a thread is
-// about. In the split view the other side gets an empty block of the same
-// height, so the two sides stay lined up.
+// about, with a field to reply, and a card to write a new comment in. In the
+// split view the other side gets an empty block of the same height, so the
+// two sides stay lined up.
 
 import { uncollapseUnchanged } from "@codemirror/merge";
 import { type EditorState, type Range, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
-import type { PrThread } from "../ipc/commands";
+import type { NewThreadPlace, PrThread } from "../ipc/commands";
 import { ago } from "../components/CommitPicker";
-import { openClickedLink, renderMarkdown } from "../components/Markdown";
+import { openInBrowser } from "../components/DevOpsSetup";
+import { MARKDOWN_GUIDE, openClickedLink, renderMarkdown } from "../components/Markdown";
 
-/** Where a card (or the empty block matching one) goes in an editor. */
-export interface ThreadMark {
-  thread: PrThread;
-  /** The card goes under this line (1-based). */
-  line: number;
-  /** Lines tinted as commented on, if any. */
-  lines: { from: number; to: number } | null;
-  /** Only an empty block as high as the card on the other side of the split view. */
-  spacer: boolean;
+/** What goes under a line of an editor. */
+export type ThreadMark =
+  | {
+      kind: "thread";
+      thread: PrThread;
+      /** The card goes under this line (1-based). */
+      line: number;
+      /** Lines tinted as commented on, if any. */
+      lines: { from: number; to: number } | null;
+    }
+  | { kind: "draft"; draft: NewThreadPlace; line: number; lines: { from: number; to: number } | null }
+  /** An empty block as high as the card `id` on the other side of the split view. */
+  | { kind: "spacer"; id: string; line: number };
+
+export const threadCardId = (thread: PrThread) => `thread:${thread.id}`;
+export const draftCardId = (draft: NewThreadPlace) => `draft:${draft.path}`;
+
+/** What the cards do with what is written in them; set by the application. */
+export interface ThreadActions {
+  reply(thread: PrThread, text: string): Promise<void>;
+  createThread(place: NewThreadPlace | null, text: string): Promise<void>;
+  cancelDraft(place: NewThreadPlace): void;
+}
+
+let actions: ThreadActions | null = null;
+
+export function setThreadActions(handlers: ThreadActions) {
+  actions = handlers;
 }
 
 const STATUS_NAMES: Record<string, string> = {
@@ -37,62 +58,202 @@ export const statusName = (thread: PrThread) => STATUS_NAMES[thread.status] ?? "
 /** Folded or not, by thread id; outlives the cards, which come and go with scrolling. */
 const folded = new Map<number, boolean>();
 const isFolded = (thread: PrThread) => folded.get(thread.id) ?? !isOpen(thread);
+/** Threads being replied to. */
+const replying = new Set<number>();
+/** Text being written, by field, so it survives the card being redrawn. */
+const drafts = new Map<string, string>();
 
 /** Mentions are stored as `@<id>`; without a lookup of the person, the name is not known. */
 const withoutMentionIds = (text: string) => text.replace(/@<[0-9a-f-]{36}>/gi, "@someone");
 
+const isMac = navigator.platform.toLowerCase().includes("mac");
+
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string) {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+interface ComposerOptions {
+  /** Keeps the text while the field is redrawn. */
+  key: string;
+  placeholder: string;
+  submitLabel: string;
+  autofocus?: boolean;
+  /** Rejects with what to show when it did not work. */
+  onSubmit(text: string): Promise<void>;
+  onCancel(): void;
+  onResize?(): void;
+}
+
 /**
- * A thread as a card: its status, then each comment. Clicking the head folds
- * it; `onResize` hears about that. Also used outside the editor.
+ * A field to write Markdown in, with a preview and a link to the Markdown
+ * guide. Ctrl+Enter (⌘+Enter) sends, Escape cancels.
+ */
+export function composerElement(options: ComposerOptions): HTMLElement {
+  const root = element("div", "composer");
+  const bar = element("div", "composer-bar");
+  const write = element("button", "composer-tab on", "Write");
+  const preview = element("button", "composer-tab", "Preview");
+  const help = element("a", "composer-help", "Markdown supported");
+  help.href = MARKDOWN_GUIDE;
+  help.title = "Markdown in Azure DevOps";
+  help.onclick = (event) => {
+    event.preventDefault();
+    openInBrowser(MARKDOWN_GUIDE);
+  };
+  bar.append(write, preview, element("span", "composer-space"), help);
+
+  const text = element("textarea", "composer-text");
+  text.placeholder = options.placeholder;
+  text.rows = 4;
+  text.value = drafts.get(options.key) ?? "";
+  const shown = element("div", "markdown composer-preview");
+  shown.hidden = true;
+  shown.addEventListener("click", (event) => void openClickedLink(event));
+  const problem = element("div", "composer-error");
+  problem.hidden = true;
+
+  const actionsRow = element("div", "composer-actions");
+  const hint = element("span", "composer-hint", `${isMac ? "⌘" : "Ctrl"}+Enter`);
+  const cancel = element("button", "", "Cancel");
+  const submit = element("button", "primary", options.submitLabel);
+  actionsRow.append(hint, element("span", "composer-space"), cancel, submit);
+
+  const resize = () => options.onResize?.();
+  const update = () => {
+    submit.disabled = text.value.trim() === "";
+  };
+  const showPreview = (on: boolean) => {
+    write.classList.toggle("on", !on);
+    preview.classList.toggle("on", on);
+    text.hidden = on;
+    shown.hidden = !on;
+    if (on) shown.innerHTML = renderMarkdown(withoutMentionIds(text.value)) || "<p>Nothing to preview.</p>";
+    else text.focus();
+    resize();
+  };
+  const send = async () => {
+    const value = text.value.trim();
+    if (!value || submit.disabled) return;
+    submit.disabled = cancel.disabled = text.disabled = true;
+    submit.textContent = "Sending…";
+    problem.hidden = true;
+    try {
+      await options.onSubmit(value);
+      drafts.delete(options.key);
+    } catch (error) {
+      problem.textContent = String(error);
+      problem.hidden = false;
+      submit.textContent = options.submitLabel;
+      cancel.disabled = text.disabled = false;
+      update();
+      resize();
+    }
+  };
+  const close = () => {
+    drafts.delete(options.key);
+    options.onCancel();
+  };
+
+  write.onclick = () => showPreview(false);
+  preview.onclick = () => showPreview(true);
+  cancel.onclick = close;
+  submit.onclick = () => void send();
+  text.oninput = () => {
+    drafts.set(options.key, text.value);
+    update();
+  };
+  text.onkeydown = (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter" && (isMac ? event.metaKey : event.ctrlKey)) {
+      event.preventDefault();
+      void send();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  };
+  update();
+  root.append(bar, text, shown, problem, actionsRow);
+  if (options.autofocus) requestAnimationFrame(() => text.focus({ preventScroll: true }));
+  return root;
+}
+
+/**
+ * A thread as a card: its status, then each comment, then a way to reply.
+ * Clicking the head folds it; `onResize` hears about changes of height.
+ * Also used outside the editor.
  */
 export function threadElement(thread: PrThread, onResize?: () => void): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "thread";
+  const card = element("div", "thread");
   card.dataset.status = thread.status;
 
-  const head = document.createElement("div");
-  head.className = "thread-head";
-  const status = document.createElement("span");
-  status.className = "thread-status";
-  status.textContent = statusName(thread);
+  const head = element("div", "thread-head");
   const first = thread.comments[0];
-  const who = document.createElement("span");
-  who.className = "thread-who";
-  who.textContent = first.author;
-  const summary = document.createElement("span");
-  summary.className = "thread-summary";
-  summary.textContent = withoutMentionIds(first.content).replace(/\s+/g, " ");
-  const count = document.createElement("span");
-  count.className = "thread-count";
   const replies = thread.comments.length - 1;
-  count.textContent = replies > 0 ? `${replies} ${replies === 1 ? "reply" : "replies"}` : "";
-  head.append(status, who, summary, count);
+  head.append(
+    element("span", "thread-status", statusName(thread)),
+    element("span", "thread-who", first.author),
+    element("span", "thread-summary", withoutMentionIds(first.content).replace(/\s+/g, " ")),
+    element("span", "thread-count", replies > 0 ? `${replies} ${replies === 1 ? "reply" : "replies"}` : ""),
+  );
 
-  const body = document.createElement("div");
-  body.className = "thread-body";
+  const body = element("div", "thread-body");
   for (const comment of thread.comments) {
-    const item = document.createElement("div");
-    item.className = "thread-comment";
+    const item = element("div", "thread-comment");
     if (comment.parentId !== 0) item.classList.add("reply");
-    const meta = document.createElement("div");
-    meta.className = "thread-meta";
-    const author = document.createElement("strong");
-    author.textContent = comment.author;
-    const when = document.createElement("span");
-    when.textContent = comment.published ? ago(comment.published) : "";
+    const meta = element("div", "thread-meta");
+    const when = element("span", "", comment.published ? ago(comment.published) : "");
     when.title = comment.published ? new Date(comment.published).toLocaleString() : "";
-    meta.append(author, when);
-    if (comment.edited) {
-      const edited = document.createElement("span");
-      edited.textContent = "(edited)";
-      meta.append(edited);
-    }
-    const content = document.createElement("div");
-    content.className = "markdown thread-text";
+    meta.append(element("strong", "", comment.author), when);
+    if (comment.edited) meta.append(element("span", "", "(edited)"));
+    const content = element("div", "markdown thread-text");
     content.innerHTML = renderMarkdown(withoutMentionIds(comment.content));
     item.append(meta, content);
     body.append(item);
   }
+
+  const footer = element("div", "thread-footer");
+  const showFooter = () => {
+    if (!actions) return footer.replaceChildren();
+    if (!replying.has(thread.id)) {
+      const reply = element("button", "thread-reply", "Reply");
+      reply.onclick = () => {
+        replying.add(thread.id);
+        showFooter();
+        onResize?.();
+      };
+      return footer.replaceChildren(reply);
+    }
+    footer.replaceChildren(
+      composerElement({
+        key: `reply:${thread.id}`,
+        placeholder: "Reply…",
+        submitLabel: "Reply",
+        autofocus: true,
+        onSubmit: async (text) => {
+          // Before the reply comes back with the thread, so its new card shows no field.
+          replying.delete(thread.id);
+          try {
+            await actions!.reply(thread, text);
+          } catch (error) {
+            replying.add(thread.id);
+            throw error;
+          }
+        },
+        onCancel: () => {
+          replying.delete(thread.id);
+          showFooter();
+          onResize?.();
+        },
+        onResize,
+      }),
+    );
+  };
+  showFooter();
+  body.append(footer);
 
   const show = () => card.classList.toggle("folded", isFolded(thread));
   head.onclick = () => {
@@ -100,43 +261,69 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
     show();
     onResize?.();
   };
-  card.addEventListener("click", (event) => void openClickedLink(event));
+  body.addEventListener("click", (event) => void openClickedLink(event));
   show();
   card.append(head, body);
   return card;
 }
 
+/** Where a new comment goes, in words: "line 14", "lines 14–16". */
+export function placeName(place: NewThreadPlace): string {
+  const lines = place.startLine === place.endLine ? `line ${place.startLine}` : `lines ${place.startLine}–${place.endLine}`;
+  return place.side === "base" ? `${lines} before the change` : lines;
+}
+
+/** A card to write a new comment about lines of a file in. */
+function draftElement(draft: NewThreadPlace, onResize: () => void): HTMLElement {
+  const card = element("div", "thread draft");
+  const head = element("div", "thread-head");
+  head.append(element("span", "thread-status", "New comment"), element("span", "thread-summary", placeName(draft)));
+  card.append(
+    head,
+    composerElement({
+      key: draftCardId(draft),
+      placeholder: "Add a comment…",
+      submitLabel: "Comment",
+      autofocus: true,
+      onSubmit: (text) => actions?.createThread(draft, text) ?? Promise.reject("Comments cannot be sent here."),
+      onCancel: () => actions?.cancelDraft(draft),
+      onResize,
+    }),
+  );
+  return card;
+}
+
 // ------------------------------------------------------------------ in CodeMirror
 
-/** Card heights by thread id, and the empty blocks that copy them. */
-const heights = new Map<number, number>();
-const spacers = new Map<number, Set<{ dom: HTMLElement; view: EditorView }>>();
+/** Card heights by card id, and the empty blocks that copy them. */
+const heights = new Map<string, number>();
+const spacers = new Map<string, Set<{ dom: HTMLElement; view: EditorView }>>();
 
-class ThreadWidget extends WidgetType {
+class CardWidget extends WidgetType {
   private observer: ResizeObserver | null = null;
 
   constructor(
-    readonly thread: PrThread,
+    private readonly id: string,
+    /** Tells cards apart that look different. */
     private readonly key: string,
+    private readonly build: (onResize: () => void) => HTMLElement,
   ) {
     super();
   }
 
-  eq(other: ThreadWidget) {
+  eq(other: CardWidget) {
     return other.key === this.key;
   }
 
   toDOM(view: EditorView) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "cm-thread";
-    const card = threadElement(this.thread, () => view.requestMeasure());
-    wrapper.append(card);
+    const wrapper = element("div", "cm-thread");
+    wrapper.append(this.build(() => view.requestMeasure()));
     // The other side's empty block follows the card's height.
     this.observer = new ResizeObserver(() => {
       const height = wrapper.offsetHeight;
-      if (height === heights.get(this.thread.id)) return;
-      heights.set(this.thread.id, height);
-      for (const spacer of spacers.get(this.thread.id) ?? []) {
+      if (height === heights.get(this.id)) return;
+      heights.set(this.id, height);
+      for (const spacer of spacers.get(this.id) ?? []) {
         spacer.dom.style.height = `${height}px`;
         spacer.view.requestMeasure();
       }
@@ -151,7 +338,7 @@ class ThreadWidget extends WidgetType {
     this.observer = null;
   }
 
-  // Clicks, selecting text and links in the card are the card's own.
+  // Clicks, typing, selecting text and links in the card are the card's own.
   ignoreEvent() {
     return true;
   }
@@ -160,7 +347,7 @@ class ThreadWidget extends WidgetType {
 class SpacerWidget extends WidgetType {
   private entry: { dom: HTMLElement; view: EditorView } | null = null;
 
-  constructor(readonly id: number) {
+  constructor(readonly id: string) {
     super();
   }
 
@@ -169,8 +356,7 @@ class SpacerWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const dom = document.createElement("div");
-    dom.className = "cm-thread-spacer";
+    const dom = element("div", "cm-thread-spacer");
     dom.style.height = `${heights.get(this.id) ?? 0}px`;
     this.entry = { dom, view };
     let set = spacers.get(this.id);
@@ -189,16 +375,28 @@ export const setThreadMarks = StateEffect.define<ThreadMark[]>();
 
 const commentedLine = Decoration.line({ class: "cm-thread-line" });
 
+function widgetOf(mark: ThreadMark): WidgetType {
+  switch (mark.kind) {
+    case "spacer":
+      return new SpacerWidget(mark.id);
+    case "draft":
+      return new CardWidget(draftCardId(mark.draft), JSON.stringify(mark.draft), (onResize) =>
+        draftElement(mark.draft, onResize),
+      );
+    case "thread":
+      return new CardWidget(threadCardId(mark.thread), JSON.stringify(mark.thread), (onResize) =>
+        threadElement(mark.thread, onResize),
+      );
+  }
+}
+
 function decorate(state: EditorState, marks: ThreadMark[]): DecorationSet {
   const doc = state.doc;
   const clamp = (line: number) => Math.min(Math.max(line, 1), doc.lines);
   const ranges: Range<Decoration>[] = [];
   for (const mark of marks) {
-    const widget = mark.spacer
-      ? new SpacerWidget(mark.thread.id)
-      : new ThreadWidget(mark.thread, JSON.stringify(mark.thread));
-    ranges.push(Decoration.widget({ widget, block: true, side: 1 }).range(doc.line(clamp(mark.line)).to));
-    if (mark.lines) {
+    ranges.push(Decoration.widget({ widget: widgetOf(mark), block: true, side: 1 }).range(doc.line(clamp(mark.line)).to));
+    if (mark.kind !== "spacer" && mark.lines) {
       for (let line = clamp(mark.lines.from); line <= clamp(mark.lines.to); line++) {
         ranges.push(commentedLine.range(doc.line(line).from));
       }

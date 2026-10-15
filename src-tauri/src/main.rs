@@ -66,6 +66,8 @@ fn main() {
             pull_requests::remove_pull_request_token,
             pull_requests::open_pull_request,
             pull_requests::pull_request_threads,
+            pull_requests::create_pull_request_thread,
+            pull_requests::reply_to_pull_request_thread,
             workspace::prepare_workspace,
             lsp::lsp_start,
             lsp::lsp_send,

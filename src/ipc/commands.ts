@@ -169,6 +169,16 @@ export interface PrComment {
   edited: boolean;
 }
 
+/** Where a new thread goes: lines and 1-based character offsets, the end just past the last character. */
+export interface NewThreadPlace {
+  path: string;
+  side: "base" | "head";
+  startLine: number;
+  startOffset: number;
+  endLine: number;
+  endOffset: number;
+}
+
 /** How the pull request commands fail. */
 export type PrError =
   | { kind: "noToken" }
@@ -200,6 +210,20 @@ export const listBranches = (root: string) => invoke<Branch[]>("list_branches", 
 /** The discussions of a pull request, positioned as of its latest push. */
 export const pullRequestThreads = (root: string, remote: string, id: number) =>
   invoke<PrThread[]>("pull_request_threads", { root, remote, id });
+
+/** Starts a discussion: about `place` in a file, or about the pull request as a whole. */
+export const createPullRequestThread = (root: string, remote: string, id: number, place: NewThreadPlace | null, content: string) =>
+  invoke<PrThread>("create_pull_request_thread", { root, remote, id, place, content });
+
+/** Answers comment `parent` of thread `thread`. */
+export const replyToPullRequestThread = (
+  root: string,
+  remote: string,
+  id: number,
+  thread: number,
+  parent: number,
+  content: string,
+) => invoke<null>("reply_to_pull_request_thread", { root, remote, id, thread, parent, content });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());

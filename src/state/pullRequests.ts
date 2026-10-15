@@ -5,6 +5,7 @@
 import { createStore } from "solid-js/store";
 import * as ipc from "../ipc/commands";
 import type { PrError, PrRemote, PullRequest } from "../ipc/commands";
+import { azureHostLinks, setHostLinks } from "../components/Markdown";
 
 interface PrState {
   root: string | null;
@@ -90,7 +91,11 @@ export async function loadPullRequests() {
   setPrs({ loading: true });
   try {
     const list = await ipc.listPullRequests(root, remote);
-    if (prs.root === root && prs.remote === remote) setPrs({ list, error: null });
+    if (prs.root === root && prs.remote === remote) {
+      // #123 and !123 in descriptions link into this repository's project.
+      if (list[0]) setHostLinks(azureHostLinks(list[0].url));
+      setPrs({ list, error: null });
+    }
   } catch (error) {
     if (prs.root === root && prs.remote === remote) {
       setPrs({ error: ipc.isPrError(error) ? error : { kind: "other", message: String(error) } });

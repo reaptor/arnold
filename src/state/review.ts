@@ -20,6 +20,7 @@ import type {
   Comparison,
   FilePair,
   FileStatus,
+  NewThreadPlace,
   PrThread,
   PullRequest,
   RepoInfo,
@@ -28,6 +29,8 @@ import type {
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
+import { placeName, setThreadActions } from "../editor/threads";
+import { azureHostLinks, setHostLinks } from "../components/Markdown";
 import * as pullRequests from "./pullRequests";
 
 /** What is reviewed: one branch against another, or a pull request of the repository's code host. */
@@ -112,9 +115,11 @@ interface State {
   collapsed: Record<string, boolean>;
   /**
    * Context menu of an editor; `definition` when a language server can say
-   * where the right-clicked symbol is defined.
+   * where the right-clicked symbol is defined. `comment`: where a comment
+   * would go ("line 14"), when one can be added; null when not, and
+   * undefined when comments do not apply (two branches).
    */
-  menu: { x: number; y: number; definition: boolean } | null;
+  menu: { x: number; y: number; definition: boolean; comment?: string | null } | null;
 }
 
 export const [state, setState] = createStore<State>({
@@ -199,6 +204,8 @@ const sectionEditors = new Map<string, DiffEditor>();
 let focusedPath: string | null = null;
 /** Where the context menu was opened; kept out of the store, which would wrap the view. */
 let menuTarget: { view: EditorView; position: number } | null = null;
+/** Where a comment from the context menu would go. */
+let menuComment: NewThreadPlace | null = null;
 /** Latest load per editor, so that a slower earlier load cannot win. */
 const loadTokens = new Map<string, number>();
 /** `loadTokens` key of the one-file editor; section editors use their path. */
@@ -238,6 +245,7 @@ function documentOf(file: ChangedFile, session: Session): DiffDocument {
     plain: WHOLE_FILE.includes(file.status),
     deleted: file.status === "deleted",
     threads: fileThreads(file.path),
+    draft: drafts.get(file.path) ?? null,
   };
 }
 
@@ -264,9 +272,16 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
       focusedPath = path;
       if (state.selected !== path) setState("selected", path);
     },
-    onContextMenu(x, y, view, position) {
+    onContextMenu(x, y, view, position, comment) {
       menuTarget = position === null ? null : { view, position };
-      setState("menu", { x, y, definition: menuTarget !== null && lsp.hasLanguageServer(view) });
+      const path = pathOf();
+      menuComment = path !== null && comment && canComment(path) ? { path, ...comment } : null;
+      setState("menu", {
+        x,
+        y,
+        definition: menuTarget !== null && lsp.hasLanguageServer(view),
+        comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
+      });
     },
     onStepChange(direction) {
       void stepChange(direction);
@@ -276,6 +291,7 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, callbacksFor(() => state.selected));
+  setThreadActions({ reply, createThread, cancelDraft });
   lsp.onDisplayFile(displayUri);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
   lsp.onServerEvent(onServerEvent);
@@ -383,7 +399,9 @@ export async function openPullRequest(remote: string, id: number, options: { qui
     if (repo !== state.repo || state.openingPullRequest !== id) return;
     if (options.quiet && pullRequest.status !== "active") return;
     resetSessions();
+    drafts.clear();
     setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
+    setHostLinks(azureHostLinks(pullRequest.url));
     rememberSource();
     void loadThreads();
     await setView("all");
@@ -1099,6 +1117,79 @@ function showThreadsInEditors() {
   if (editor && state.selected && state.view === "file") editor.setThreads(fileThreads(state.selected));
   for (const [path, target] of sectionEditors) target.setThreads(fileThreads(path));
 }
+
+/** New comments being written, by file (one per file). */
+const drafts = new Map<string, NewThreadPlace>();
+
+/**
+ * Whether comments can be added to `path`: a file of the pull request's
+ * diff, shown with all of its changes (the lines the host knows).
+ */
+function canComment(path: string): boolean {
+  const pullRequest = state.pullRequest;
+  return (
+    state.source === "pullRequest" &&
+    pullRequest !== null &&
+    state.range === null &&
+    isChanged(path) &&
+    state.comparison?.headCommit === pullRequest.sourceCommit
+  );
+}
+
+/** "Add comment" in the context menu: opens a card to write it, under the lines. */
+export function addComment() {
+  setState("menu", null);
+  const place = menuComment;
+  menuComment = null;
+  if (!place) return;
+  drafts.set(place.path, place);
+  editorFor(place.path)?.setDraft(place);
+}
+
+/** Text for a failed attempt to write to the pull request. */
+function writeErrorText(error: unknown): string {
+  if (ipc.isPrError(error) && error.kind === "tokenRejected") {
+    return `Azure DevOps did not accept the comment${error.message ? ` (${error.message})` : ""}. Writing comments needs a token with the Code (Read & write) scope.`;
+  }
+  return pullRequests.prErrorText(error);
+}
+
+async function createThread(place: NewThreadPlace | null, text: string) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    await ipc.createPullRequestThread(repo.root, pullRequest.remote, pullRequest.id, place, text);
+  } catch (error) {
+    throw writeErrorText(error);
+  }
+  if (place && drafts.get(place.path) === place) {
+    drafts.delete(place.path);
+    editorFor(place.path)?.setDraft(null);
+  }
+  await loadThreads();
+}
+
+async function reply(thread: PrThread, text: string) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    await ipc.replyToPullRequestThread(repo.root, pullRequest.remote, pullRequest.id, thread.id, thread.comments[0].id, text);
+  } catch (error) {
+    throw writeErrorText(error);
+  }
+  await loadThreads();
+}
+
+function cancelDraft(place: NewThreadPlace) {
+  if (drafts.get(place.path) !== place) return;
+  drafts.delete(place.path);
+  editorFor(place.path)?.setDraft(null);
+}
+
+/** Starts a discussion about the pull request as a whole. */
+export const createGeneralThread = (text: string) => createThread(null, text);
 
 /** Shows the file a thread is about, scrolled to the thread. */
 export async function revealThread(thread: PrThread) {

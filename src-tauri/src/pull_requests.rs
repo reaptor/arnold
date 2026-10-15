@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{PrError, PullRequest, Thread};
+use arnold_pr::{NewThreadPlace, PrError, PullRequest, Thread};
 use serde::Serialize;
 use tauri::State;
 
@@ -232,4 +232,39 @@ pub async fn pull_request_threads(
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
     blocking(move || azure::threads(&repo, &token, id)).await?
+}
+
+/// Starts a discussion on pull request `id`, about `place` in a file or, without
+/// one, about the pull request as a whole.
+#[tauri::command]
+pub async fn create_pull_request_thread(
+    root: String,
+    remote: String,
+    id: u64,
+    place: Option<NewThreadPlace>,
+    content: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<Thread, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::create_thread(&repo, &token, id, place.as_ref(), &content)).await?
+}
+
+/// Answers comment `parent` of thread `thread` of pull request `id`.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri passes each argument and state separately.
+pub async fn reply_to_pull_request_thread(
+    root: String,
+    remote: String,
+    id: u64,
+    thread: u64,
+    parent: u64,
+    content: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<(), PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::reply(&repo, &token, id, thread, parent, &content)).await?
 }

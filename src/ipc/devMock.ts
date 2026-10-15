@@ -11,6 +11,7 @@ import type {
   Comparison,
   FilePair,
   LspEvent,
+  NewThreadPlace,
   PrRemote,
   PrThread,
   PullRequest,
@@ -498,6 +499,15 @@ const pullRequestThreads: PrThread[] = [
   },
 ];
 
+let nextThreadId = 100;
+
+// `?readonlytoken`: the token can read but not write, as with the Code (Read) scope.
+function checkWrite() {
+  if (searchParams.has("readonlytoken")) {
+    throw { kind: "tokenRejected", message: "TF401027: You need the Git 'PullRequestContribute' permission to perform this action." };
+  }
+}
+
 function checkToken() {
   if (!mockToken) throw { kind: "noToken" };
   if (!tokenWorks) throw { kind: "tokenRejected", message: "TF400813: The user is not authorized to access this resource." };
@@ -589,10 +599,36 @@ export function install() {
             if (!found) throw { kind: "notFound", message: `Pull request ${args.id} does not exist.` };
             return found;
           }, 700);
+        case "create_pull_request_thread":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { place, content } = payload as { place: NewThreadPlace | null; content: string };
+            const thread: PrThread = {
+              id: nextThreadId++,
+              path: place?.path ?? null,
+              position: place && { side: place.side, startLine: place.startLine, endLine: place.endLine },
+              status: "active",
+              comments: [comment(1, "You", content, 0)],
+            };
+            pullRequestThreads.push(thread);
+            return thread;
+          }, 600);
+        case "reply_to_pull_request_thread":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { thread, parent, content } = payload as { thread: number; parent: number; content: string };
+            const found = pullRequestThreads.find((candidate) => candidate.id === thread);
+            if (!found) throw { kind: "notFound", message: `Thread ${thread} does not exist.` };
+            found.comments.push(comment(found.comments.length + 1, "You", content, 0, parent));
+            return null;
+          }, 600);
         case "pull_request_threads":
           return slowly(() => {
             checkToken();
-            return pullRequestThreads;
+            // Copies, as from the real backend.
+            return structuredClone(pullRequestThreads);
           }, 400);
         case "plugin:opener|open_url":
           console.info("devMock: would open", args.url);

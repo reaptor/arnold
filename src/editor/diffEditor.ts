@@ -14,8 +14,8 @@ import { lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 import { matchingLine } from "./matchingLine";
-import { showThreadMarks, type ThreadMark, threadMarks } from "./threads";
-import type { PrThread } from "../ipc/commands";
+import { draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
+import type { NewThreadPlace, PrThread } from "../ipc/commands";
 
 export type DiffMode = "split" | "unified";
 
@@ -31,7 +31,12 @@ export interface DiffDocument {
   deleted?: boolean;
   /** Pull request discussions about lines of the file. */
   threads?: readonly PrThread[];
+  /** A new comment being written about lines of the file. */
+  draft?: NewThreadPlace | null;
 }
+
+/** Where a comment would go: the selection, or the line under the pointer. Without the path. */
+export type CommentPlace = Omit<NewThreadPlace, "path">;
 
 /** Editor state kept while a file is not on screen. */
 export interface Snapshot {
@@ -41,8 +46,11 @@ export interface Snapshot {
 
 export interface DiffEditorCallbacks {
   onFocus(): void;
-  /** `view` is the editor right-clicked; `position` the text position under the pointer. */
-  onContextMenu(x: number, y: number, view: EditorView, position: number | null): void;
+  /**
+   * `view` is the editor right-clicked; `position` the text position under
+   * the pointer; `comment` where a comment would go.
+   */
+  onContextMenu(x: number, y: number, view: EditorView, position: number | null, comment: CommentPlace | null): void;
   /** F7 / Shift+F7 in the editor. */
   onStepChange(direction: 1 | -1): void;
 }
@@ -96,6 +104,56 @@ export class DiffEditor {
     if (!this.document || JSON.stringify(threads) === JSON.stringify(this.document.threads ?? [])) return;
     this.document = { ...this.document, threads };
     this.showThreads();
+  }
+
+  /** Shows (or with null removes) the card for writing a new comment. */
+  setDraft(draft: NewThreadPlace | null) {
+    if (!this.document || JSON.stringify(draft) === JSON.stringify(this.document.draft ?? null)) return;
+    this.document = { ...this.document, draft };
+    this.showThreads();
+    if (draft) {
+      const view = this.viewOf(draft.side);
+      const line = view?.state.doc.line(Math.min(Math.max(draft.endLine, 1), view.state.doc.lines));
+      // The start of the line, so long lines do not scroll the card out of sight sideways.
+      if (view && line) view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "nearest", yMargin: 160 }) });
+    }
+  }
+
+  /** The editor showing `side`, if this file shows it. */
+  private viewOf(side: "base" | "head"): EditorView | null {
+    if (this.merge) return side === "base" ? this.merge.a : this.merge.b;
+    const shown = this.document?.plain && this.document.deleted ? "base" : "head";
+    return side === shown ? this.unified : null;
+  }
+
+  /** Which side `view` shows. In the unified view only the working text can be commented on. */
+  private sideOf(view: EditorView): "base" | "head" {
+    if (this.merge) return view === this.merge.a ? "base" : "head";
+    return this.document?.plain && this.document.deleted ? "base" : "head";
+  }
+
+  /**
+   * Where a comment goes: the selection if there is one, else the whole line
+   * at `position`. Offsets are 1-based; the end is just past the last
+   * character, and a selection ending at the start of a line ends on the line before.
+   */
+  private commentPlace(view: EditorView, position: number | null): CommentPlace | null {
+    const doc = view.state.doc;
+    const selection = view.state.selection.main;
+    const side = this.sideOf(view);
+    if (!selection.empty) {
+      const start = doc.lineAt(selection.from);
+      let end = doc.lineAt(selection.to);
+      let endOffset = selection.to - end.from + 1;
+      if (selection.to === end.from && end.number > start.number) {
+        end = doc.line(end.number - 1);
+        endOffset = end.length + 1;
+      }
+      return { side, startLine: start.number, startOffset: selection.from - start.from + 1, endLine: end.number, endOffset };
+    }
+    if (position === null) return null;
+    const line = doc.lineAt(position);
+    return { side, startLine: line.number, startOffset: 1, endLine: line.number, endOffset: line.length + 1 };
   }
 
   /** Scrolls the card of thread `id` into view; false when the file does not show it. */
@@ -306,49 +364,63 @@ export class DiffEditor {
   }
 
   /**
-   * A card under the last line each thread is about, on its side. The split
-   * view gives the other side an empty block as high as the card; the
-   * unified view puts base-side threads under the matching working line.
+   * A card under the last line each thread is about, on its side, and the
+   * card for a new comment. The split view gives the other side an empty
+   * block as high as each card; the unified view puts base-side threads
+   * under the matching working line.
    */
   private showThreads() {
     const document = this.document;
-    const threads = (document?.threads ?? []).filter((thread) => thread.position);
-    const own = (thread: PrThread): ThreadMark => ({
-      thread,
-      line: thread.position!.endLine,
-      lines: { from: thread.position!.startLine, to: thread.position!.endLine },
-      spacer: false,
-    });
+    if (!document) return;
+    type Card = { id: string; side: "base" | "head"; line: number; own: ThreadMark };
+    const cards: Card[] = [];
+    for (const thread of document.threads ?? []) {
+      const position = thread.position;
+      if (!position) continue;
+      const lines = { from: position.startLine, to: position.endLine };
+      cards.push({
+        id: threadCardId(thread),
+        side: position.side,
+        line: position.endLine,
+        own: { kind: "thread", thread, line: position.endLine, lines },
+      });
+    }
+    const draft = document.draft;
+    if (draft) {
+      const lines = { from: draft.startLine, to: draft.endLine };
+      cards.push({ id: draftCardId(draft), side: draft.side, line: draft.endLine, own: { kind: "draft", draft, line: draft.endLine, lines } });
+    }
+
     if (this.merge) {
       const { a, b, chunks } = this.merge;
       const marksA: ThreadMark[] = [];
       const marksB: ThreadMark[] = [];
-      for (const thread of threads) {
-        const onBase = thread.position!.side === "base";
+      for (const card of cards) {
+        const onBase = card.side === "base";
         const [from, to] = onBase ? [a, b] : [b, a];
-        (onBase ? marksA : marksB).push(own(thread));
-        const line = matchingLine(thread.position!.endLine, chunks, from.state.doc, to.state.doc, onBase);
-        (onBase ? marksB : marksA).push({ thread, line, lines: null, spacer: true });
+        (onBase ? marksA : marksB).push(card.own);
+        const line = matchingLine(card.line, chunks, from.state.doc, to.state.doc, onBase);
+        (onBase ? marksB : marksA).push({ kind: "spacer", id: card.id, line });
       }
       showThreadMarks(a, marksA);
       showThreadMarks(b, marksB);
-    } else if (this.unified && document) {
+    } else if (this.unified) {
       const view = this.unified;
       const marks: ThreadMark[] = [];
       if (document.plain) {
         // Only one side is shown: the base text of a deleted file, the working text of the rest.
         const side = document.deleted ? "base" : "head";
-        for (const thread of threads) if (thread.position!.side === side) marks.push(own(thread));
+        for (const card of cards) if (card.side === side) marks.push(card.own);
       } else {
         const chunks = getChunks(view.state)?.chunks ?? [];
         const original = getOriginalDoc(view.state);
-        for (const thread of threads) {
-          if (thread.position!.side === "head") {
-            marks.push(own(thread));
+        for (const card of cards) {
+          if (card.side === "head") {
+            marks.push(card.own);
             continue;
           }
-          const line = matchingLine(thread.position!.endLine, chunks, original, view.state.doc, true);
-          marks.push({ thread, line, lines: null, spacer: false });
+          const line = matchingLine(card.line, chunks, original, view.state.doc, true);
+          if (card.own.kind !== "spacer") marks.push({ ...card.own, line, lines: null });
         }
       }
       showThreadMarks(view, marks);
@@ -435,7 +507,8 @@ export class DiffEditor {
         contextmenu: (event, view) => {
           event.preventDefault();
           const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
-          this.callbacks.onContextMenu(event.clientX, event.clientY, view, position);
+          const comment = this.commentPlace(view, position);
+          this.callbacks.onContextMenu(event.clientX, event.clientY, view, position, comment);
           return true;
         },
       }),

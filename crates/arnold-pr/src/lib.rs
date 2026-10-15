@@ -10,7 +10,7 @@
 pub mod azure;
 pub mod token;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A pull request, as far as Arnold needs one.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -76,7 +76,7 @@ pub struct Thread {
     pub comments: Vec<Comment>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadPosition {
     pub side: Side,
@@ -86,13 +86,26 @@ pub struct ThreadPosition {
 }
 
 /// Which side of the diff a thread is on.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Side {
     /// The merge-base: lines the pull request removes or leaves alone.
     Base,
     /// The source branch.
     Head,
+}
+
+/// Where a new thread goes in a file: lines and 1-based character offsets,
+/// the end offset just past the last character.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NewThreadPlace {
+    pub path: String,
+    pub side: Side,
+    pub start_line: u32,
+    pub start_offset: u32,
+    pub end_line: u32,
+    pub end_offset: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

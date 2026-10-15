@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-opener": "^2.7.2",
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.17",
+    "gemoji": "^8.1.0",
     "marked": "^18.1.1",
     "solid-js": "^1.9.17"
   },
