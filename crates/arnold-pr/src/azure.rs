@@ -275,11 +275,16 @@ fn thread_body(place: Option<&NewThreadPlace>, content: &str, latest: Option<u64
     });
     let Some(place) = place else { return body };
     let path = repo_path(&place.path);
-    let start = json!({ "line": place.start_line, "offset": place.start_offset });
-    let end = json!({ "line": place.end_line, "offset": place.end_offset });
-    body["threadContext"] = match place.side {
-        Side::Head => json!({ "filePath": path, "rightFileStart": start, "rightFileEnd": end }),
-        Side::Base => json!({ "filePath": path, "leftFileStart": start, "leftFileEnd": end }),
+    body["threadContext"] = match place.lines {
+        None => json!({ "filePath": path }),
+        Some(lines) => {
+            let start = json!({ "line": lines.start_line, "offset": lines.start_offset });
+            let end = json!({ "line": lines.end_line, "offset": lines.end_offset });
+            match lines.side {
+                Side::Head => json!({ "filePath": path, "rightFileStart": start, "rightFileEnd": end }),
+                Side::Base => json!({ "filePath": path, "leftFileStart": start, "leftFileEnd": end }),
+            }
+        }
     };
     // Which diff the lines are from, as the web page sends it: every push
     // against the merge-base. With the file's tracking id the host can
@@ -672,11 +677,7 @@ mod tests {
     fn builds_thread_bodies() {
         let place = NewThreadPlace {
             path: "src/Api/OrderController.cs".into(),
-            side: Side::Base,
-            start_line: 14,
-            start_offset: 9,
-            end_line: 15,
-            end_offset: 1,
+            lines: Some(crate::LineRange { side: Side::Base, start_line: 14, start_offset: 9, end_line: 15, end_offset: 1 }),
         };
         let body = thread_body(Some(&place), "Why?", Some(3), Some(7));
         assert_eq!(
@@ -694,6 +695,11 @@ mod tests {
                     "changeTrackingId": 7
                 }
             })
+        );
+        let file = NewThreadPlace { path: "docs/Legacy.md".into(), lines: None };
+        assert_eq!(
+            thread_body(Some(&file), "Keep?", Some(3), None)["threadContext"],
+            json!({ "filePath": "/docs/Legacy.md" })
         );
         let general = thread_body(None, "Looks good", None, None);
         assert!(general.get("threadContext").is_none());

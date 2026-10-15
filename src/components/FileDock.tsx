@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, branchNames, fileThreads, openFile, selectFile, state } from "../state/review";
+import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile, state } from "../state/review";
 import { isOpen } from "../editor/threads";
 import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
@@ -167,6 +167,9 @@ export function FileDock(props: { width: number }) {
                       classList={{ file: true, selected: file.path === state.selected }}
                       title={title(file)}
                       onClick={() => void openFile(file.path)}
+                      onContextMenu={(event) => {
+                        if (openFileMenu(file.path, event.clientX, event.clientY)) event.preventDefault();
+                      }}
                     >
                       <span class={`status status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
                       <span class="file-path">

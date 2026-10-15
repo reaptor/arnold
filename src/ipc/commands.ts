@@ -169,9 +169,14 @@ export interface PrComment {
   edited: boolean;
 }
 
-/** Where a new thread goes: lines and 1-based character offsets, the end just past the last character. */
+/** Where a new thread goes: a file, and lines of it unless it is about the whole file. */
 export interface NewThreadPlace {
   path: string;
+  lines: LineRange | null;
+}
+
+/** Lines and 1-based character offsets, the end just past the last character. */
+export interface LineRange {
   side: "base" | "head";
   startLine: number;
   startOffset: number;

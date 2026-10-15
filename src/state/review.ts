@@ -117,9 +117,10 @@ interface State {
    * Context menu of an editor; `definition` when a language server can say
    * where the right-clicked symbol is defined. `comment`: where a comment
    * would go ("line 14"), when one can be added; null when not, and
-   * undefined when comments do not apply (two branches).
+   * undefined when comments do not apply (two branches). `file`: the menu
+   * of a file of the dock rather than of an editor.
    */
-  menu: { x: number; y: number; definition: boolean; comment?: string | null } | null;
+  menu: { x: number; y: number; definition: boolean; comment?: string | null; file?: string } | null;
 }
 
 export const [state, setState] = createStore<State>({
@@ -176,12 +177,12 @@ export const threads = (): readonly PrThread[] =>
     : [];
 
 /**
- * Threads about lines of `path`, to show in its diff. Their lines are those
+ * Threads about `path` (its lines or the whole file), to show in its diff. Their lines are those
  * of the pull request's latest push against the merge-base, so they are left
  * out while only some of the commits are shown.
  */
 export const fileThreads = (path: string): readonly PrThread[] =>
-  state.range === null ? threads().filter((thread) => thread.path === path && thread.position !== null) : [];
+  state.range === null ? threads().filter((thread) => thread.path === path) : [];
 
 /** What the preparation steps printed, last lines only. Kept out of the store. */
 const [setupOutput, setSetupOutput] = createSignal<readonly string[]>([]);
@@ -275,7 +276,7 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
     onContextMenu(x, y, view, position, comment) {
       menuTarget = position === null ? null : { view, position };
       const path = pathOf();
-      menuComment = path !== null && comment && canComment(path) ? { path, ...comment } : null;
+      menuComment = path !== null && comment && canComment(path) ? { path, lines: comment } : null;
       setState("menu", {
         x,
         y,
@@ -1136,14 +1137,35 @@ function canComment(path: string): boolean {
   );
 }
 
-/** "Add comment" in the context menu: opens a card to write it, under the lines. */
-export function addComment() {
+/** Right-click on a changed file of the dock: its menu, with commenting on the whole file. */
+export function openFileMenu(path: string, x: number, y: number): boolean {
+  if (state.source !== "pullRequest") return false;
+  menuTarget = null;
+  menuComment = canComment(path) ? { path, lines: null } : null;
+  setState("menu", { x, y, definition: false, comment: menuComment && placeName(menuComment), file: path });
+  return true;
+}
+
+/**
+ * "Add comment" in a context menu: opens a card to write it, under the
+ * lines (or at the top of the file), showing the file first if need be.
+ */
+export async function addComment() {
   setState("menu", null);
   const place = menuComment;
   menuComment = null;
   if (!place) return;
   drafts.set(place.path, place);
-  editorFor(place.path)?.setDraft(place);
+  // An editor made from now on shows the card by itself.
+  if (state.view === "all") {
+    const target = await showFileSection(place.path);
+    revealSection(place.path);
+    target?.setDraft(place);
+  } else if (state.selected !== place.path) {
+    await selectFile(place.path);
+  } else {
+    editor?.setDraft(place);
+  }
 }
 
 /** Text for a failed attempt to write to the pull request. */

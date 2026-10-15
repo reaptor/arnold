@@ -16,7 +16,7 @@ export type ThreadMark =
   | {
       kind: "thread";
       thread: PrThread;
-      /** The card goes under this line (1-based). */
+      /** The card goes under this line (1-based); 0 puts it above the first line. */
       line: number;
       /** Lines tinted as commented on, if any. */
       lines: { from: number; to: number } | null;
@@ -269,8 +269,10 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
 
 /** Where a new comment goes, in words: "line 14", "lines 14–16". */
 export function placeName(place: NewThreadPlace): string {
-  const lines = place.startLine === place.endLine ? `line ${place.startLine}` : `lines ${place.startLine}–${place.endLine}`;
-  return place.side === "base" ? `${lines} before the change` : lines;
+  const range = place.lines;
+  if (!range) return "the whole file";
+  const lines = range.startLine === range.endLine ? `line ${range.startLine}` : `lines ${range.startLine}–${range.endLine}`;
+  return range.side === "base" ? `${lines} before the change` : lines;
 }
 
 /** A card to write a new comment about lines of a file in. */
@@ -395,7 +397,12 @@ function decorate(state: EditorState, marks: ThreadMark[]): DecorationSet {
   const clamp = (line: number) => Math.min(Math.max(line, 1), doc.lines);
   const ranges: Range<Decoration>[] = [];
   for (const mark of marks) {
-    ranges.push(Decoration.widget({ widget: widgetOf(mark), block: true, side: 1 }).range(doc.line(clamp(mark.line)).to));
+    const widget = widgetOf(mark);
+    ranges.push(
+      mark.line === 0
+        ? Decoration.widget({ widget, block: true, side: -1 }).range(0)
+        : Decoration.widget({ widget, block: true, side: 1 }).range(doc.line(clamp(mark.line)).to),
+    );
     if (mark.kind !== "spacer" && mark.lines) {
       for (let line = clamp(mark.lines.from); line <= clamp(mark.lines.to); line++) {
         ranges.push(commentedLine.range(doc.line(line).from));
@@ -422,7 +429,8 @@ export const threadMarks = [threadField];
 export function showThreadMarks(view: EditorView, marks: ThreadMark[]) {
   view.dispatch({ effects: setThreadMarks.of(marks) });
   const doc = view.state.doc;
-  const positions = marks.map((mark) => doc.line(Math.min(Math.max(mark.line, 1), doc.lines)).from);
+  // Cards above the first line are never folded away.
+  const positions = marks.filter((mark) => mark.line > 0).map((mark) => doc.line(Math.min(mark.line, doc.lines)).from);
   if (positions.length === 0) return;
   const starts = new Set<number>();
   for (const source of view.state.facet(EditorView.decorations)) {

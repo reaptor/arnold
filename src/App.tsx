@@ -127,18 +127,22 @@ export function App() {
             }
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
-              <span>Go to definition</span>
-              <kbd>F12</kbd>
-            </li>
+            <Show when={!menu().file}>
+              <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
+                <span>Go to definition</span>
+                <kbd>F12</kbd>
+              </li>
+            </Show>
             <Show when={menu().comment !== undefined}>
               <li
                 classList={{ disabled: !menu().comment }}
                 onClick={() => menu().comment && addComment()}
                 title={menu().comment ? undefined : "Comments go on the pull request's files, with all of its changes shown"}
               >
-                <span>Add comment</span>
-                <kbd>{menu().comment ?? ""}</kbd>
+                <span>{menu().file ? "Add comment on file" : "Add comment"}</span>
+                <Show when={!menu().file}>
+                  <kbd>{menu().comment ?? ""}</kbd>
+                </Show>
               </li>
             </Show>
           </ul>

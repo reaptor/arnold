@@ -67,8 +67,9 @@ pub struct Thread {
     /// The file, from the repository's root (no leading slash); `None` for
     /// the pull request as a whole.
     pub path: Option<String>,
-    /// Where in the file, as of the pull request's latest push; `None` when
-    /// the host lost track of the lines (or for the pull request as a whole).
+    /// Where in the file, as of the pull request's latest push; `None` for a
+    /// thread about the whole file (or one whose lines the host lost track
+    /// of), and for the pull request as a whole.
     pub position: Option<ThreadPosition>,
     /// `active`, `pending`, `fixed`, `wontFix`, `closed`, `byDesign` or `unknown`.
     pub status: String,
@@ -95,12 +96,19 @@ pub enum Side {
     Head,
 }
 
-/// Where a new thread goes in a file: lines and 1-based character offsets,
-/// the end offset just past the last character.
+/// Where a new thread goes: a file, and lines of it unless it is about the
+/// whole file.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NewThreadPlace {
     pub path: String,
+    pub lines: Option<LineRange>,
+}
+
+/// Lines and 1-based character offsets, the end offset just past the last character.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LineRange {
     pub side: Side,
     pub start_line: u32,
     pub start_offset: u32,

@@ -607,7 +607,7 @@ export function install() {
             const thread: PrThread = {
               id: nextThreadId++,
               path: place?.path ?? null,
-              position: place && { side: place.side, startLine: place.startLine, endLine: place.endLine },
+              position: place?.lines ? { side: place.lines.side, startLine: place.lines.startLine, endLine: place.lines.endLine } : null,
               status: "active",
               comments: [comment(1, "You", content, 0)],
             };

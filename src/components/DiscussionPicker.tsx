@@ -12,7 +12,7 @@ function ThreadCard(props: { thread: PrThread }) {
 }
 
 const where = (thread: PrThread) =>
-  thread.position ? `line ${thread.position.startLine}${thread.position.side === "base" ? " (before)" : ""}` : "line unknown";
+  thread.position ? `line ${thread.position.startLine}${thread.position.side === "base" ? " (before)" : ""}` : "whole file";
 
 /**
  * Toolbar button with the number of open discussions of the pull request;
@@ -126,9 +126,9 @@ export function DiscussionPicker() {
                       <div class="discussion-item">
                         <button
                           class="discussion-jump"
-                          disabled={!thread.position || !isChanged(path)}
+                          disabled={!isChanged(path)}
                           onClick={() => jump(thread)}
-                          title={thread.position && isChanged(path) ? "Show it in the diff" : "Not in the diff"}
+                          title={isChanged(path) ? "Show it in the diff" : "Not in the diff"}
                         >
                           {where(thread)}
                         </button>
