@@ -7,7 +7,7 @@
 import { Change, diff, type DiffConfig } from "@codemirror/merge";
 
 /** A changed region in line numbers (0-based, end exclusive). */
-export interface LineBlock {
+interface LineBlock {
   fromA: number;
   toA: number;
   fromB: number;
@@ -25,7 +25,7 @@ const LAST_UNIT = 0xffff;
 /**
  * How far (in lines) the line diff searches before settling for a rougher
  * match. Keeps two very different large files from blocking the UI, and is
- * deterministic, unlike a timeout, so that the view and "reset lines" agree.
+ * deterministic, unlike a timeout, so that every view of a file agrees.
  */
 const LINE_DIFF: DiffConfig = { scanLimit: 5000 };
 
@@ -54,7 +54,7 @@ function encodeLines(lineLists: string[][]): string[] | null {
 }
 
 /** Line-level differences between two versions of a file. */
-export function lineBlocks(aLines: string[], bLines: string[]): LineBlock[] {
+function lineBlocks(aLines: string[], bLines: string[]): LineBlock[] {
   const encoded = encodeLines([aLines, bLines]);
   if (!encoded) {
     // More distinct lines than code units: treat everything between the

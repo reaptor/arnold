@@ -4,9 +4,6 @@ import {
   hideSection,
   onRevealSection,
   registerSection,
-  resetFileAt,
-  resolveDiskConflict,
-  save,
   setCollapsed,
   setState,
   showSection,
@@ -40,7 +37,7 @@ const hostOf = (section: HTMLElement) => section.querySelector<HTMLElement>(".se
 
 /**
  * Every file of the diff in one scrolling list, like the "all files" view of
- * a pull request. Each file is a full editable diff; editors are created as
+ * a pull request. Each file is a full diff; editors are created as
  * files come near the screen and dropped again when far away.
  */
 export function AllFilesView() {
@@ -239,15 +236,9 @@ function FileSection(props: {
     unregisterSection(path);
   });
 
-  const canEdit = () => state.comparison?.worktreePath != null;
   const collapsed = () => !!state.collapsed[path];
   const title = () =>
     `${STATUS_NAME[props.file.status]}: ${props.file.oldPath ? `${props.file.oldPath} → ` : ""}${path}`;
-  // Buttons in the header do their own thing rather than folding the file.
-  const action = (run: () => void) => (event: MouseEvent) => {
-    event.stopPropagation();
-    run();
-  };
 
   return (
     <section
@@ -266,11 +257,6 @@ function FileSection(props: {
           <span class="section-directory">{parts.directory}</span>
           <span class="section-name">{parts.name}</span>
         </span>
-        <Show when={state.dirty[path]}>
-          <span class="unsaved" title="Unsaved edits">
-            ●
-          </span>
-        </Show>
         <Show when={state.problems[path]?.errors}>
           <span class="problems" title="Errors reported by the language server">
             {state.problems[path].errors}
@@ -281,28 +267,7 @@ function FileSection(props: {
             <span class="binary">bin</span>
           </Show>
         </span>
-        <Show when={state.dirty[path]}>
-          <button class="section-action" title="Save this file" onClick={action(() => void save(path))}>
-            Save
-          </button>
-        </Show>
-        <Show when={canEdit() && props.file.status !== "unchanged"}>
-          <button
-            class="section-action"
-            title="Reset file to the base version"
-            onClick={action(() => void resetFileAt(path))}
-          >
-            ↺ Reset
-          </button>
-        </Show>
       </header>
-      <Show when={state.diskConflict[path]}>
-        <div class="banner">
-          <span>This file changed on disk while you have unsaved edits.</span>
-          <button onClick={() => resolveDiskConflict(path, "reload")}>Reload from disk</button>
-          <button onClick={() => resolveDiskConflict(path, "keep")}>Keep my edits</button>
-        </div>
-      </Show>
       <div class="diff-host section-host" classList={{ hidden: collapsed() }} ref={host} />
     </section>
   );

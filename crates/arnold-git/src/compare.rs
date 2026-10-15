@@ -45,25 +45,14 @@ pub struct Comparison {
 /// Untracked files larger than this are listed without a line count.
 const MAX_COUNTED_BYTES: u64 = 2 * 1024 * 1024;
 
-/// PR-style comparison: merge-base of `base` and `head` → `head`, in the
-/// checkout holding `head` if there is one, else at its tip commit.
+/// PR-style comparison: merge-base of `base` and `head` → `head`.
 pub async fn compare(root: &Path, base: &str, head: &str) -> Result<Comparison> {
-    let worktree = worktree_of(root, head).await?;
-    compare_in(root, base, head, worktree).await
-}
-
-/// Like [`compare`], with the checkout of `head` given (see `ensure_checkout`).
-pub async fn compare_in(
-    root: &Path,
-    base: &str,
-    head: &str,
-    worktree_path: Option<PathBuf>,
-) -> Result<Comparison> {
     // Unrelated histories have no merge-base; compare against `base` itself then.
     let merge_base = match run_text(root, &["merge-base", base, head]).await {
         Ok(sha) if !sha.is_empty() => sha,
         _ => run_text(root, &["rev-parse", "--verify", &format!("{base}^{{commit}}")]).await?,
     };
+    let worktree_path = worktree_of(root, head).await?;
 
     let files = match &worktree_path {
         Some(worktree) => {
@@ -91,7 +80,7 @@ pub async fn read_blob(root: &Path, rev: &str, path: &str) -> Result<Option<Vec<
     Ok(out.success.then_some(out.stdout))
 }
 
-pub(crate) async fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
+async fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
     let out = run_text(
         root,
         &[

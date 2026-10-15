@@ -2,14 +2,17 @@
 // backend; messages travel over a Tauri channel.
 
 import {
+  findReferencesKeymap,
+  hoverTooltips,
   jumpToDefinition,
-  languageServerExtensions,
+  jumpToDefinitionKeymap,
   LSPClient,
   LSPPlugin,
+  serverDiagnostics,
   type Transport,
 } from "@codemirror/lsp-client";
 import { type Extension, Prec } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
 import { semanticTokens } from "./semanticTokens";
 import { canonicalUri, pathToUri } from "./uri";
@@ -107,7 +110,15 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         rootUri: pathToUri(root),
         // Loading a solution can keep a server busy for a while.
         timeout: 20_000,
-        extensions: [...languageServerExtensions(), semanticTokens(), clickToDefinition],
+        // Only what helps reading: the editors are read-only, so completion,
+        // signature help, rename and formatting are left out.
+        extensions: [
+          hoverTooltips(),
+          keymap.of([...jumpToDefinitionKeymap, ...findReferencesKeymap]),
+          serverDiagnostics(),
+          semanticTokens(),
+          clickToDefinition,
+        ],
         notificationHandlers: {
           // Match the server's spelling of file URIs to ours; the built-in
           // handler then finds the open file.

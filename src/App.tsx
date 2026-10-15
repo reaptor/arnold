@@ -8,11 +8,6 @@ import {
   goBack,
   goToDefinition,
   openRepoAt,
-  resetFileAt,
-  resetSelectedLines,
-  resolveDiskConflict,
-  save,
-  saveAll,
   setState,
   startWatching,
   state,
@@ -42,14 +37,8 @@ export function App() {
     });
   });
 
-  // Ctrl/Cmd+S also saves when focus is outside the editors; inside one, the
-  // editor saves its own file.
   const onKeyDown = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-      event.preventDefault();
-      const inEditor = event.target instanceof Element && event.target.closest(".cm-editor") !== null;
-      if (!inEditor) void (state.view === "all" ? saveAll() : save());
-    } else if (event.key === "Escape") {
+    if (event.key === "Escape") {
       setState("menu", null);
     } else if (isBackShortcut(event) && state.backCount > 0) {
       event.preventDefault();
@@ -81,7 +70,6 @@ export function App() {
     down.preventDefault();
   };
 
-  const canEdit = () => state.comparison?.worktreePath != null;
 
   return (
     <div class="app">
@@ -96,13 +84,6 @@ export function App() {
         <FileDock width={dockWidth()} />
         <div class="splitter" onPointerDown={startResize} />
         <section class="content">
-          <Show when={state.view === "file" && state.selected && state.diskConflict[state.selected]}>
-            <div class="banner">
-              <span>This file changed on disk while you have unsaved edits.</span>
-              <button onClick={() => resolveDiskConflict(state.selected, "reload")}>Reload from disk</button>
-              <button onClick={() => resolveDiskConflict(state.selected, "keep")}>Keep my edits</button>
-            </div>
-          </Show>
           <div
             class="editor-host diff-host"
             classList={{ hidden: state.view === "all" || state.placeholder !== null }}
@@ -127,14 +108,6 @@ export function App() {
             <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
               <span>Go to definition</span>
               <kbd>F12</kbd>
-            </li>
-            <li class="menu-separator" />
-            <li classList={{ disabled: !canEdit() }} onClick={() => canEdit() && resetSelectedLines()}>
-              <span>Reset selected lines</span>
-              <kbd>Alt+R</kbd>
-            </li>
-            <li classList={{ disabled: !canEdit() }} onClick={() => canEdit() && resetFileAt(menu().path)}>
-              <span>Reset file…</span>
             </li>
           </ul>
         )}
@@ -166,15 +139,18 @@ function StatusBar() {
             <Show
               when={comparison().worktreePath}
               fallback={
-                <span class="warning">Read-only: {comparison().head} is not checked out anywhere</span>
+                <span class="warning">
+                  {comparison().head} is not checked out anywhere: showing its last commit, without language
+                  features
+                </span>
               }
             >
-              <span class="status-path" title="Checkout being edited">
+              <span class="status-path" title="Checkout being reviewed">
                 {comparison().worktreePath}
               </span>
             </Show>
             <span class="toolbar-space" />
-            <Show when={state.lspStatus} fallback={<span class="hint">Alt+R reset lines · F7 next change</span>}>
+            <Show when={state.lspStatus} fallback={<span class="hint">F12 go to definition · F7 next change</span>}>
               <span class="status-path" title={state.lspStatus ?? ""}>
                 {state.lspStatus}
               </span>

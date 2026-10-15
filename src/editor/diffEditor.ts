@@ -1,17 +1,15 @@
-// The editable diff: a side-by-side MergeView or a single unified editor over
-// the same working text. Switching mode or file keeps the text, selection,
-// scroll position and undo history.
+// The read-only diff: a side-by-side MergeView or a single unified editor over
+// the same working text. Switching mode or file keeps the selection and scroll
+// position.
 
-import { historyField } from "@codemirror/commands";
 import { goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
-import { Compartment, EditorSelection, EditorState, type Extension, type Text } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
-import { resetEdits } from "./resetLines";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 
 export type DiffMode = "split" | "unified";
@@ -22,22 +20,17 @@ export interface DiffDocument {
   base: string;
   /** Text under review ("" when the file was deleted). */
   working: string;
-  editable: boolean;
   /** Show the working text alone, without a diff (an added, deleted or unchanged file). */
   plain?: boolean;
 }
 
 /** Editor state kept while a file is not on screen. */
 export interface Snapshot {
-  doc: Text;
   selection: EditorSelection;
-  history: unknown;
   scrollTop: number;
 }
 
 export interface DiffEditorCallbacks {
-  onChange(text: string): void;
-  onSave(): void;
   onFocus(): void;
   /** `view` is the editor right-clicked; `position` the text position under the pointer. */
   onContextMenu(x: number, y: number, view: EditorView, position: number | null): void;
@@ -79,7 +72,7 @@ export class DiffEditor {
     private readonly callbacks: DiffEditorCallbacks,
   ) {}
 
-  /** Shows a file. `snapshot` restores an earlier editing session of the same file. */
+  /** Shows a file. `snapshot` restores where an earlier visit of the same file was. */
   open(document: DiffDocument, mode: DiffMode, snapshot?: Snapshot) {
     this.close();
     this.document = document;
@@ -110,59 +103,24 @@ export class DiffEditor {
     this.support = [];
   }
 
-  /** The editable (working) editor. */
+  /** The editor of the text under review (the right side in split mode). */
   get working(): EditorView | null {
     return this.merge?.b ?? this.unified;
-  }
-
-  text(): string | null {
-    return this.working?.state.doc.toString() ?? null;
   }
 
   snapshot(): Snapshot | null {
     const view = this.working;
     if (!view) return null;
-    return {
-      doc: view.state.doc,
-      selection: view.state.selection,
-      history: view.state.field(historyField, false),
-      scrollTop: this.scroller()?.scrollTop ?? 0,
-    };
+    return { selection: view.state.selection, scrollTop: this.scroller()?.scrollTop ?? 0 };
   }
 
-  /** Replaces the working text after the file changed on disk. Not undoable. */
+  /** Replaces the text after the file changed on disk, keeping the scroll position. */
   reload(document: DiffDocument) {
     const scrollTop = this.scroller()?.scrollTop ?? 0;
     this.destroyViews();
     this.document = document;
     this.build();
     this.restoreScroll(scrollTop);
-  }
-
-  /**
-   * Resets the lines selected in the focused side to the base version.
-   * Returns false when the selection touches no change.
-   */
-  resetSelectedLines(): boolean {
-    const working = this.working;
-    if (!working || !this.document?.editable) return false;
-    const onBaseSide = this.merge !== null && this.merge.a.hasFocus;
-    const source = onBaseSide ? this.merge!.a : working;
-    const range = source.state.selection.main;
-    const doc = source.state.doc;
-    const from = doc.lineAt(range.from).number - 1;
-    let to = doc.lineAt(range.to).number - 1;
-    // A selection ending at the start of a line does not include that line.
-    if (!range.empty && to > from && range.to === doc.line(to + 1).from) to--;
-
-    const edits = resetEdits(this.document.base, working.state.doc.toString(), {
-      side: onBaseSide ? "a" : "b",
-      from,
-      to,
-    });
-    if (edits.length === 0) return false;
-    working.dispatch({ changes: edits, userEvent: "input.reset" });
-    return true;
   }
 
   nextChange() {
@@ -214,21 +172,13 @@ export class DiffEditor {
 
   private build(snapshot?: Snapshot) {
     const document = this.document!;
-    const doc = snapshot?.doc ?? document.working;
-    const selection = snapshot && fits(snapshot.selection, snapshot.doc.length) ? snapshot.selection : undefined;
+    const doc = document.working;
+    const selection = snapshot && fits(snapshot.selection, doc.length) ? snapshot.selection : undefined;
     const workingExtensions = [
-      // Must come before basicSetup's own history so that this initial value wins.
-      snapshot?.history ? historyField.init(() => snapshot.history as never) : [],
       this.sharedExtensions(document.path),
-      EditorState.readOnly.of(!document.editable),
       this.supportSlot.of(this.support),
-      keymap.of([
-        { key: "Mod-s", run: () => (this.callbacks.onSave(), true) },
-        { key: "Alt-r", run: () => this.resetSelectedLines() },
-        { key: "F7", run: () => (this.nextChange(), true), shift: () => (this.previousChange(), true) },
-      ]),
+      keymap.of([{ key: "F7", run: () => (this.nextChange(), true), shift: () => (this.previousChange(), true) }]),
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) this.callbacks.onChange(update.state.doc.toString());
         if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSemanticRanges)))) {
           this.mirrorSemanticRanges();
         }
@@ -242,15 +192,9 @@ export class DiffEditor {
         parent: this.parent,
         a: {
           doc: document.base,
-          extensions: [
-            this.sharedExtensions(document.path),
-            EditorState.readOnly.of(true),
-            // The base side cannot be typed in, so plain R is free to mean "reset".
-            keymap.of([{ key: "r", run: () => this.resetSelectedLines() }]),
-          ],
+          extensions: this.sharedExtensions(document.path),
         },
         b: { doc, selection, extensions: workingExtensions },
-        revertControls: document.editable ? "a-to-b" : undefined,
         highlightChanges: true,
         // changeKindColors draws the change gutter.
         gutter: false,
@@ -272,7 +216,7 @@ export class DiffEditor {
             syntaxHighlightDeletions: true,
             collapseUnchanged: COLLAPSE,
             diffConfig: lineFirstDiffConfig,
-            mergeControls: document.editable ? resetButton : false,
+            mergeControls: false,
           }),
         ],
       });
@@ -319,7 +263,7 @@ export class DiffEditor {
     splitter.onpointerdown = (down) => {
       if (down.button !== 0) return;
       down.preventDefault();
-      // Only the two editors share the width; the splitter and revert column stay fixed.
+      // Only the two editors share the width; the splitter stays fixed.
       const startLeft = left.getBoundingClientRect().width;
       const total = startLeft + right.getBoundingClientRect().width;
       splitter.setPointerCapture(down.pointerId);
@@ -344,6 +288,8 @@ export class DiffEditor {
   private sharedExtensions(path: string): Extension {
     return [
       basicSetup,
+      // Read-only, but still focusable with a cursor for go-to-definition and selecting.
+      EditorState.readOnly.of(true),
       languageFor(path),
       semanticHighlight,
       prefersDark() ? riderIslandsDark : [],
@@ -368,20 +314,3 @@ function fits(selection: EditorSelection, length: number) {
   return selection.ranges.every((range) => range.to <= length);
 }
 
-/** Unified mode offers one action per change: put it back to the base version. */
-function resetButton(type: "reject" | "accept", action: (event: MouseEvent) => void): HTMLElement {
-  const button = document.createElement("button");
-  if (type === "accept") {
-    // "Accept" would only hide the change from the view; nothing to accept here.
-    button.hidden = true;
-    return button;
-  }
-  button.textContent = "Reset";
-  button.title = "Reset this change to the base version";
-  button.className = "arnold-reset-chunk";
-  button.onmousedown = (event) => {
-    event.preventDefault();
-    action(event);
-  };
-  return button;
-}

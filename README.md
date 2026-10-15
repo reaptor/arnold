@@ -2,19 +2,16 @@
 
 # Arnold
 
-Desktop app for reviewing a git branch before it becomes a pull request, built for checking what AI agents wrote. The diff is the editor: you fix things where you see them.
+Desktop app for reviewing a git branch before it becomes a pull request, built for checking what AI agents wrote. Arnold only reads: the diff is read-only, and fixes are made elsewhere.
 
-- **PR-style comparison:** merge-base of the base branch → the working tree of the reviewed branch, including uncommitted and untracked files. Works with branches checked out in git worktrees. A branch that is not checked out anywhere is checked out in a linked worktree of its own (in Arnold's data folder, `…/app.arnold.review/worktrees/<repo>-<hash>/<branch>`; remote branches as a detached checkout under `detached/`), so it can be edited without switching the branch of any existing checkout.
-- **Files dock:** on top, *Changes*: every file in the diff, with status and line counts. Below it, *All files*: a file explorer with every file of the branch under review (its checkout), changed files marked with their status and folders holding changes with a dot. Files outside the diff open on their own, without a diff. Drag the line between the two to resize them; click a heading to fold that part away. The filter applies to both.
-- **One file or all files:** review one file at a time, or every file of the diff in one scrolling list, as in a pull request's "all files" view. Each file has a header that stays in view while you scroll through it, with its counts, *Save* and *Reset*; click it to fold the file away. Clicking a file in the dock scrolls to it, and the dock follows as you scroll. Files load as they come near the screen, so large diffs stay fast.
-- **Editable diff:** side-by-side or unified; the diff updates as you type. Drag the divider between the sides to resize them (double-click to make them equal again).
-- **Reset to base:** selected lines (`Alt+R`, or `R` on the base side), one change (the arrow between the panes, or the *Reset* button in unified mode), or a whole file (`R` in the files dock).
+- **PR-style comparison:** merge-base of the base branch → the working tree of the reviewed branch, including uncommitted and untracked files. Works with branches checked out in git worktrees.
+- **Files dock:** on top, *Changes*: every file in the diff, with status and line counts. Below it, *All files*: a file explorer with every file of the branch under review (its checkout, or its last commit when it is not checked out), changed files marked with their status and folders holding changes with a dot. Files outside the diff open on their own, without a diff. Drag the line between the two to resize them; click a heading to fold that part away. The filter applies to both.
+- **One file or all files:** review one file at a time, or every file of the diff in one scrolling list, as in a pull request's "all files" view. Each file has a header that stays in view while you scroll through it, with its counts; click it to fold the file away. Clicking a file in the dock scrolls to it, and the dock follows as you scroll. Files load as they come near the screen, so large diffs stay fast.
+- **Read-only diff:** side-by-side or unified, updated when the files change on disk. `F7` / `Shift+F7` step through the changes. Drag the divider between the sides to resize them (double-click to make them equal again).
 - **Syntax highlighting:** F#, C#, project files, JSON, Markdown.
-- **F# language server in the diff:** errors, hover, completion, signature help, go-to-definition (`F12` or Ctrl/Cmd+click; *Back* returns), find references, rename. Error counts for every changed F# file show in the files dock.
+- **F# language server in the diff:** errors, hover, go-to-definition (`F12` or Ctrl/Cmd+click; *Back* returns), find references. Error counts for every changed F# file show in the files dock. It needs the branch checked out somewhere (in the repository or one of its worktrees); a branch that is not is shown from its last commit, without language features.
 
-- **Commit and push:** *Commit* in the toolbar lists the uncommitted files of the branch under review (all ticked; untick what should stay out), takes a message and commits (`Ctrl/Cmd+Enter`), or commits and pushes (`Ctrl/Cmd+Shift+Enter`). It shows how many commits are not pushed yet, and *Push* sends them: to the branch's upstream, or, the first time, to a new branch of the same name on `origin` (which then becomes its upstream). A remote branch under review is pushed back to that remote branch. Git's own credentials and hooks are used; a push the remote would refuse because it has newer commits is not attempted (pull those in first).
-
-Arnold only writes to git when you ask: the worktree for a branch under review, and commits and pushes. Otherwise it reads git state and writes the files you edit or reset; it never switches the branch of a checkout.
+Arnold never writes to the repository: it does not edit, reset, stage, commit, push or check out.
 
 Not there yet: C# language server, a problems list with messages, settings.
 

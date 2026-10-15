@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, openFile, resetFileAt, selectFile, state } from "../state/review";
+import { allFiles, openFile, selectFile, state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { FileTree } from "./FileTree";
 
@@ -54,7 +54,6 @@ export function FileDock(props: { width: number }) {
     needle() ? allFiles().filter((path) => path.toLowerCase().includes(needle())).length : allFiles().length,
   );
   const bothOpen = () => changesOpen() && explorerOpen();
-  const canReset = () => state.comparison?.worktreePath != null;
 
   const move = (delta: number) => {
     const list = files();
@@ -67,8 +66,6 @@ export function FileDock(props: { width: number }) {
     if (event.target instanceof HTMLInputElement) return;
     if (event.key === "ArrowDown") move(1);
     else if (event.key === "ArrowUp") move(-1);
-    else if (event.key.toLowerCase() === "r" && !event.metaKey && !event.ctrlKey && !event.altKey && canReset())
-      void resetFileAt(state.selected);
     else return;
     event.preventDefault();
   };
@@ -135,7 +132,7 @@ export function FileDock(props: { width: number }) {
             detail={state.base ? `vs ${state.base}` : ""}
             count={state.comparison?.files.length ?? 0}
             matching={filter() ? files().length : undefined}
-            explanation={`Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them; R resets the selected file.`}
+            explanation={`Files that ${state.head || "the branch"} changes compared with ${state.base || "the base branch"}: the diff under review. Arrow keys move through them.`}
           />
           <Show when={changesOpen()}>
             <ul
@@ -170,11 +167,6 @@ export function FileDock(props: { width: number }) {
                         <span class="file-name">{parts.name}</span>
                         <span class="file-directory">{parts.directory}</span>
                       </span>
-                      <Show when={state.dirty[file.path]}>
-                        <span class="unsaved" title="Unsaved edits">
-                          ●
-                        </span>
-                      </Show>
                       <Show when={state.problems[file.path]?.errors}>
                         <span class="problems" title="Errors reported by the language server">
                           {state.problems[file.path].errors}
@@ -185,18 +177,6 @@ export function FileDock(props: { width: number }) {
                           <span class="binary">bin</span>
                         </Show>
                       </span>
-                      <Show when={canReset() && file.status !== "unchanged"}>
-                        <button
-                          class="row-action"
-                          title="Reset file to the base version (R)"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void resetFileAt(file.path);
-                          }}
-                        >
-                          ↺
-                        </button>
-                      </Show>
                     </li>
                   );
                 }}

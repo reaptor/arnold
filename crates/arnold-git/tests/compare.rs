@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{compare, ensure_checkout, list_files, open, read_blob, FileStatus};
+use arnold_git::{compare, list_files, open, read_blob, FileStatus};
 
 fn git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -155,80 +155,4 @@ async fn lists_files_of_a_branch_not_checked_out() {
 
     let files = list_files(root, "feature", None).await.unwrap();
     assert_eq!(files, vec![".gitignore", "a.txt", "new.txt"]);
-}
-
-fn branch_of(worktree: &Path) -> String {
-    let out = Command::new("git")
-        .current_dir(worktree)
-        .args(["symbolic-ref", "--short", "-q", "HEAD"])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
-#[tokio::test]
-async fn checks_out_a_branch_in_a_worktree_of_its_own() {
-    let dir = fixture();
-    let root = dir.path();
-    git(root, &["checkout", "--quiet", "main"]);
-    let store = tempfile::tempdir().unwrap();
-
-    let worktree = ensure_checkout(root, "feature", store.path()).await.unwrap();
-    assert_ne!(worktree.canonicalize().unwrap(), root.canonicalize().unwrap());
-    assert!(worktree.starts_with(store.path()));
-    assert_eq!(branch_of(&worktree), "feature");
-    // The opened checkout keeps its branch.
-    assert_eq!(branch_of(root), "main");
-
-    // Found again, not added twice; the comparison is editable in it.
-    let again = ensure_checkout(root, "feature", store.path()).await.unwrap();
-    assert_eq!(again.canonicalize().unwrap(), worktree.canonicalize().unwrap());
-    let comparison = compare(root, "main", "feature").await.unwrap();
-    assert_eq!(
-        comparison.worktree_path.unwrap().canonicalize().unwrap(),
-        worktree.canonicalize().unwrap()
-    );
-
-    // A branch already checked out stays where it is.
-    let current = ensure_checkout(root, "main", store.path()).await.unwrap();
-    assert_eq!(current.canonicalize().unwrap(), root.canonicalize().unwrap());
-}
-
-#[tokio::test]
-async fn replaces_a_worktree_that_was_deleted_by_hand() {
-    let dir = fixture();
-    let root = dir.path();
-    git(root, &["checkout", "--quiet", "main"]);
-    let store = tempfile::tempdir().unwrap();
-
-    let worktree = ensure_checkout(root, "feature", store.path()).await.unwrap();
-    std::fs::remove_dir_all(&worktree).unwrap();
-    let again = ensure_checkout(root, "feature", store.path()).await.unwrap();
-    assert_eq!(branch_of(&again), "feature");
-}
-
-#[tokio::test]
-async fn checks_out_a_remote_branch_detached_and_follows_its_tip() {
-    let dir = fixture();
-    let upstream = dir.path();
-    let clone_dir = tempfile::tempdir().unwrap();
-    let clone = clone_dir.path().join("clone");
-    git(
-        clone_dir.path(),
-        &["clone", "--quiet", upstream.to_str().unwrap(), "clone"],
-    );
-    let store = tempfile::tempdir().unwrap();
-
-    let worktree = ensure_checkout(&clone, "origin/main", store.path()).await.unwrap();
-    assert_eq!(branch_of(&worktree), "");
-    assert!(worktree.join("main-only.txt").exists());
-
-    // main moves on upstream; a clean detached checkout moves with it.
-    git(upstream, &["checkout", "--quiet", "main"]);
-    write(upstream, "later.txt", "more\n");
-    commit_all(upstream, "more on main");
-    git(&clone, &["fetch", "--quiet"]);
-    let again = ensure_checkout(&clone, "origin/main", store.path()).await.unwrap();
-    assert_eq!(again, worktree);
-    assert!(worktree.join("later.txt").exists());
 }

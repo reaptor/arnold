@@ -2,7 +2,7 @@
 // and call these functions; the CodeMirror editor is driven from here.
 
 import type { EditorView } from "@codemirror/view";
-import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, CheckoutStatus, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
+import type { ChangedFile, Comparison, FilePair, FileStatus, RepoInfo } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
@@ -27,8 +27,6 @@ interface State {
   base: string;
   head: string;
   comparison: Comparison | null;
-  /** Uncommitted changes of the checkout under review and where a push goes. */
-  checkout: CheckoutStatus | null;
   /** Files opened from outside the diff (by go-to-definition). */
   visited: ChangedFile[];
   /**
@@ -38,8 +36,6 @@ interface State {
   selected: string | null;
   view: ViewMode;
   mode: DiffMode;
-  /** Files with edits that are not saved yet. */
-  dirty: Record<string, boolean>;
   /** Errors and warnings the language server reported, by file path. */
   problems: Record<string, { errors: number; warnings: number }>;
   /** What the language server is doing, or why it is not running. */
@@ -50,15 +46,13 @@ interface State {
   error: string | null;
   /** Shown in place of the editor (nothing selected, binary file, ...). */
   placeholder: string | null;
-  /** Files with unsaved edits that also changed on disk. */
-  diskConflict: Record<string, boolean>;
   /** Files folded away in the all-files view. */
   collapsed: Record<string, boolean>;
   /**
-   * Context menu of the editor showing `path`; `definition` when a language
-   * server can say where the right-clicked symbol is defined.
+   * Context menu of an editor; `definition` when a language server can say
+   * where the right-clicked symbol is defined.
    */
-  menu: { x: number; y: number; path: string | null; definition: boolean } | null;
+  menu: { x: number; y: number; definition: boolean } | null;
 }
 
 export const [state, setState] = createStore<State>({
@@ -66,19 +60,16 @@ export const [state, setState] = createStore<State>({
   base: "",
   head: "",
   comparison: null,
-  checkout: null,
   visited: [],
   selected: null,
   view: localStorage.getItem("arnold.view") === "all" ? "all" : "file",
   mode: (localStorage.getItem("arnold.mode") as DiffMode | null) ?? "split",
-  dirty: {},
   problems: {},
   lspStatus: null,
   backCount: 0,
   busy: false,
   error: null,
   placeholder: "Open a repository to start reviewing.",
-  diskConflict: {},
   collapsed: {},
   menu: null,
 });
@@ -86,8 +77,6 @@ export const [state, setState] = createStore<State>({
 /** What is known about a file that has been opened in this comparison. */
 interface Session {
   pair: FilePair;
-  /** Working text as last read from or written to disk. */
-  savedText: string;
   snapshot: Snapshot | null;
 }
 
@@ -141,9 +130,6 @@ const fileAt = (path: string | null) =>
 export const isChanged = (path: string | null) =>
   state.comparison?.files.some((file) => file.path === path) ?? false;
 
-const isEditable = (file: ChangedFile, pair: FilePair) =>
-  state.comparison?.worktreePath != null && pair.working !== null && file.status !== "deleted";
-
 /**
  * Created and deleted files are shown whole (a deleted one read-only) instead
  * of as a diff with one side empty. Unchanged files have no diff at all.
@@ -157,7 +143,6 @@ function documentOf(file: ChangedFile, session: Session): DiffDocument {
     path: file.path,
     base,
     working: file.status === "deleted" ? base : working,
-    editable: isEditable(file, session.pair),
     plain: WHOLE_FILE.includes(file.status),
   };
 }
@@ -169,7 +154,7 @@ function editorFor(path: string | null): DiffEditor | null {
   return state.selected === path ? editor : null;
 }
 
-/** The file keyboard commands act on: the selected one, or the one being typed in. */
+/** The file keyboard commands act on: the selected one, or the one with keyboard focus. */
 function activePath(): string | null {
   if (state.view === "all" && focusedPath !== null && sectionEditors.has(focusedPath)) return focusedPath;
   return state.selected;
@@ -179,12 +164,6 @@ const activeEditor = () => editorFor(activePath());
 
 function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
   return {
-    onChange(text) {
-      const path = pathOf();
-      const session = path ? sessions.get(path) : undefined;
-      if (path && session) setState("dirty", path, text !== session.savedText);
-    },
-    onSave: () => void save(pathOf()),
     onFocus() {
       const path = pathOf();
       if (state.view !== "all" || path === null) return;
@@ -193,7 +172,7 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
     },
     onContextMenu(x, y, view, position) {
       menuTarget = position === null ? null : { view, position };
-      setState("menu", { x, y, path: pathOf(), definition: menuTarget !== null && lsp.hasLanguageServer(view) });
+      setState("menu", { x, y, definition: menuTarget !== null && lsp.hasLanguageServer(view) });
     },
   };
 }
@@ -212,7 +191,6 @@ export async function chooseRepo() {
 }
 
 export async function openRepoAt(path: string) {
-  if (state.repo && !(await confirmDiscard("Open repository"))) return;
   setState({ busy: true, error: null });
   try {
     const repo = await ipc.openRepo(path);
@@ -239,7 +217,6 @@ function defaultHead(repo: RepoInfo, base: string): string {
 
 export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
-  if (!(await confirmDiscard("Switch branches"))) return;
   setState(change);
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
@@ -256,23 +233,11 @@ function resetSessions() {
   backStack.length = 0;
   editor?.close();
   void lsp.stop();
-  setState("dirty", reconcile({}));
   setState("problems", reconcile({}));
-  setState("diskConflict", reconcile({}));
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
-  setState({ comparison: null, checkout: null, visited: [], backCount: 0, lspStatus: null });
+  setState({ comparison: null, visited: [], backCount: 0, lspStatus: null });
   setAllFiles([]);
-}
-
-async function confirmDiscard(action: string): Promise<boolean> {
-  const unsaved = Object.values(state.dirty).filter(Boolean).length;
-  if (unsaved === 0) return true;
-  return ask(`${unsaved} file(s) have unsaved edits that will be lost.`, {
-    title: action,
-    kind: "warning",
-    okLabel: "Discard edits",
-  });
 }
 
 // ---------------------------------------------------------------- comparison
@@ -284,16 +249,10 @@ export async function refresh() {
   try {
     const comparison = await ipc.compareBranches(repo.root, state.base, state.head);
     if (repo !== state.repo) return;
-    // The backend checks a branch out in a worktree of its own when nothing held it.
-    const headIndex = repo.branches.findIndex((branch) => branch.name === comparison.head);
-    if (headIndex >= 0 && comparison.worktreePath) {
-      setState("repo", "branches", headIndex, "worktreePath", comparison.worktreePath);
-    }
     // Listed, stepped through and shown in the order of the file explorer.
     comparison.files.sort((a, b) => comparePaths(a.path, b.path));
     setState("comparison", reconcile(comparison, { key: "path" }));
     void loadAllFiles(repo, comparison);
-    void loadCheckout(comparison);
     // A visited file that has since been edited is now part of the diff.
     setState("visited", (visited) =>
       visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
@@ -312,8 +271,7 @@ export async function refresh() {
     } else if (selected && editor) {
       await revalidate(selected, editor, FILE_VIEW);
     } else {
-      const unsavedSelection = state.selected !== null && state.dirty[state.selected];
-      if (!unsavedSelection) await selectFile(comparison.files[0]?.path ?? null);
+      await selectFile(comparison.files[0]?.path ?? null);
     }
     void checkChangedFiles();
   } catch (error) {
@@ -327,61 +285,6 @@ async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
     if (repo === state.repo && comparison.head === state.comparison?.head) setAllFiles(files);
   } catch (error) {
     fail(error);
-  }
-}
-
-async function loadCheckout(comparison: Comparison) {
-  if (!comparison.worktreePath) return void setState("checkout", null);
-  try {
-    const checkout = await ipc.checkoutStatus(comparison.worktreePath, comparison.head);
-    if (comparison.head === state.comparison?.head) setState("checkout", reconcile(checkout));
-  } catch (error) {
-    fail(error);
-  }
-}
-
-// ------------------------------------------------------------ commit and push
-
-/**
- * Commits `paths` of the checkout under review (every change when null), then
- * pushes if asked. `error` says what went wrong, if anything; a failed push
- * still leaves the commit made.
- */
-export async function commitChanges(
-  message: string,
-  paths: string[] | null,
-  andPush: boolean,
-): Promise<{ committed: boolean; error: string | null }> {
-  const comparison = state.comparison;
-  if (!comparison?.worktreePath) return { committed: false, error: "This branch has no checkout to commit in." };
-  try {
-    await ipc.commitChanges(comparison.worktreePath, message, paths);
-  } catch (error) {
-    await refresh();
-    return { committed: false, error: String(error) };
-  }
-  try {
-    if (andPush) await ipc.pushChanges(comparison.worktreePath, comparison.head);
-    return { committed: true, error: null };
-  } catch (error) {
-    return { committed: true, error: `Committed, but the push failed: ${error}` };
-  } finally {
-    // A commit in a linked worktree does not reach the file watcher.
-    await refresh();
-  }
-}
-
-/** Pushes the checkout under review; resolves to an error message, or null. */
-export async function pushChanges() {
-  const comparison = state.comparison;
-  if (!comparison?.worktreePath) return "This branch has no checkout to push from.";
-  try {
-    await ipc.pushChanges(comparison.worktreePath, comparison.head);
-    return null;
-  } catch (error) {
-    return String(error);
-  } finally {
-    await refresh();
   }
 }
 
@@ -432,19 +335,13 @@ function stashOpenFile() {
 
 /** The session of a file just read from disk, brought up to date with it. */
 function sessionFor(file: ChangedFile, pair: FilePair): Session {
-  const diskText = pair.working ?? "";
   let session = sessions.get(file.path);
   if (!session) {
-    session = { pair, savedText: diskText, snapshot: null };
+    session = { pair, snapshot: null };
     sessions.set(file.path, session);
-  } else if (state.dirty[file.path]) {
-    // Keep the unsaved text; only the base side is refreshed.
-    setState("diskConflict", file.path, diskText !== session.savedText);
-    session.pair = { ...session.pair, base: pair.base };
   } else {
-    if (diskText !== session.savedText) session.snapshot = null;
+    if (pair.working !== session.pair.working) session.snapshot = null;
     session.pair = pair;
-    session.savedText = diskText;
   }
   return session;
 }
@@ -468,9 +365,8 @@ async function showFile(file: ChangedFile) {
     }
     const session = sessionFor(file, pair);
     setState("placeholder", null);
-    const document = documentOf(file, session);
-    editor?.open(document, state.mode, session.snapshot ?? undefined);
-    if (editor) void attachLanguageServer(file, document, editor);
+    editor?.open(documentOf(file, session), state.mode, session.snapshot ?? undefined);
+    if (editor) void attachLanguageServer(file, editor);
   } catch (error) {
     fail(error);
   }
@@ -492,41 +388,10 @@ async function revalidate(file: ChangedFile, target: DiffEditor, key: string) {
   const token = nextToken(key);
   const pair = await ipc.readFilePair(repo.root, comparison, file);
   if (!isLatest(key, token) || unshowable(pair)) return;
-  const diskText = pair.working ?? "";
-  const baseChanged = (pair.base ?? "") !== (session.pair.base ?? "");
-  const diskChanged = diskText !== session.savedText;
-  if (!baseChanged && !diskChanged) return;
-
-  if (state.dirty[file.path]) {
-    if (diskChanged) setState("diskConflict", file.path, true);
-    if (baseChanged) {
-      session.pair = { ...session.pair, base: pair.base };
-      const document = documentOf(file, session);
-      target.open(document, state.mode, target.snapshot() ?? undefined);
-      void attachLanguageServer(file, document, target);
-    }
-    return;
-  }
+  if (pair.base === session.pair.base && pair.working === session.pair.working) return;
   session.pair = pair;
-  session.savedText = diskText;
   session.snapshot = null;
   target.reload(documentOf(file, session));
-}
-
-/** Resolves a disk conflict on a file with unsaved edits. */
-export async function resolveDiskConflict(path: string | null, choice: "reload" | "keep") {
-  const file = fileAt(path);
-  const session = file && sessions.get(file.path);
-  if (!file || !session || !state.repo || !state.comparison) return;
-  const pair = await ipc.readFilePair(state.repo.root, state.comparison, file);
-  session.savedText = pair.working ?? "";
-  if (choice === "reload") {
-    session.pair = pair;
-    session.snapshot = null;
-    setState("dirty", file.path, false);
-    editorFor(file.path)?.reload(documentOf(file, session));
-  }
-  setState("diskConflict", file.path, false);
 }
 
 // ----------------------------------------------------------- all-files view
@@ -550,7 +415,7 @@ export async function setView(view: ViewMode) {
     const selected = isChanged(state.selected) ? state.selected : (state.comparison?.files[0]?.path ?? null);
     setState({ view, selected, menu: null });
   } else {
-    // Removing the all-files view hides its sections, keeping their edits.
+    // Removing the all-files view hides its sections.
     setState({ view, menu: null });
     await selectFile(path);
   }
@@ -590,9 +455,8 @@ export async function showSection(path: string): Promise<DiffEditor | null> {
     const session = sessionFor(file, pair);
     const target = new DiffEditor(host, callbacksFor(() => path));
     sectionEditors.set(path, target);
-    const shownDocument = documentOf(file, session);
-    target.open(shownDocument, state.mode, session.snapshot ?? undefined);
-    void attachLanguageServer(file, shownDocument, target);
+    target.open(documentOf(file, session), state.mode, session.snapshot ?? undefined);
+    void attachLanguageServer(file, target);
     return target;
   } catch (error) {
     fail(error);
@@ -601,8 +465,8 @@ export async function showSection(path: string): Promise<DiffEditor | null> {
 }
 
 /**
- * Unloads a section of the all-files view to save memory; its edits are kept.
- * `keepFocused` leaves the file being typed in alone. Returns whether an
+ * Unloads a section of the all-files view to save memory.
+ * `keepFocused` leaves the file with keyboard focus alone. Returns whether an
  * editor was removed.
  */
 export function hideSection(path: string, keepFocused = false): boolean {
@@ -626,7 +490,7 @@ export function setCollapsed(path: string, collapsed: boolean) {
   if (collapsed) hideSection(path);
 }
 
-// ------------------------------------------------------------------- editing
+// ------------------------------------------------------------------- viewing
 
 export function setMode(mode: DiffMode) {
   localStorage.setItem("arnold.mode", mode);
@@ -634,47 +498,6 @@ export function setMode(mode: DiffMode) {
   editor?.setMode(mode);
   for (const target of sectionEditors.values()) target.setMode(mode);
   activeEditor()?.focus();
-}
-
-/** Saves one file (by default the one being edited). */
-export async function save(path: string | null = activePath()) {
-  if (await writeOut(path)) {
-    // Update the file list now rather than waiting for the file watcher.
-    void refresh();
-  }
-}
-
-/** Saves every file with unsaved edits. */
-export async function saveAll() {
-  let saved = false;
-  for (const path of Object.keys(state.dirty)) saved = (await writeOut(path)) || saved;
-  if (saved) void refresh();
-}
-
-async function writeOut(path: string | null): Promise<boolean> {
-  const session = path ? sessions.get(path) : undefined;
-  const worktree = state.comparison?.worktreePath;
-  // A file of the all-files view that is not loaded keeps its text in the snapshot.
-  const text = editorFor(path)?.text() ?? session?.snapshot?.doc.toString();
-  if (!path || !session || !worktree || text == null || !state.dirty[path]) return false;
-  try {
-    await ipc.writeFile(worktree, path, text, session.pair.eol, session.pair.bom);
-    session.savedText = text;
-    session.pair = { ...session.pair, working: text };
-    setState("dirty", path, false);
-    setState("diskConflict", path, false);
-    return true;
-  } catch (error) {
-    fail(error);
-    return false;
-  }
-}
-
-export function resetSelectedLines() {
-  setState("menu", null);
-  const target = activeEditor();
-  target?.resetSelectedLines();
-  target?.focus();
 }
 
 /** "Go to definition" in the context menu: the symbol that was right-clicked. */
@@ -687,45 +510,14 @@ export function goToDefinition() {
 export const nextChange = () => activeEditor()?.nextChange();
 export const previousChange = () => activeEditor()?.previousChange();
 
-/** Puts a whole file back to the base version, on disk. */
-export async function resetFileAt(path: string | null) {
-  setState("menu", null);
-  const file = fileAt(path);
-  const repo = state.repo;
-  const comparison = state.comparison;
-  if (!file || file.status === "unchanged" || !repo || !comparison?.worktreePath) return;
-
-  const removes = file.status === "added" || file.status === "untracked";
-  const effect = removes
-    ? "The file does not exist in the base version, so it will be deleted."
-    : "All changes to it, including unsaved edits, will be lost.";
-  const confirmed = await ask(`Reset ${file.path} to ${comparison.base}?\n\n${effect}`, {
-    title: "Reset file",
-    kind: "warning",
-    okLabel: removes ? "Delete file" : "Reset file",
-  });
-  if (!confirmed) return;
-
-  try {
-    await ipc.resetFile(repo.root, comparison, file);
-    sessions.delete(file.path);
-    setState("dirty", file.path, false);
-    setState("diskConflict", file.path, false);
-    // The all-files view reloads the file in the refresh.
-    if (state.view === "file" && state.selected === file.path) editor?.close();
-    await refresh();
-  } catch (error) {
-    fail(error);
-  }
-}
-
 // ----------------------------------------------------------- language server
 
 /** Connects a file being shown to its language server, once that is running. */
-async function attachLanguageServer(file: ChangedFile, document: DiffDocument, target: DiffEditor) {
+async function attachLanguageServer(file: ChangedFile, target: DiffEditor) {
+  // Only a checkout on disk has a server; a deleted file is not there.
   const worktree = state.comparison?.worktreePath;
   const language = languageIdFor(file.path);
-  if (!worktree || !language || !document.editable) return;
+  if (!worktree || !language || file.status === "deleted") return;
   const client = await lsp.clientFor(worktree, language);
   // The user may have moved on while the server was starting.
   if (!client || editorFor(file.path) !== target) return;
@@ -768,9 +560,7 @@ async function checkChangedFiles() {
           backgroundSent.delete(file.path);
           continue;
         }
-        const session = sessions.get(file.path);
-        const unsaved = state.dirty[file.path] ? session?.snapshot?.doc.toString() : undefined;
-        const text = unsaved ?? (await ipc.readFilePair(repo.root, comparison, file)).working;
+        const text = (await ipc.readFilePair(repo.root, comparison, file)).working;
         if (text == null || backgroundSent.get(file.path) === text) continue;
         backgroundSent.set(file.path, text);
         await lsp.openInBackground(pathToUri(joinPath(worktree, file.path)), "fsharp", text);
@@ -804,7 +594,7 @@ async function displayUri(uri: string): Promise<EditorView | null> {
   return (await showFileSection(path))?.working ?? null;
 }
 
-/** All-files view: loads a file's section and makes it the one being edited. */
+/** All-files view: loads a file's section and gives it the keyboard. */
 async function showFileSection(path: string) {
   setState({ selected: path, menu: null });
   setState("collapsed", path, false);

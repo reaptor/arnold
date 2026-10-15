@@ -241,11 +241,6 @@ export function FileTree(props: { filter: string }) {
                         <span class="file-directory">{row().detail}</span>
                       </Show>
                     </span>
-                    <Show when={row().kind === "file" && state.dirty[row().path]}>
-                      <span class="unsaved" title="Unsaved edits">
-                        ●
-                      </span>
-                    </Show>
                     <Show when={row().kind === "file" && state.problems[row().path]?.errors}>
                       <span class="problems" title="Errors reported by the language server">
                         {state.problems[row().path].errors}

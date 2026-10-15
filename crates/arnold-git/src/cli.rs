@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 #[derive(Debug, thiserror::Error)]
@@ -22,15 +21,6 @@ pub(crate) struct Output {
 
 /// Runs git in `cwd` and returns its output whatever the exit code.
 pub(crate) async fn run_raw(cwd: &Path, args: &[&str]) -> Result<Output, GitError> {
-    run_raw_with_input(cwd, args, None).await
-}
-
-/// Like [`run_raw`], writing `input` to git's stdin.
-pub(crate) async fn run_raw_with_input(
-    cwd: &Path,
-    args: &[&str],
-    input: Option<&[u8]>,
-) -> Result<Output, GitError> {
     let mut command = Command::new("git");
     command
         .current_dir(cwd)
@@ -41,19 +31,14 @@ pub(crate) async fn run_raw_with_input(
         // and our own file watcher would see the write and refresh in a loop.
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    let mut child = command.spawn()?;
-    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-        stdin.write_all(input).await?;
-        // Dropping stdin closes it, so git sees the end of the input.
-    }
-    let output = child.wait_with_output().await?;
+    let output = command.output().await?;
     Ok(Output {
         success: output.status.success(),
         stdout: output.stdout,
@@ -63,16 +48,7 @@ pub(crate) async fn run_raw_with_input(
 
 /// Runs git and fails on a non-zero exit code.
 pub(crate) async fn run(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GitError> {
-    run_with_input(cwd, args, None).await
-}
-
-/// Like [`run`], writing `input` to git's stdin.
-pub(crate) async fn run_with_input(
-    cwd: &Path,
-    args: &[&str],
-    input: Option<&[u8]>,
-) -> Result<Vec<u8>, GitError> {
-    let output = run_raw_with_input(cwd, args, input).await?;
+    let output = run_raw(cwd, args).await?;
     if output.success {
         Ok(output.stdout)
     } else {
