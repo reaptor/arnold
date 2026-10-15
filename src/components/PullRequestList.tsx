@@ -54,6 +54,12 @@ export function votes(pullRequest: PullRequest): { parts: { text: string; kind: 
   return { parts, title };
 }
 
+/** Approved by someone, and no one is waiting for the author or has rejected it. */
+export function isApproved(pullRequest: PullRequest): boolean {
+  const voted = (...kinds: string[]) => pullRequest.reviewers.some((reviewer) => kinds.includes(reviewer.vote));
+  return voted("approved", "approvedWithSuggestions") && !voted("waitingForAuthor", "rejected");
+}
+
 const VOTE_NAMES: Record<string, string> = {
   approved: "approved",
   approvedWithSuggestions: "approved with suggestions",
@@ -131,6 +137,9 @@ export function PullRequestList(props: Props) {
                   <span class="picker-name">{pullRequest.title}</span>
                   <Show when={pullRequest.draft}>
                     <span class="tag">Draft</span>
+                  </Show>
+                  <Show when={isApproved(pullRequest)}>
+                    <span class="tag tag-approved">✓ Approved</span>
                   </Show>
                   <Show
                     when={props.opening === pullRequest.id}

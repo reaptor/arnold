@@ -11,7 +11,7 @@ import { checkPullRequest, closePullRequest, openPullRequest, state } from "../s
 import { openInBrowser } from "./DevOpsSetup";
 import { ChevronDownIcon, ExternalIcon, KeyIcon, PullRequestIcon, RefreshIcon } from "./icons";
 import { RemoteSelect } from "./PullRequestPanel";
-import { PullRequestList } from "./PullRequestList";
+import { isApproved, PullRequestList } from "./PullRequestList";
 
 /** Toolbar button showing the pull request under review; opens the list of active ones. */
 export function PullRequestPicker() {
@@ -45,7 +45,8 @@ export function PullRequestPicker() {
   const title = () => {
     const pullRequest = state.pullRequest;
     if (!pullRequest) return "Pick an active pull request to review";
-    return `Pull request !${pullRequest.id}: ${pullRequest.title}\n${pullRequest.sourceBranch} into ${pullRequest.targetBranch}, by ${pullRequest.author}`;
+    const approved = isApproved(pullRequest) ? "\nApproved" : "";
+    return `Pull request !${pullRequest.id}: ${pullRequest.title}\n${pullRequest.sourceBranch} into ${pullRequest.targetBranch}, by ${pullRequest.author}${approved}`;
   };
 
   return (
@@ -53,6 +54,9 @@ export function PullRequestPicker() {
       <button class="picker-button" onClick={toggle} title={title()}>
         <PullRequestIcon />
         <span class="picker-value">{label()}</span>
+        <Show when={state.openingPullRequest === null && state.pullRequest && isApproved(state.pullRequest)}>
+          <span class="tag tag-approved">✓ Approved</span>
+        </Show>
         <ChevronDownIcon />
       </button>
       <Show when={open()}>

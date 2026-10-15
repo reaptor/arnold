@@ -1809,6 +1809,12 @@ button.primary:hover:not(:disabled) {
   gap: 6px;
 }
 
+.tag-approved {
+  flex: none;
+  color: var(--added);
+  border-color: var(--added);
+}
+
 .vote-approved {
   color: var(--added);
 }
