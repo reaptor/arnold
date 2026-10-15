@@ -186,7 +186,7 @@ let preparation = 0;
 // Projects the stand-in server "loads"; `?projectfail` makes the second fail
 // the way FsAutoComplete reports a missing package.
 const FAKE_PROJECTS = ["src/Core/Core.fsproj", "src/Api/Api.fsproj", "tests/Tests.fsproj"].map(
-  (project) => `/fake/arnold-tmp/repo/${project}`,
+  (project) => `/src/shop-api/.arnold/worktrees/feature-agent-work-5f3a9c21/${project}`,
 );
 
 async function fakeProjectLoading(events: Channel<LspEvent>) {
@@ -234,9 +234,9 @@ async function fakePrepare(onEvent: Channel<SetupEvent>) {
     await send({ kind: "output", line: "src/Api/Startup.cs(12,5): error CS1002: ; expected [src/Api/Api.csproj]" }, 800);
     await send({ kind: "warning", text: "dotnet build failed (exit status: 1)" });
   } else {
-    await send({ kind: "output", line: "  Api -> /fake/arnold-tmp/repo/src/Api/bin/Debug/net10.0/Api.dll" }, 800);
+    await send({ kind: "output", line: "  Api -> /src/shop-api/.arnold/worktrees/feature-agent-work-5f3a9c21/src/Api/bin/Debug/net10.0/Api.dll" }, 800);
   }
-  return { path: "/fake/arnold-tmp/repo" };
+  return { path: "/src/shop-api/.arnold/worktrees/feature-agent-work-5f3a9c21" };
 }
 
 function publishUnusedOpens(uri: string, text: string) {
