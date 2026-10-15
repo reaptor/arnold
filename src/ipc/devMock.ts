@@ -392,7 +392,8 @@ const pullRequestList = (): PullRequest[] =>
         {
           id: 1270,
           title: "Remove legacy notes and validate unknown orders in OrderController",
-          description: "",
+          description:
+            "## Why\n\nUnknown orders crashed `OrderController`; this **validates** them first and removes the [legacy notes](https://example.com/notes).\n\n- Returns 404 for unknown orders\n- Deletes `docs/Legacy.md`\n- Adds tests for the validation that runs before every order is described",
           author: "Linus Torvalds",
           created: hoursAgo(24 * 6),
           draft: false,

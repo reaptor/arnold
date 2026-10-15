@@ -393,7 +393,7 @@ button.primary:hover:not(:disabled) {
   overflow-y: auto;
 }
 
-.picker-list li {
+.picker-list > li {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -401,11 +401,11 @@ button.primary:hover:not(:disabled) {
   border-radius: 4px;
 }
 
-.picker-list li.active {
+.picker-list > li.active {
   background: var(--selected);
 }
 
-.picker-list li.current .picker-name {
+.picker-list > li.current .picker-name {
   font-weight: 600;
 }
 
@@ -472,8 +472,8 @@ button.primary:hover:not(:disabled) {
   visibility: hidden;
 }
 
-.picker-list li:hover button.star,
-.picker-list li.active button.star {
+.picker-list > li:hover button.star,
+.picker-list > li.active button.star {
   visibility: visible;
 }
 
@@ -494,7 +494,7 @@ button.primary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.picker-list li.commit-all {
+.picker-list > li.commit-all {
   margin-bottom: 4px;
 }
 
@@ -1385,14 +1385,23 @@ button.primary:hover:not(:disabled) {
 }
 
 .pr-popup {
-  width: min(560px, calc(100vw - 16px));
+  width: min(780px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+/* Down to near the bottom of the window, scrolling with a visible track. */
 .pr-popup .picker-list {
-  max-height: 420px;
+  max-height: calc(100vh - 150px);
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+}
+
+.pr-popup .picker-list::-webkit-scrollbar-track {
+  background: var(--hover);
+  border-radius: 5px;
 }
 
 .pr-popup > .primary,
@@ -1420,15 +1429,34 @@ button.primary:hover:not(:disabled) {
   animation: spin 0.8s linear infinite;
 }
 
-.pr-list .picker-list li {
-  padding: 5px 8px;
+/* Each pull request is a card of its own. */
+.pr-list .picker-list > li {
+  padding: 8px 10px;
+  border: 1px solid var(--popup-border);
+  border-radius: 6px;
 }
 
-.pr-list .picker-list li.busy {
+.pr-list .picker-list > li + li {
+  margin-top: 6px;
+}
+
+.pr-list .picker-list > li.picker-empty {
+  border: none;
+}
+
+.pr-list .pr-line:first-child .picker-name {
+  font-weight: 600;
+}
+
+.pr-list .picker-list > li.active {
+  border-color: var(--accent);
+}
+
+.pr-list .picker-list > li.busy {
   cursor: progress;
 }
 
-.pr-list .picker-list li.current {
+.pr-list .picker-list > li.current {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -1445,6 +1473,85 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+/* Rendered Markdown, kept to the size of the text around it. */
+.markdown {
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown :is(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6) {
+  margin: 0 0 4px;
+}
+
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.markdown :is(ul, ol) {
+  padding-left: 18px;
+}
+
+.markdown code {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.92em;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--pressed);
+}
+
+.markdown pre {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--pressed);
+  overflow: hidden;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown blockquote {
+  padding-left: 8px;
+  border-left: 2px solid var(--popup-border);
+}
+
+.markdown table {
+  border-collapse: collapse;
+}
+
+.markdown :is(th, td) {
+  padding: 1px 6px;
+  border: 1px solid var(--popup-border);
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--popup-border);
+  margin: 4px 0;
+}
+
+/* Under the pull request's title, all of it. */
+.pr-description {
+  margin: 3px 0 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 .pr-details {
@@ -1538,7 +1645,7 @@ button.primary:hover:not(:disabled) {
   margin-top: 8px;
 }
 
-.pr-list.roomy .picker-list li {
+.pr-list.roomy .picker-list > li {
   padding: 8px 10px;
   border-radius: 6px;
 }

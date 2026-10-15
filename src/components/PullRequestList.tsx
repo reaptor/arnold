@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { PullRequest } from "../ipc/commands";
 import { ago } from "./CommitPicker";
+import { Markdown } from "./Markdown";
 
 interface Props {
   pullRequests: PullRequest[];
@@ -60,6 +61,18 @@ const VOTE_NAMES: Record<string, string> = {
   rejected: "rejected",
 };
 
+/** The description's text without its Markdown marks, on one line, for the tooltip. */
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/(\*{1,3}|`+|~~)(\S(?:.*?\S)?)\1/g, "$2")
+    .replace(/(^|\W)_{1,3}(\S(?:.*?\S)?)_{1,3}(?=\W|$)/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** A searchable list of pull requests; arrow keys move, Enter or a click picks. */
 export function PullRequestList(props: Props) {
   const [query, setQuery] = createSignal("");
@@ -111,7 +124,7 @@ export function PullRequestList(props: Props) {
               }}
               onPointerEnter={() => setActive(position())}
               onClick={() => props.onPick(pullRequest)}
-              title={pullRequest.description || pullRequest.title}
+              title={plainText(pullRequest.description) || pullRequest.title}
             >
               <div class="pr-row">
                 <div class="pr-line">
@@ -130,6 +143,9 @@ export function PullRequestList(props: Props) {
                     <span class="commit-meta pr-opening">Opening…</span>
                   </Show>
                 </div>
+                <Show when={pullRequest.description.trim()}>
+                  <Markdown class="pr-description" text={pullRequest.description} />
+                </Show>
                 <div class="pr-line pr-details">
                   <span class="pr-id">!{pullRequest.id}</span>
                   <span class="pr-branches" title={`${pullRequest.sourceBranch} into ${pullRequest.targetBranch}`}>
