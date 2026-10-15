@@ -7,6 +7,7 @@ use std::time::Duration;
 use base64::Engine;
 use serde::Serialize;
 use serde_json::Value;
+use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::{PrError, PullRequest, Reviewer, Vote};
 
@@ -218,6 +219,9 @@ pub fn pull_request(repo: &AzureRepo, token: &str, id: u64) -> Result<PullReques
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(15)))
+        // Certificates are checked against the system's store, as git does: a
+        // company proxy or an Azure DevOps Server may use a root installed only there.
+        .tls_config(TlsConfig::builder().root_certs(RootCerts::PlatformVerifier).build())
         .timeout_global(Some(Duration::from_secs(60)))
         // Status codes are told apart below.
         .http_status_as_error(false)
@@ -233,13 +237,27 @@ fn get(url: &str, token: &str) -> Result<Value, PrError> {
         // Without it a bad token gets a sign-in page (status 203) instead of a 401.
         .header("X-TFS-FedAuthRedirect", "Suppress")
         .call()
-        .map_err(|e| PrError::Network(format!("Could not reach Azure DevOps: {e}")))?;
+        .map_err(|e| PrError::Network(network_error(url, &e)))?;
     let status = response.status().as_u16();
     let text = response
         .body_mut()
         .read_to_string()
         .map_err(|e| PrError::Network(format!("Could not read the answer from Azure DevOps: {e}")))?;
     classify(status, &text)
+}
+
+fn network_error(url: &str, error: &ureq::Error) -> String {
+    let host = url.split('/').nth(2).unwrap_or(url);
+    let text = error.to_string();
+    if text.contains("certificate") {
+        format!(
+            "Could not reach Azure DevOps: the certificate of {host} is not trusted ({text}). \
+             On a company network, its root certificate has to be installed in the system's certificate store \
+             (Keychain Access on macOS, Manage computer certificates on Windows); your IT department usually does this."
+        )
+    } else {
+        format!("Could not reach Azure DevOps at {host}: {text}")
+    }
 }
 
 fn classify(status: u16, text: &str) -> Result<Value, PrError> {

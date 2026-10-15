@@ -10,4 +10,4 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-ureq = "3"
+ureq.workspace = true

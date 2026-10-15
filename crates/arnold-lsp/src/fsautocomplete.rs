@@ -225,6 +225,12 @@ fn framework_major(name: &str) -> Option<u32> {
 fn http() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(20)))
+        // The system's certificate store, which may hold a company root.
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
         .build()
         .into()
 }
