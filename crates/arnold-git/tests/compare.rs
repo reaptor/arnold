@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{compare, export_commit, list_files, open, read_blob, tree_files, CommitRange, FileStatus};
+use arnold_git::{app_folder, compare, export_commit, list_files, open, read_blob, tree_files, CommitRange, FileStatus};
 
 fn git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -244,4 +244,23 @@ async fn exports_commits_without_touching_the_repository() {
     assert_eq!(git_output(root, &["status", "--porcelain"]), status_before);
     assert_eq!(open(root).await.unwrap().worktrees.len(), 1);
     assert!(!checkout.join(".git").exists());
+}
+
+#[tokio::test]
+async fn exports_into_the_ignored_app_folder() {
+    let dir = fixture();
+    let root = dir.path();
+    let status_before = git_output(root, &["status", "--porcelain"]);
+    let folder = app_folder(root).await.unwrap();
+    assert_eq!(folder, root.join(".arnold"));
+    let checkout = folder.join("worktrees").join("feature");
+
+    export_commit(root, "feature", &checkout, &folder.join("state").join("index")).await.unwrap();
+    assert!(checkout.join("new.txt").exists());
+    assert_eq!(git_output(root, &["status", "--porcelain"]), status_before, "the copy is ignored");
+    assert_eq!(open(root).await.unwrap().worktrees.len(), 1);
+
+    // Called again, it keeps the folder and what is in it.
+    assert_eq!(app_folder(root).await.unwrap(), folder);
+    assert!(checkout.join("new.txt").exists());
 }

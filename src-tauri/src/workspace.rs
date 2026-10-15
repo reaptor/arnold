@@ -1,5 +1,6 @@
 //! Prepares the reviewed commit for the F# language server: its files copied
-//! to a folder of the app's own (the repository knows nothing of it), then
+//! to `.arnold/worktrees/<branch>` in the checkout (ignored by git, and not a
+//! registered worktree), then
 //! restored, and built only where FsAutoComplete needs compiled assemblies.
 
 use std::collections::HashMap;
@@ -44,7 +45,8 @@ pub struct Prepared {
     path: Option<PathBuf>,
 }
 
-/// Copies `commit` (the tip of branch `head`) out of the repository at `root`
+/// Copies `commit` (the tip of branch `head`) of the repository at `root`
+/// into its `.arnold/worktrees` folder
 /// and gets it ready for FsAutoComplete. Steps are reported on `on_event`.
 /// Starting another preparation stops this one, which then fails with
 /// "cancelled".
@@ -98,22 +100,24 @@ async fn prepare(root: &Path, head: &str, commit: &str, events: &Channel<SetupEv
         return Ok(Prepared { path: None });
     };
 
-    let folder = folder_for(root, head).await?;
-    let name = root.file_name().map_or("checkout".into(), |n| n.to_string_lossy().into_owned());
-    let checkout = folder.join(name);
+    let Folders { checkout, state } = folders_for(root, head).await?;
     emit(SetupEvent::Step {
-        title: format!("Copying {} out of the repository", &commit[..commit.len().min(8)]),
+        title: format!(
+            "Copying {} to {}",
+            &commit[..commit.len().min(8)],
+            checkout.strip_prefix(root).unwrap_or(&checkout).display()
+        ),
     });
-    arnold_git::export_commit(root, commit, &checkout, &folder.join("index"))
+    arnold_git::export_commit(root, commit, &checkout, &state.join("index"))
         .await
         .map_err(|e| e.to_string())?;
-    // The server reports resolved paths (on macOS the temp folder is a symlink).
+    // The server reports resolved paths (the repository may be opened through a symlink).
     // Not `std` canonicalize: on Windows that gives `\\?\C:\…`, which becomes a
     // root URI FsAutoComplete cannot load, so it never finishes loading.
     let checkout = dunce::canonicalize(&checkout).map_err(|e| e.to_string())?;
 
     let dotnet = dotnet::locate(&checkout).await?;
-    run_plan(&plan, &dotnet, &checkout, &folder.join("prepared.json"), &emit).await;
+    run_plan(&plan, &dotnet, &checkout, &state.join("prepared.json"), &emit).await;
     Ok(Prepared { path: Some(checkout) })
 }
 
@@ -191,15 +195,22 @@ async fn run_plan(plan: &Plan, dotnet: &dotnet::Dotnet, checkout: &Path, done_fi
     }
 }
 
-/// `<temp>/arnold/<repository>-<id>/<branch>`: one folder per branch, so a
-/// branch that moves on is updated in place and its restore output reused.
-async fn folder_for(root: &Path, head: &str) -> Result<PathBuf, String> {
-    let common = arnold_git::common_dir(root).await.map_err(|e| e.to_string())?;
-    let name = root.file_name().map_or("repo".into(), |n| slug(&n.to_string_lossy()));
-    Ok(std::env::temp_dir()
-        .join("arnold")
-        .join(format!("{name}-{:08x}", fnv(common.to_string_lossy().as_bytes()) as u32))
-        .join(format!("{}-{:06x}", slug(head), fnv(head.as_bytes()) as u32 & 0xff_ffff)))
+struct Folders {
+    /// `<root>/.arnold/worktrees/<branch>`: the copied files.
+    checkout: PathBuf,
+    /// `<root>/.arnold/state/<branch>`: the private index and what was prepared.
+    state: PathBuf,
+}
+
+/// One copy per branch, so a branch that moves on is updated in place and its
+/// restore output reused.
+async fn folders_for(root: &Path, head: &str) -> Result<Folders, String> {
+    let folder = arnold_git::app_folder(root).await.map_err(|e| e.to_string())?;
+    let name = format!("{}-{:06x}", slug(head), fnv(head.as_bytes()) as u32 & 0xff_ffff);
+    Ok(Folders {
+        checkout: folder.join("worktrees").join(&name),
+        state: folder.join("state").join(name),
+    })
 }
 
 /// A name safe in a path on every platform.

@@ -1,10 +1,30 @@
-//! Writing the files of a commit to a folder outside the repository, for tools
-//! that need real files (a language server, `dotnet restore`).
+//! Writing the files of a commit to a folder of the app's own, for tools that
+//! need real files (a language server, `dotnet restore`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::cli::{run_raw_with, GitError};
 use crate::Result;
+
+/// `<root>/.arnold`: where the app keeps its copies of commits, inside the
+/// checkout like Claude Code's `.claude/worktrees`. A `.gitignore` in it
+/// ignores everything there (itself included), so the repository's status
+/// does not change.
+pub async fn app_folder(root: &Path) -> Result<PathBuf> {
+    let folder = root.join(".arnold");
+    let failed = |e: std::io::Error| GitError::Failed {
+        command: "export".into(),
+        stderr: format!("{}: {e}", folder.display()),
+    };
+    tokio::fs::create_dir_all(&folder).await.map_err(failed)?;
+    let ignore = folder.join(".gitignore");
+    if !tokio::fs::try_exists(&ignore).await.unwrap_or(false) {
+        tokio::fs::write(&ignore, "# Copies of commits made by Arnold for the language server.\n*\n")
+            .await
+            .map_err(failed)?;
+    }
+    Ok(folder)
+}
 
 /// Makes `dir` hold exactly the files of `commit`.
 ///
@@ -14,10 +34,12 @@ use crate::Result;
 /// changed and removes the ones it dropped. Files git never wrote there (build
 /// output such as `obj/`) are kept, so later restores and builds are quick.
 pub async fn export_commit(root: &Path, commit: &str, dir: &Path, index: &Path) -> Result<()> {
-    tokio::fs::create_dir_all(dir).await.map_err(|e| GitError::Failed {
-        command: "export".into(),
-        stderr: format!("{}: {e}", dir.display()),
-    })?;
+    for folder in std::iter::once(dir).chain(index.parent()) {
+        tokio::fs::create_dir_all(folder).await.map_err(|e| GitError::Failed {
+            command: "export".into(),
+            stderr: format!("{}: {e}", folder.display()),
+        })?;
+    }
     if read_tree(root, commit, dir, index).await.is_ok() {
         return Ok(());
     }
