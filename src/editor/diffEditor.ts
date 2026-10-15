@@ -7,6 +7,7 @@ import { Compartment, EditorSelection, EditorState, type Extension } from "@code
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
+import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
@@ -22,6 +23,8 @@ export interface DiffDocument {
   working: string;
   /** Show the working text alone, without a diff (an added, deleted or unchanged file). */
   plain?: boolean;
+  /** The file is removed by the branch; `working` holds its base text. */
+  deleted?: boolean;
 }
 
 /** Editor state kept while a file is not on screen. */
@@ -233,7 +236,12 @@ export class DiffEditor {
     ];
 
     if (document.plain) {
-      this.unified = new EditorView({ parent: this.parent, doc, selection, extensions: workingExtensions });
+      this.unified = new EditorView({
+        parent: this.parent,
+        doc,
+        selection,
+        extensions: [workingExtensions, document.deleted ? deletedFile : []],
+      });
     } else if (this.mode === "split") {
       this.merge = new MergeView({
         parent: this.parent,

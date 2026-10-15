@@ -114,7 +114,7 @@ export function AllFilesView() {
   function reveal(path: string) {
     const section = sections.get(path);
     if (!section) return;
-    setCollapsed(path, false);
+    // Scrolls to the header only: a collapsed file (a deleted one starts so) stays collapsed.
     scroller.scrollTop = section.offsetTop - REVEAL_GAP;
     // A short file may sit above the reading line; it stays selected until scrolling moves on.
     spied = fileAtReadingLine();

@@ -27,7 +27,6 @@
   --added: #3e8a4c;
   --removed: #d1434f;
   --modified: #3574f0;
-  --deleted: #8c8f96;
   --warning: #a76c0b;
   --star: #e0a100;
   --banner: #fdf2dc;
@@ -69,7 +68,6 @@
     --added: #73bd79;
     --removed: #f57e84;
     --modified: #70aeff;
-    --deleted: #6f737a;
     --warning: #d59637;
     --star: #f2c55c;
     --banner: #44321d;
@@ -765,7 +763,16 @@ button.primary:hover:not(:disabled) {
 }
 
 .status-deleted {
-  color: var(--deleted);
+  color: var(--removed);
+}
+
+/* Deleted files: red-tinted lines in the editor (deletedFile.ts). */
+.diff-host .cm-editor.cm-deletedFile .cm-line {
+  background: var(--diff-old-line);
+}
+
+.diff-host .cm-editor.cm-deletedFile .cm-gutters {
+  box-shadow: inset -3px 0 var(--diff-old-mark);
 }
 
 .status-modified,

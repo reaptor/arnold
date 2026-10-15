@@ -187,6 +187,7 @@ function documentOf(file: ChangedFile, session: Session): DiffDocument {
     base,
     working: file.status === "deleted" ? base : working,
     plain: WHOLE_FILE.includes(file.status),
+    deleted: file.status === "deleted",
   };
 }
 
@@ -248,6 +249,7 @@ export async function openRepoAt(path: string) {
     const head = has(remembered.head) ? remembered.head : defaultHead(repo, base);
     resetSessions();
     setState({ repo, base, head, comparison: null, selected: null });
+    await setView("all");
     await refresh();
   } catch (error) {
     fail(error);
@@ -271,6 +273,7 @@ export async function setBranches(change: { base?: string; head?: string }) {
   );
   resetSessions();
   setState({ selected: null });
+  await setView("all");
   await refresh();
 }
 
@@ -301,6 +304,11 @@ export async function refresh() {
     if (repo !== state.repo) return;
     // Listed, stepped through and shown in the order of the file explorer.
     comparison.files.sort((a, b) => comparePaths(a.path, b.path));
+    // Deleted files start collapsed in the all-files view; once opened or
+    // closed by hand they keep that across refreshes.
+    for (const file of comparison.files) {
+      if (file.status === "deleted" && !(file.path in state.collapsed)) setState("collapsed", file.path, true);
+    }
     setState("comparison", reconcile(comparison, { key: "path" }));
     void loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
