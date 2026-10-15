@@ -109,8 +109,10 @@ export function prepareWorkspace(root: string, head: string, commit: string, onE
 export type LspEvent =
   | { kind: "status"; text: string | null }
   | { kind: "diagnostics"; uri: string; errors: number; warnings: number }
+  | { kind: "projectLoading"; project: string }
+  | { kind: "projectLoaded"; project: string }
+  | { kind: "projectFailed"; project: string; message: string; details: string | null }
   | { kind: "workspaceLoaded" }
-  | { kind: "projectFailed"; project: string; message: string }
   | { kind: "exited" };
 
 /** Starts a language server; resolves to its id once it is running. */

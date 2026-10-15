@@ -145,6 +145,42 @@ const searchParams = new URLSearchParams(location.search);
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, searchParams.has("setupslow") ? 4000 : ms));
 let preparation = 0;
 
+// Projects the stand-in server "loads"; `?projectfail` makes the second fail
+// the way FsAutoComplete reports a missing package.
+const FAKE_PROJECTS = ["src/Core/Core.fsproj", "src/Api/Api.fsproj", "tests/Tests.fsproj"].map(
+  (project) => `/fake/arnold-tmp/repo/${project}`,
+);
+
+async function fakeProjectLoading(events: Channel<LspEvent>) {
+  await pause(400);
+  for (const project of FAKE_PROJECTS) events.onmessage({ kind: "projectLoading", project });
+  events.onmessage({ kind: "status", text: `Loading ${FAKE_PROJECTS.length} Projects` });
+  for (const [index, project] of FAKE_PROJECTS.entries()) {
+    events.onmessage({ kind: "projectLoading", project });
+    await pause(900);
+    if (index === 1 && searchParams.has("projectfail")) {
+      events.onmessage({
+        kind: "projectFailed",
+        project,
+        message: "Package Giraffe, version 7.0.2 was not found. It might have been deleted since NuGet restore.",
+        details: [
+          "Build started.",
+          "",
+          'Project "Api.fsproj" (ResolveAssemblyReferencesDesignTime;CoreCompile target(s)):',
+          'Task "ResolvePackageAssets"',
+          "Package Giraffe, version 7.0.2 was not found. It might have been deleted since NuGet restore.",
+          'Done executing task "ResolvePackageAssets" -- FAILED.',
+          "Build FAILED.",
+        ].join("\n"),
+      });
+    } else {
+      events.onmessage({ kind: "projectLoaded", project });
+    }
+  }
+  events.onmessage({ kind: "workspaceLoaded" });
+  events.onmessage({ kind: "status", text: null });
+}
+
 async function fakePrepare(onEvent: Channel<SetupEvent>) {
   const run = ++preparation;
   const send = async (event: SetupEvent, ms = 0) => {
@@ -280,13 +316,7 @@ export function install() {
           const channels = payload as { onMessage: Channel<string>; onEvent: Channel<LspEvent> };
           serverChannel = channels.onMessage;
           const events = channels.onEvent;
-          void pause(400)
-            .then(() => events.onmessage({ kind: "status", text: "Loading 2 Projects" }))
-            .then(() => pause(1200))
-            .then(() => {
-              events.onmessage({ kind: "workspaceLoaded" });
-              events.onmessage({ kind: "status", text: null });
-            });
+          void fakeProjectLoading(events);
           return 1;
         }
         case "lsp_send": {

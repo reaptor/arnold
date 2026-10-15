@@ -34,6 +34,15 @@ export interface SetupStep {
   note: string | null;
 }
 
+export interface SetupProblem {
+  text: string;
+  /** The full output it was taken from (a project's build log), if any. */
+  details: string | null;
+}
+
+/** Where FsAutoComplete is with loading one project. */
+export type ProjectLoad = "loading" | "loaded" | "failed";
+
 export interface LanguageSetup {
   commit: string;
   phase: SetupPhase;
@@ -41,7 +50,11 @@ export interface LanguageSetup {
   path: string | null;
   steps: SetupStep[];
   /** Why features are off or may be incomplete. */
-  problems: string[];
+  problems: SetupProblem[];
+  /** The projects FsAutoComplete announced, by path, and how loading them went. */
+  projects: Record<string, ProjectLoad>;
+  /** The project being loaded now. */
+  currentProject: string | null;
 }
 
 interface State {
@@ -578,7 +591,7 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   setSetupOutput([]);
   setState({
     lspStatus: null,
-    languageSetup: { commit: comparison.headCommit, phase: "preparing", path: null, steps: [], problems: [] },
+    languageSetup: { commit: comparison.headCommit, phase: "preparing", path: null, steps: [], problems: [], projects: {}, currentProject: null },
   });
 
   let prepared: { path: string | null };
@@ -612,6 +625,13 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   finishStep("done");
   startStep("Loading projects");
   setState("languageSetup", "phase", "loading");
+  // Without a working handshake the server never reports the projects loaded.
+  client.initializing.catch((error: unknown) => {
+    if (!current() || state.languageSetup?.phase !== "loading") return;
+    finishStep("failed");
+    addSetupProblem(`The language server could not start: ${error instanceof Error ? error.message : String(error)}`);
+    setState("languageSetup", "phase", "failed");
+  });
   ipc.devTrace(`language server running in ${prepared.path}`);
   forEachShownEditor((target, file) => void attachLanguageServer(file, target));
   void checkChangedFiles();
@@ -654,8 +674,42 @@ function finishStep(outcome: "done" | "failed", note?: string) {
   setState("languageSetup", "steps", index, { state: outcome, note: note ?? steps[index].note });
 }
 
-function addSetupProblem(problem: string) {
-  if (state.languageSetup) setState("languageSetup", "problems", (problems) => [...problems, problem]);
+function addSetupProblem(text: string, details: string | null = null) {
+  if (state.languageSetup) setState("languageSetup", "problems", (problems) => [...problems, { text, details }]);
+}
+
+/** A project path as the user knows it: relative to the prepared copy. */
+export function projectName(project: string): string {
+  const root = state.languageSetup?.path;
+  return (root && relativeTo(root, project)) || project.split(/[\\/]/).pop() || project;
+}
+
+/** How many of the announced projects are loaded, failed, or still to do. */
+export function projectCounts(setup: LanguageSetup) {
+  const loads = Object.values(setup.projects);
+  const loaded = loads.filter((load) => load === "loaded").length;
+  const failed = loads.filter((load) => load === "failed").length;
+  return { total: loads.length, loaded, failed, finished: loaded + failed };
+}
+
+function setProjectLoad(project: string, load: ProjectLoad) {
+  const setup = state.languageSetup;
+  if (!setup || !project) return;
+  setState("languageSetup", "projects", project, load);
+  if (load === "loading") setState("languageSetup", "currentProject", project);
+  else if (setup.currentProject === project) setState("languageSetup", "currentProject", null);
+  // The "Loading projects" step counts along.
+  const index = setup.steps.findIndex((step) => step.state === "running");
+  if (setup.phase === "loading" && index >= 0) {
+    setState("languageSetup", "steps", index, "note", projectNote(setup));
+  }
+}
+
+function projectNote(setup: LanguageSetup): string | null {
+  const { total, loaded, failed, finished } = projectCounts(setup);
+  if (total === 0) return null;
+  if (setup.phase === "loading") return `${finished} of ${total}${failed ? `, ${failed} failed` : ""}`;
+  return failed ? `${loaded} of ${total} loaded, ${failed} failed` : `${total} ${total === 1 ? "project" : "projects"}`;
 }
 
 function onServerEvent(event: ipc.LspEvent) {
@@ -666,16 +720,22 @@ function onServerEvent(event: ipc.LspEvent) {
       break;
     case "workspaceLoaded":
       if (state.languageSetup?.phase === "loading") {
-        finishStep("done");
-        setState("languageSetup", "phase", "ready");
+        setState("languageSetup", { phase: "ready", currentProject: null });
+        finishStep("done", projectNote(state.languageSetup) ?? undefined);
         ipc.devTrace("language features ready");
       }
       break;
-    case "projectFailed": {
-      const name = event.project.split(/[\\/]/).pop() || event.project;
-      addSetupProblem(`${name} could not be loaded: ${event.message}`);
+    case "projectLoading":
+      setProjectLoad(event.project, "loading");
       break;
-    }
+    case "projectLoaded":
+      setProjectLoad(event.project, "loaded");
+      break;
+    case "projectFailed":
+      setProjectLoad(event.project, "failed");
+      addSetupProblem(`${projectName(event.project)} could not be loaded: ${event.message}`, event.details);
+      ipc.devTrace(`project failed: ${projectName(event.project)}: ${event.message}`);
+      break;
     case "exited":
       finishStep("failed");
       addSetupProblem("The language server stopped.");

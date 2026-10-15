@@ -24,6 +24,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 use crate::framing::{read_message, write_message};
+use crate::msbuild;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -33,10 +34,20 @@ pub enum Event {
     Progress(Option<String>),
     /// Diagnostics the server published for one file.
     Diagnostics { uri: String, errors: u32, warnings: u32 },
+    /// FsAutoComplete started loading a project (it also announces every
+    /// project of the workspace this way before it starts).
+    ProjectLoading { project: String },
+    /// FsAutoComplete loaded a project.
+    ProjectLoaded { project: String },
+    /// FsAutoComplete could not load a project. `message` is short; `details`
+    /// holds the build log it was taken from, if any.
+    ProjectFailed {
+        project: String,
+        message: String,
+        details: Option<String>,
+    },
     /// FsAutoComplete finished loading the projects of the workspace.
     WorkspaceLoaded,
-    /// FsAutoComplete could not load a project.
-    ProjectFailed { project: String, message: String },
     /// A line the server wrote to stderr.
     Log(String),
     /// The server's output ended: it exited or crashed.
@@ -393,12 +404,20 @@ fn handle_server_message(message: &str, shared: &Shared, progress: &mut Progress
 fn workspace_event(params: &Value) -> Option<Event> {
     let content: Value = serde_json::from_str(params["content"].as_str()?).ok()?;
     let data = &content["Data"];
+    let project = |data: &Value| data["Project"].as_str().unwrap_or_default().to_string();
     match content["Kind"].as_str()? {
+        "projectLoading" => Some(Event::ProjectLoading { project: project(data) }),
+        "project" => Some(Event::ProjectLoaded { project: project(data) }),
         "workspaceLoad" if data["Status"] == "finished" => Some(Event::WorkspaceLoaded),
-        "error" => Some(Event::ProjectFailed {
-            project: data["Project"].as_str().unwrap_or_default().to_string(),
-            message: data["Message"].as_str().unwrap_or("could not be loaded").to_string(),
-        }),
+        "error" => {
+            let (message, details) = msbuild::explain(data["Message"].as_str().unwrap_or_default());
+            Some(Event::ProjectFailed {
+                // Errors carry the project in `AdditionalData`.
+                project: project(&data["AdditionalData"]),
+                message,
+                details,
+            })
+        }
         _ => None,
     }
 }
@@ -588,17 +607,29 @@ mod tests {
         let notify = |content: Value| {
             json!({ "jsonrpc": "2.0", "method": "fsharp/notifyWorkspace", "params": { "content": content.to_string() } })
         };
+        // The shapes FsAutoComplete 0.85 sends.
         h.server_says(notify(json!({ "Kind": "projectLoading", "Data": { "Project": "/w/A.fsproj" } }))).await;
-        h.server_says(notify(json!({ "Kind": "error", "Data": { "Project": "/w/B.fsproj", "Message": "no SDK" } })))
-            .await;
+        h.server_says(notify(json!({ "Kind": "project", "Data": { "Project": "/w/A.fsproj", "Files": [] } }))).await;
+        h.server_says(notify(json!({
+            "Kind": "error",
+            "Data": { "Code": 100, "Message": "Project not restored", "AdditionalData": { "Project": "/w/B.fsproj" } }
+        })))
+        .await;
         h.server_says(notify(json!({ "Kind": "workspaceLoad", "Data": { "Status": "finished" } }))).await;
-        let events: Vec<_> = (0..5).map(|_| h.next_event()).filter(|e| !matches!(e, Event::Message(_))).collect();
+        let events: Vec<_> = (0..8).map(|_| h.next_event()).filter(|e| !matches!(e, Event::Message(_))).collect();
         assert_eq!(
             events,
             vec![
+                Event::ProjectLoading {
+                    project: "/w/A.fsproj".into()
+                },
+                Event::ProjectLoaded {
+                    project: "/w/A.fsproj".into()
+                },
                 Event::ProjectFailed {
                     project: "/w/B.fsproj".into(),
-                    message: "no SDK".into()
+                    message: "Project not restored".into(),
+                    details: None,
                 },
                 Event::WorkspaceLoaded,
             ]

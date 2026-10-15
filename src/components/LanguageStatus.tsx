@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { type SetupStep, setupOutput, state } from "../state/review";
+import { projectCounts, projectName, type SetupStep, setupOutput, state } from "../state/review";
 
 const STEP_MARK: Record<SetupStep["state"], string> = {
   running: "",
@@ -44,8 +44,17 @@ export function LanguageStatus() {
         return `Preparing F# features: ${runningStep() ?? "…"}`;
       case "starting":
         return `Starting the F# language server${detail}`;
-      case "loading":
-        return `Loading F# projects${detail}`;
+      case "loading": {
+        // FsAutoComplete's own progress only says "Loading N Projects".
+        const { total, finished, failed } = projectCounts(setup()!);
+        if (total === 0) return `Loading F# projects${detail}`;
+        const current = setup()!.currentProject;
+        return (
+          `Loading F# projects: ${finished} of ${total}` +
+          (failed ? ` (${failed} failed)` : "") +
+          (current ? ` · ${projectName(current)}` : "")
+        );
+      }
       case "ready":
         if (state.lspStatus) return `F#: ${state.lspStatus}`;
         return problems().length ? `F# ready, ${problems().length} ${problems().length === 1 ? "problem" : "problems"}` : "F# ready";
@@ -114,7 +123,19 @@ export function LanguageStatus() {
               </ol>
               <Show when={problems().length > 0}>
                 <ul class="setup-problems">
-                  <For each={problems()}>{(problem) => <li>{problem}</li>}</For>
+                  <For each={problems()}>
+                    {(problem) => (
+                      <li>
+                        {problem.text}
+                        <Show when={problem.details}>
+                          <details>
+                            <summary>Build log</summary>
+                            <pre class="setup-output">{problem.details}</pre>
+                          </details>
+                        </Show>
+                      </li>
+                    )}
+                  </For>
                 </ul>
               </Show>
               <Show when={current().path}>

@@ -5,6 +5,7 @@
 pub mod dotnet;
 mod framing;
 pub mod fsautocomplete;
+mod msbuild;
 pub mod proxy;
 pub mod workspace;
 

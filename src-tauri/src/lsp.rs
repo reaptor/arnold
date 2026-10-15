@@ -24,9 +24,16 @@ pub enum LspEvent {
     /// What the server (or its installer) is doing; `text` is null when idle.
     Status { text: Option<String> },
     Diagnostics { uri: String, errors: u32, warnings: u32 },
+    ProjectLoading { project: String },
+    ProjectLoaded { project: String },
+    /// `details`: the build log `message` was taken from, if any.
+    ProjectFailed {
+        project: String,
+        message: String,
+        details: Option<String>,
+    },
     /// The server has loaded the workspace's projects: features are ready.
     WorkspaceLoaded,
-    ProjectFailed { project: String, message: String },
     Exited,
 }
 
@@ -84,8 +91,18 @@ pub async fn lsp_start(
             Event::Diagnostics { uri, errors, warnings } => {
                 emit(LspEvent::Diagnostics { uri, errors, warnings })
             }
+            Event::ProjectLoading { project } => emit(LspEvent::ProjectLoading { project }),
+            Event::ProjectLoaded { project } => emit(LspEvent::ProjectLoaded { project }),
+            Event::ProjectFailed {
+                project,
+                message,
+                details,
+            } => emit(LspEvent::ProjectFailed {
+                project,
+                message,
+                details,
+            }),
             Event::WorkspaceLoaded => emit(LspEvent::WorkspaceLoaded),
-            Event::ProjectFailed { project, message } => emit(LspEvent::ProjectFailed { project, message }),
             Event::Log(line) => {
                 if cfg!(debug_assertions) && !line.trim().is_empty() {
                     eprintln!("[fsautocomplete] {line}");

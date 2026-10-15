@@ -1163,6 +1163,14 @@ button.primary:hover:not(:disabled) {
   color: var(--warning);
 }
 
+.setup-problems li + li {
+  margin-top: 4px;
+}
+
+.setup-problems .setup-output {
+  color: var(--text);
+}
+
 .language-popup .setup-path code {
   color: var(--text);
   word-break: break-all;
