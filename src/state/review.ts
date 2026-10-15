@@ -217,6 +217,9 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
       menuTarget = position === null ? null : { view, position };
       setState("menu", { x, y, definition: menuTarget !== null && lsp.hasLanguageServer(view) });
     },
+    onStepChange(direction) {
+      void stepChange(direction);
+    },
   };
 }
 
@@ -555,8 +558,38 @@ export function goToDefinition() {
   menuTarget = null;
 }
 
-export const nextChange = () => activeEditor()?.nextChange();
-export const previousChange = () => activeEditor()?.previousChange();
+export const nextChange = () => stepChange(1);
+export const previousChange = () => stepChange(-1);
+
+/**
+ * F7 / Shift+F7. The one-file view goes round its file; the all-files view
+ * goes on to the next (or previous) expanded file once a file's changes run
+ * out, and stops at the last one.
+ */
+async function stepChange(direction: 1 | -1) {
+  if (state.view !== "all") {
+    if (direction > 0) editor?.nextChange();
+    else editor?.previousChange();
+    return;
+  }
+  const from = activePath();
+  const current = from && !state.collapsed[from] ? await showSection(from) : null;
+  if (current?.stepChange(direction)) return current.focus();
+  const files = state.comparison?.files ?? [];
+  let index = files.findIndex((file) => file.path === from);
+  if (index < 0) index = direction > 0 ? -1 : files.length;
+  for (let next = index + direction; next >= 0 && next < files.length; next += direction) {
+    const path = files[next].path;
+    if (state.collapsed[path]) continue;
+    const target = await showFileSection(path);
+    if (!target) continue; // Binary or too large to show.
+    revealSection(path);
+    target.enterChange(direction);
+    target.focus();
+    return;
+  }
+  current?.focus();
+}
 
 // ----------------------------------------------------------- language server
 

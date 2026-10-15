@@ -2,7 +2,7 @@
 // the same working text. Switching mode or file keeps the selection and scroll
 // position.
 
-import { goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
+import { getChunks, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
@@ -34,6 +34,8 @@ export interface DiffEditorCallbacks {
   onFocus(): void;
   /** `view` is the editor right-clicked; `position` the text position under the pointer. */
   onContextMenu(x: number, y: number, view: EditorView, position: number | null): void;
+  /** F7 / Shift+F7 in the editor. */
+  onStepChange(direction: 1 | -1): void;
 }
 
 const COLLAPSE = { margin: 3, minSize: 8 };
@@ -135,6 +137,45 @@ export class DiffEditor {
     view?.focus();
   }
 
+  /**
+   * Moves the cursor to the next (1) or previous (-1) change without wrapping
+   * around. Returns false when there is none that way; a file shown whole
+   * has none.
+   */
+  stepChange(direction: 1 | -1): boolean {
+    const view = this.working;
+    const chunks = view && !this.document?.plain ? getChunks(view.state)?.chunks : undefined;
+    if (!view || !chunks) return false;
+    const head = view.state.selection.main.head;
+    const target =
+      direction > 0
+        ? chunks.find((chunk) => chunk.fromB > head)
+        : [...chunks].reverse().find((chunk) => chunk.toB < head);
+    if (!target) return false;
+    this.moveTo(view, target.fromB, target.toB);
+    return true;
+  }
+
+  /**
+   * Puts the cursor on the first (1) or last (-1) change of the file, or at
+   * the top of a file shown whole.
+   */
+  enterChange(direction: 1 | -1) {
+    const view = this.working;
+    if (!view) return;
+    const chunks = this.document?.plain ? undefined : getChunks(view.state)?.chunks;
+    const target = chunks?.length ? chunks[direction > 0 ? 0 : chunks.length - 1] : null;
+    this.moveTo(view, target?.fromB ?? 0, target?.toB ?? 0);
+  }
+
+  private moveTo(view: EditorView, from: number, to: number) {
+    view.dispatch({
+      selection: { anchor: from },
+      userEvent: "select.byChunk",
+      effects: EditorView.scrollIntoView(EditorSelection.range(to, from)),
+    });
+  }
+
   focus() {
     this.working?.focus();
   }
@@ -177,7 +218,13 @@ export class DiffEditor {
     const workingExtensions = [
       this.sharedExtensions(document.path),
       this.supportSlot.of(this.support),
-      keymap.of([{ key: "F7", run: () => (this.nextChange(), true), shift: () => (this.previousChange(), true) }]),
+      keymap.of([
+        {
+          key: "F7",
+          run: () => (this.callbacks.onStepChange(1), true),
+          shift: () => (this.callbacks.onStepChange(-1), true),
+        },
+      ]),
       EditorView.updateListener.of((update) => {
         if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSemanticRanges)))) {
           this.mirrorSemanticRanges();
