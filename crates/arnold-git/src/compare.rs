@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,9 @@ pub struct ChangedFile {
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
     pub binary: bool,
+    /// Differs on disk from the tip of the branch: edits not committed yet.
+    /// Only set when the comparison reads the checkout's files.
+    pub uncommitted: bool,
 }
 
 /// One commit of the branch under review.
@@ -67,6 +70,12 @@ pub struct Comparison {
     /// The commits of `head` since the merge-base, newest first.
     pub commits: Vec<Commit>,
     pub files: Vec<ChangedFile>,
+    /// The checkout whose files the diff ends at instead of `head_commit`:
+    /// `head` is checked out there and all of its changes are shown, so the
+    /// files may be edited. `None` when the diff is between commits.
+    pub checkout: Option<PathBuf>,
+    /// Files with uncommitted changes in `checkout`.
+    pub uncommitted: usize,
 }
 
 /// What git compares a parentless commit against.
@@ -75,9 +84,18 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 /// PR-style comparison: merge-base of `base` and `head` → the tip commit of
 /// `head`. With `range`, only what those commits (of the ones since the
 /// merge-base) changed: the first parent of the oldest → the newest. A range
-/// whose ends are no longer on the branch is ignored. Uncommitted and
-/// untracked files are never part of it.
-pub async fn compare(root: &Path, base: &str, head: &str, range: Option<&CommitRange>) -> Result<Comparison> {
+/// whose ends are no longer on the branch is ignored.
+///
+/// `checkout`: where `head` is checked out. Without a range the diff then
+/// ends at that checkout's files, uncommitted edits and untracked files
+/// included, and the files that differ from the tip are marked `uncommitted`.
+pub async fn compare(
+    root: &Path,
+    base: &str,
+    head: &str,
+    range: Option<&CommitRange>,
+    checkout: Option<&Path>,
+) -> Result<Comparison> {
     // Unrelated histories have no merge-base; compare against `base` itself then.
     let merge_base = match run_text(root, &["merge-base", base, head]).await {
         Ok(sha) if !sha.is_empty() => sha,
@@ -107,7 +125,11 @@ pub async fn compare(root: &Path, base: &str, head: &str, range: Option<&CommitR
         }
         None => (merge_base, tip_commit.clone()),
     };
-    let mut files = diff_files(root, &[from.as_str(), to.as_str()]).await?;
+    let checkout = checkout.filter(|_| range.is_none());
+    let (mut files, uncommitted) = match checkout {
+        Some(checkout) => on_disk(checkout, &from, &to).await?,
+        None => (diff_files(root, &[from.as_str(), to.as_str()]).await?, 0),
+    };
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(Comparison {
         base: base.to_string(),
@@ -118,7 +140,32 @@ pub async fn compare(root: &Path, base: &str, head: &str, range: Option<&CommitR
         range,
         commits,
         files,
+        checkout: checkout.map(Path::to_path_buf),
+        uncommitted,
     })
+}
+
+/// `from` → the files of `checkout`, whose branch is at `tip`, and how many
+/// files differ from `tip` there.
+async fn on_disk(checkout: &Path, from: &str, tip: &str) -> Result<(Vec<ChangedFile>, usize)> {
+    let from_args = [from];
+    let edited_args = ["diff", "--name-only", "-z", "--no-renames", tip];
+    let (mut files, edited, untracked) = tokio::try_join!(
+        diff_files(checkout, &from_args),
+        run(checkout, &edited_args),
+        crate::working::untracked_files(checkout),
+    )?;
+    let mut edited: HashSet<String> = String::from_utf8_lossy(&edited)
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect();
+    edited.extend(untracked.iter().map(|file| file.path.clone()));
+    files.extend(untracked);
+    for file in &mut files {
+        file.uncommitted = edited.contains(&file.path);
+    }
+    Ok((files, edited.len()))
 }
 
 /// Commits reachable from `tip` but not from `merge_base`, newest first.
@@ -204,6 +251,7 @@ fn parse_name_status(out: &str) -> Result<Vec<ChangedFile>> {
             additions: None,
             deletions: None,
             binary: false,
+            uncommitted: false,
         });
     }
     Ok(files)

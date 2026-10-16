@@ -39,6 +39,8 @@ import { placeName, setThreadActions } from "../editor/threads";
 import { azureHostLinks, setHostLinks } from "../components/Markdown";
 import * as pullRequests from "./pullRequests";
 import * as commitMode from "./commitMode";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
 
 /**
  * What is shown: the uncommitted changes of a checkout, to commit them (the
@@ -166,6 +168,11 @@ interface State {
     side?: WorkingSide;
     /** Commit mode: the right-clicked editor can be typed in, so its line actions need Alt. */
     editable?: boolean;
+    /**
+     * Branches, editing a checked-out branch: undoing uncommitted edits of
+     * `path`, in the selected lines (an editor) and in the whole file.
+     */
+    undo?: { path: string; lines: boolean; file: boolean };
   } | null;
 }
 
@@ -311,15 +318,30 @@ export const isChanged = (path: string | null) =>
  */
 const WHOLE_FILE: FileStatus[] = ["added", "deleted", "unchanged"];
 
-function documentOf(file: ChangedFile, session: Session): DiffDocument {
-  const base = session.pair.base ?? "";
-  const working = session.pair.working ?? "";
+/**
+ * How `file` is shown, with `texts` (by default what was read). When the
+ * comparison reads the branch's checkout its files can be edited; a file
+ * outside the diff is shown alone while its text is the merge-base's, and
+ * as a diff once edited.
+ */
+function documentOf(
+  file: ChangedFile,
+  session: Session,
+  texts: Pick<FilePair, "base" | "working" | "committed"> = session.pair,
+): DiffDocument {
+  const base = texts.base ?? "";
+  const working = texts.working ?? "";
+  const deleted = file.status === "deleted";
+  const editable = !!state.comparison?.checkout && !deleted;
   return {
     path: file.path,
     base,
-    working: file.status === "deleted" ? base : working,
-    plain: WHOLE_FILE.includes(file.status),
-    deleted: file.status === "deleted",
+    working: deleted ? base : working,
+    plain: file.status === "unchanged" ? base === working : WHOLE_FILE.includes(file.status),
+    deleted,
+    editable,
+    // Frames the uncommitted edits; a file the last commit lacks is all edits, framed by nothing.
+    committed: editable ? ((texts.committed === undefined ? session.pair.committed : texts.committed) ?? null) : null,
     threads: fileThreads(file.path),
     draft: drafts.get(file.path) ?? null,
   };
@@ -363,6 +385,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       menuTarget = position === null ? null : { view, position };
       const path = pathOf();
       menuComment = path !== null && comment && canComment(path) ? { path, lines: comment } : null;
+      const undos = path !== null && editsUndoable(path) ? editorFor(path)?.editUndos() : undefined;
       setState("menu", {
         x,
         y,
@@ -373,6 +396,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
             ? (side && path !== null ? commitMode.sectionEditor(side, path) : editorFor(path))?.lineActions()
             : undefined,
         editable: !view.state.readOnly,
+        undo: undos && path !== null ? { path, lines: undos.lines, file: !!fileAt(path)?.uncommitted } : undefined,
       });
     },
     onStepChange(direction) {
@@ -380,7 +404,9 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
     },
     onChange(text) {
       const path = pathOf();
-      if (state.source === "commit" && path !== null) commitMode.edited(path, text);
+      if (path === null) return;
+      if (state.source === "commit") commitMode.edited(path, text);
+      else edited(path, text);
     },
     onLineAction(action) {
       activate();
@@ -389,6 +415,13 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
     onMoveChunk(direction, lines) {
       activate();
       if (state.source === "commit") void commitMode.moveChunk(direction, lines);
+    },
+    onBlockedEdit() {
+      // Said once: typing on afterwards is just ignored.
+      if (editBlocked() && !editInfoShown) {
+        editInfoShown = true;
+        setEditInfoOpen(true);
+      }
     },
   };
 }
@@ -552,6 +585,9 @@ export async function setRange(range: CommitRange | null) {
  * running: it is replaced only when the reviewed commit changes.
  */
 export function resetSessions() {
+  // An edit waiting to be saved still goes to the checkout it was made in.
+  void flushSave();
+  editInfoShown = false;
   sessions.clear();
   backgroundSent.clear();
   backStack.length = 0;
@@ -584,12 +620,18 @@ export async function refresh() {
     for (const file of comparison.files) {
       if (file.status === "deleted" && !(file.path in state.collapsed)) setState("collapsed", file.path, true);
     }
+    // The file shown on its own whose edits took it back to the merge-base
+    // stays shown, now as a file outside the diff.
+    const shown = state.view === "file" && comparison.checkout ? state.selected : null;
+    const dropped =
+      shown !== null && isChanged(shown) && !comparison.files.some((file) => file.path === shown) ? shown : null;
     setState("comparison", reconcile(comparison, { key: "path" }));
     void loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
-    setState("visited", (visited) =>
-      visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
-    );
+    setState("visited", (visited) => [
+      ...visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
+      ...(dropped !== null && !visited.some((file) => file.path === dropped) ? [unchangedFile(dropped)] : []),
+    ]);
     setState("error", null);
     if (setupKey(repo, comparison) !== preparedKey) void setUpLanguageFeatures(repo, comparison);
 
@@ -690,6 +732,8 @@ async function showFile(file: ChangedFile) {
   if (!repo || !comparison) return;
   const token = nextToken(FILE_VIEW);
   try {
+    // A save under way would otherwise be read back half-way.
+    if (isSaving(file.path)) await flushSave();
     const pair = await ipc.readFilePair(repo.root, comparison, file);
     if (!isLatest(FILE_VIEW, token)) return;
     const reason = unshowable(pair);
@@ -721,12 +765,173 @@ async function revalidate(file: ChangedFile, target: DiffEditor, key: string) {
   }
 
   const token = nextToken(key);
+  const saves = saveCount();
   const pair = await ipc.readFilePair(repo.root, comparison, file);
   if (!isLatest(key, token) || unshowable(pair)) return;
-  if (pair.base === session.pair.base && pair.working === session.pair.working) return;
+  const document = documentOf(file, session, pair);
+  if (document.editable) {
+    // The editor may hold newer text than was read; the save's own change brings it back.
+    if (isSaving(file.path) || saves !== saveCount()) return;
+    session.pair = pair;
+    if (target.shows(file.path, document)) {
+      target.updateTexts(document.base, document.working);
+      target.setCommitted(document.committed ?? null);
+    } else {
+      reopen(target, document);
+    }
+    return;
+  }
+  if (pair.base === session.pair.base && pair.working === session.pair.working && target.shows(file.path, document)) return;
   session.pair = pair;
   session.snapshot = null;
-  target.reload(documentOf(file, session));
+  target.reload(document);
+}
+
+/** Shows `document` in `target` in place of what it shows, keeping the cursor, scroll, undo history and focus. */
+function reopen(target: DiffEditor, document: DiffDocument) {
+  const focused = target.working?.hasFocus ?? false;
+  target.open(document, state.mode, target.snapshot() ?? undefined);
+  if (focused) target.focus();
+  const file = fileAt(document.path);
+  if (file) void attachLanguageServer(file, target);
+}
+
+// ------------------------------------------------------------------ editing
+
+/**
+ * Branches: the working text of `path` was edited in the checkout the
+ * comparison reads. It is saved once typing pauses; a file outside the diff
+ * turns into a diff at its first edit, and back once the edits are undone.
+ */
+function edited(path: string, text: string) {
+  const checkout = state.comparison?.checkout;
+  if (state.source !== "branches" || !checkout) return;
+  queueSave(checkout, path, text, (error) => fail(`Saving ${path}: ${String(error)}`));
+  const file = fileAt(path);
+  const target = editorFor(path);
+  const session = sessions.get(path);
+  if (file?.status !== "unchanged" || !target || !session) return;
+  // Not from inside the editor's own update.
+  queueMicrotask(() => {
+    const texts = target.texts();
+    if (!texts) return;
+    const document = documentOf(file, session, texts);
+    if (!target.shows(path, document)) reopen(target, document);
+  });
+}
+
+/** Whether the Read-only popup is open (it opens by itself the first time a read-only diff is typed in). */
+const [editInfoOpen, setEditInfoOpen] = createSignal(false);
+export { editInfoOpen, setEditInfoOpen };
+let editInfoShown = false;
+
+/** Whether `path` may have uncommitted edits to undo: a file of the checked-out branch being compared. */
+const editsUndoable = (path: string) =>
+  state.source === "branches" && !!state.comparison?.checkout && fileAt(path)?.status !== "deleted";
+
+/** "Undo edits in selected lines": the right-clicked editor's selection goes back to the last commit. */
+export function undoLineEdits() {
+  const undo = state.menu?.undo;
+  setState("menu", null);
+  const target = undo && editorFor(undo.path);
+  if (target?.undoEdits(false)) target.focus();
+}
+
+/**
+ * Undoes every uncommitted edit to `path`. In an editor showing it that is
+ * an edit like any other, which can be undone; otherwise (or for a file no
+ * commit has, which is deleted) the checkout's file is put back, after asking.
+ */
+export async function undoFileEdits(path: string) {
+  setState("menu", null);
+  const target = editorFor(path);
+  if (target?.undoEdits(true)) return target.focus();
+  const checkout = state.comparison?.checkout;
+  const branch = state.comparison?.head;
+  if (!checkout || !branch) return;
+  const sure = await confirm(
+    `Undo every uncommitted edit to ${path}? It goes back to the last commit of ${branch}; a file no commit has is deleted. This cannot be undone.`,
+    { title: "Undo edits", kind: "warning", okLabel: "Undo edits" },
+  );
+  if (!sure || state.comparison?.checkout !== checkout) return;
+  try {
+    await flushSave();
+    await ipc.undoFileEdits(checkout, [path]);
+    await refresh();
+  } catch (error) {
+    fail(`Undoing the edits to ${path}: ${String(error)}`);
+  }
+}
+
+/** Why the diff cannot be edited; null when it can (or edits do not apply). */
+export function editBlocked(): { reason: string; checkOut: string | null } | null {
+  const repo = state.repo;
+  const comparison = state.comparison;
+  if (state.source !== "branches" || !repo || !comparison || comparison.checkout) return null;
+  if (headCheckout(repo, comparison)) {
+    return { reason: "Only some commits are shown. Pick All changes in the commit picker to edit.", checkOut: null };
+  }
+  const head = comparison.head;
+  const local = repo.branches.find((branch) => !branch.isRemote && remoteFree(repo, head) === branch.name);
+  if (local?.worktreePath) {
+    return { reason: `${local.name} is checked out in ${local.worktreePath}. Compare that branch to edit it.`, checkOut: null };
+  }
+  const where = repo.currentBranch ? `The folder is on ${repo.currentBranch}` : "The folder has no branch checked out";
+  return { reason: `${head} is not checked out. ${where}; check ${head} out to edit it.`, checkOut: head };
+}
+
+/** `origin/x` → `x` for a remote branch of the repository; other names as they are. */
+function remoteFree(repo: RepoInfo, name: string): string {
+  const remote = repo.branches.find((branch) => branch.isRemote && branch.name === name);
+  if (!remote) return name;
+  const slash = name.indexOf("/");
+  return slash < 0 ? name : name.slice(slash + 1);
+}
+
+/**
+ * Whether the opened folder has uncommitted changes, which keep a branch
+ * from being checked out there. Null when that cannot be told.
+ */
+export async function folderHasChanges(): Promise<boolean | null> {
+  const repo = state.repo;
+  if (!repo) return null;
+  try {
+    const work = await ipc.workingStatus(repo.root);
+    return work.unstaged.length + work.staged.length > 0;
+  } catch {
+    return null;
+  } finally {
+    // Reading it starts watching it; only Commit mode and an editable comparison watch a checkout.
+    if (state.source !== "commit" && !state.comparison?.checkout) void ipc.stopWatchingCheckout();
+  }
+}
+
+/** Checks the compared branch out in the opened folder, so its files can be edited. */
+export async function checkOutToEdit() {
+  const repo = state.repo;
+  const blocked = editBlocked();
+  if (!repo || !blocked?.checkOut) return;
+  setState({ busy: true, error: null });
+  try {
+    const branch = await ipc.checkoutBranch(repo.root, blocked.checkOut);
+    if (state.repo !== repo) return;
+    const branches = await ipc.listBranches(repo.root);
+    setState("repo", { branches, currentBranch: branch });
+    await setBranches({ head: branch });
+  } catch (error) {
+    fail(error);
+  } finally {
+    setState("busy", false);
+  }
+}
+
+/** Commit mode on the checkout the comparison reads, to commit the edits made there. */
+export async function commitEdits() {
+  const checkout = state.comparison?.checkout;
+  if (!checkout) return;
+  await flushSave();
+  await setSource("commit");
+  await commitMode.setCheckout(checkout);
 }
 
 // ----------------------------------------------------------- all-files view
@@ -778,6 +983,7 @@ export async function showSection(path: string): Promise<DiffEditor | null> {
   if (!host || !file || !repo || !comparison || state.view !== "all") return null;
   const token = nextToken(path);
   try {
+    if (isSaving(path)) await flushSave();
     const pair = await ipc.readFilePair(repo.root, comparison, file);
     if (!isLatest(path, token) || sectionHosts.get(path) !== host) return sectionEditors.get(path) ?? null;
     const reason = unshowable(pair);
@@ -890,24 +1096,26 @@ let setupRun = 0;
  * as it is (the opened folder, or Commit mode's checkout) is the same
  * whatever its commit: its files on disk are what the server reads.
  */
-const setupKey = (repo: RepoInfo, comparison: Comparison) =>
-  checkedOutHere(repo, comparison)
-    ? inPlaceKey(repo.root, comparison.head)
+const setupKey = (repo: RepoInfo, comparison: Comparison) => {
+  const checkout = headCheckout(repo, comparison);
+  return checkout
+    ? inPlaceKey(checkout, comparison.head)
     : `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}\ncopy`;
+};
 
 const inPlaceKey = (root: string, branch: string) => `${root}\n${branch}\nin place`;
 
-const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, "") === b.replace(/[\\/]+$/, "");
 
 /**
- * The reviewed branch is the one checked out in the opened folder: the
- * language server then runs there, without a copy. A pull request or any
- * other branch gets a copy in `.arnold/worktrees`.
+ * Where the reviewed branch is checked out (the opened folder or a linked
+ * worktree), if it is: the language server then runs there, without a copy,
+ * and sees edits. A pull request or any other branch gets a copy in
+ * `.arnold/worktrees`.
  */
-function checkedOutHere(repo: RepoInfo, comparison: Comparison): boolean {
-  if (state.source !== "branches") return false;
+function headCheckout(repo: RepoInfo, comparison: Comparison): string | null {
+  if (state.source !== "branches") return null;
   const branch = repo.branches.find((candidate) => candidate.name === comparison.head && !candidate.isRemote);
-  return branch?.worktreePath != null && samePath(branch.worktreePath, repo.root);
+  return branch?.worktreePath ?? null;
 }
 
 /** The folder of the reviewed commit, once a server may run there. */
@@ -924,13 +1132,13 @@ function serverRoot(): string | null {
  * language features once the server runs.
  */
 function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
-  const inPlace = checkedOutHere(repo, comparison);
+  const checkout = headCheckout(repo, comparison);
   return prepareLanguageFeatures(
     setupKey(repo, comparison),
-    repo.root,
+    checkout ?? repo.root,
     reviewedName(comparison),
     comparison.tipCommit,
-    inPlace,
+    checkout !== null,
   );
 }
 
@@ -1293,6 +1501,13 @@ function canComment(path: string): boolean {
 
 /** Right-click on a changed file of the dock: its menu, with commenting on the whole file. */
 export function openFileMenu(path: string, x: number, y: number): boolean {
+  if (editsUndoable(path)) {
+    menuTarget = null;
+    menuComment = null;
+    const undo = { path, lines: false, file: !!fileAt(path)?.uncommitted };
+    setState("menu", { x, y, definition: false, file: path, undo });
+    return true;
+  }
   if (state.source !== "pullRequest") return false;
   menuTarget = null;
   menuComment = canComment(path) ? { path, lines: null } : null;
@@ -1452,8 +1667,17 @@ let refreshTimer: number | undefined;
 let pullRequestCheckedAt = 0;
 let checkingPullRequest = false;
 
+let checkoutTimer: number | undefined;
+
 export async function startWatching() {
   await commitMode.startWatching();
+  // The files of the checked-out branch being compared: edits made in
+  // Arnold, an editor or an agent show up in the diff.
+  await ipc.onCheckoutChanged(() => {
+    if (state.source !== "branches" || !state.comparison?.checkout) return;
+    window.clearTimeout(checkoutTimer);
+    checkoutTimer = window.setTimeout(() => void refresh(), 150);
+  });
   // The backend watches the repository's branches: a commit, fetch or new
   // branch updates the branch pickers and the diff.
   await ipc.onRefsChanged(() => {

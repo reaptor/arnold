@@ -8,6 +8,11 @@
 //! is `push_commit`, when a pull request is created from a reviewed branch
 //! that is not on the server yet; it never forces.
 //!
+//! A comparison whose branch is checked out reads that checkout's files, so
+//! they can be edited (saved through `working`); `switch_branch` checks a
+//! branch out in the opened folder for that, when asked and only when the
+//! folder has nothing uncommitted.
+//!
 //! `working` is the exception: it stages, unstages, puts files back and
 //! commits in the checkout it is given, for committing an agent's changes
 //! before they are reviewed; `publish` pushes the branch checked out there,
@@ -21,6 +26,7 @@ mod refs;
 mod publish;
 mod push;
 mod remotes;
+mod switch;
 mod working;
 
 pub use cli::GitError;
@@ -31,8 +37,9 @@ pub use refs::{common_dir, git_dir, list_branches, open, Branch, RepoInfo};
 pub use publish::{branch_sync, push_branch, BranchSync};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
+pub use switch::switch_branch;
 pub use working::{
-    commit, discard, encode_like, read_index, read_worktree, reset_to_head, set_index_text, stage, unstage,
+    commit, discard, encode_like, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage,
     working_status, worktree_files, write_worktree, NewCommit, WorkingStatus,
 };
 

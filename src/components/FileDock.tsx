@@ -23,6 +23,15 @@ export const STATUS_NAME: Record<FileStatus, string> = {
   unchanged: "Not changed (opened by go-to-definition)",
 };
 
+/** Marks a file with uncommitted edits in the checkout a comparison reads. */
+export function EditedMark() {
+  return (
+    <span class="edited-mark" title={`Uncommitted edits: not in a commit of ${state.comparison?.head ?? "the branch"} yet`}>
+      ● edited
+    </span>
+  );
+}
+
 export function splitPath(path: string) {
   const slash = path.lastIndexOf("/");
   return { directory: slash < 0 ? "" : path.slice(0, slash + 1), name: path.slice(slash + 1) };
@@ -78,7 +87,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
   };
 
   const title = (file: ChangedFile) =>
-    `${STATUS_NAME[file.status]}: ${file.oldPath ? `${file.oldPath} → ` : ""}${file.path}`;
+    `${STATUS_NAME[file.status]}${file.uncommitted ? ", with uncommitted edits" : ""}: ${file.oldPath ? `${file.oldPath} → ` : ""}${file.path}`;
 
   const toggleChanges = () => {
     setChangesOpen(!changesOpen());
@@ -176,6 +185,9 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
                         <span class="file-name">{parts.name}</span>
                         <span class="file-directory">{parts.directory}</span>
                       </span>
+                      <Show when={file.uncommitted}>
+                        <EditedMark />
+                      </Show>
                       <Show when={fileThreads(file.path).length > 0}>
                         <span
                           class="file-threads"

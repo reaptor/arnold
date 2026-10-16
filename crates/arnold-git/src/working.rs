@@ -43,11 +43,9 @@ pub async fn working_status(checkout: &Path) -> Result<WorkingStatus> {
         head_commit(checkout),
         diff_files(checkout, &["--cached"]),
         diff_files(checkout, &[]),
-        run(checkout, &["ls-files", "-z", "--others", "--exclude-standard"]),
+        untracked_files(checkout),
     )?;
-    for path in String::from_utf8_lossy(&untracked).split('\0').filter(|path| !path.is_empty()) {
-        unstaged.push(untracked_file(checkout, path).await);
-    }
+    unstaged.extend(untracked);
     unstaged.sort_by(|a, b| a.path.cmp(&b.path));
     let mut staged = staged;
     staged.sort_by(|a, b| a.path.cmp(&b.path));
@@ -64,6 +62,16 @@ pub async fn working_status(checkout: &Path) -> Result<WorkingStatus> {
     })
 }
 
+/// Files git does not track and does not ignore, as added files.
+pub(crate) async fn untracked_files(checkout: &Path) -> Result<Vec<ChangedFile>> {
+    let out = run(checkout, &["ls-files", "-z", "--others", "--exclude-standard"]).await?;
+    let mut files = Vec::new();
+    for path in String::from_utf8_lossy(&out).split('\0').filter(|path| !path.is_empty()) {
+        files.push(untracked_file(checkout, path).await);
+    }
+    Ok(files)
+}
+
 async fn untracked_file(checkout: &Path, path: &str) -> ChangedFile {
     let mut file = ChangedFile {
         path: path.to_string(),
@@ -72,6 +80,7 @@ async fn untracked_file(checkout: &Path, path: &str) -> ChangedFile {
         additions: None,
         deletions: Some(0),
         binary: false,
+        uncommitted: false,
     };
     let full = checkout.join(path);
     let small = tokio::fs::metadata(&full).await.is_ok_and(|meta| meta.len() <= MAX_COUNTED_BYTES);
@@ -206,6 +215,27 @@ pub async fn reset_to_head(checkout: &Path, paths: &[String]) -> Result<()> {
     }
     if !new.is_empty() {
         run_with_input(checkout, &["update-index", "--force-remove", "-z", "--stdin"], &path_list(&new)).await?;
+    }
+    Ok(())
+}
+
+/// Undoes every uncommitted change to `paths`: back to how HEAD has them, in
+/// the index and the working tree. A file HEAD does not have is taken out of
+/// the index and deleted.
+pub async fn undo_edits(checkout: &Path, paths: &[String]) -> Result<()> {
+    reset_to_head(checkout, paths).await?;
+    let has_head = head_commit(checkout).await?.is_some();
+    for path in paths {
+        let in_head = has_head && crate::read_blob(checkout, "HEAD", path).await?.is_some();
+        if in_head {
+            continue;
+        }
+        let full = resolve(checkout, path)?;
+        match tokio::fs::remove_file(&full).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io_error(path, error)),
+        }
     }
     Ok(())
 }

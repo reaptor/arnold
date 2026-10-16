@@ -26,6 +26,8 @@ export interface ChangedFile {
   additions: number | null;
   deletions: number | null;
   binary: boolean;
+  /** Differs on disk from the tip of the branch: edits not committed yet (a comparison read from a checkout). */
+  uncommitted?: boolean;
 }
 
 export interface Commit {
@@ -58,11 +60,25 @@ export interface Comparison {
   /** The commits of `head` since the merge-base, newest first. */
   commits: Commit[];
   files: ChangedFile[];
+  /**
+   * The checkout whose files the diff ends at, instead of `headCommit`:
+   * `head` is checked out there and all of its changes are shown, so they
+   * can be edited. Null when the diff is between commits.
+   */
+  checkout: string | null;
+  /** Files with uncommitted changes in `checkout`. */
+  uncommitted: number;
 }
 
 export interface FilePair {
   base: string | null;
   working: string | null;
+  /**
+   * When the working side is read from a checkout: its text at the branch's
+   * last commit, which uncommitted edits differ from. Null when that commit
+   * lacks the file.
+   */
+  committed?: string | null;
   binary: boolean;
   tooLarge: boolean;
 }
@@ -94,8 +110,9 @@ export const openRepo = (path: string) => invoke<RepoInfo>("open_repo", { path }
 export const compareBranches = (root: string, base: string, head: string, range: CommitRange | null) =>
   invoke<Comparison>("compare_branches", { root, base, head, range });
 
+/** Every file of the compared commit, or of the checkout the comparison reads. */
 export const listFiles = (root: string, comparison: Comparison) =>
-  invoke<string[]>("list_files", { root, commit: comparison.headCommit });
+  invoke<string[]>("list_files", { root, commit: comparison.headCommit, checkout: comparison.checkout });
 
 export const readFilePair = (root: string, comparison: Comparison, file: ChangedFile) =>
   invoke<FilePair>("read_file_pair", {
@@ -104,7 +121,14 @@ export const readFilePair = (root: string, comparison: Comparison, file: Changed
     commit: comparison.headCommit,
     path: file.path,
     oldPath: file.oldPath,
+    checkout: comparison.checkout,
   });
+
+/** Undoes every uncommitted change to `paths` in `checkout`: back to the last commit; a file no commit has is deleted. */
+export const undoFileEdits = (checkout: string, paths: string[]) => invoke<void>("undo_file_edits", { checkout, paths });
+
+/** Checks `branch` out in the opened folder (only when it has nothing uncommitted); resolves to the local branch. */
+export const checkoutBranch = (root: string, branch: string) => invoke<string>("checkout_branch", { root, branch });
 
 // ------------------------------------------------------- uncommitted changes
 

@@ -354,18 +354,54 @@ function changedFiles(picked: readonly Commit[]): ChangedFile[] {
   return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+// `?notcheckedout`: the folder is on main, so the agent's branch is compared
+// read-only until it is checked out. `?dirtyfolder`: the same, and main has
+// uncommitted changes (those of `?uncommitted`), so it cannot be.
+const notCheckedOut = searchParams.has("notcheckedout") || searchParams.has("dirtyfolder");
+
 const repo: RepoInfo = {
   root: ROOT,
   branches: [
-    { name: "feature/agent-work", isRemote: false, worktreePath: ROOT },
+    { name: "feature/agent-work", isRemote: false, worktreePath: notCheckedOut ? null : ROOT },
     { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/src/shop-api-agent-work" },
-    { name: "main", isRemote: false, worktreePath: null },
+    { name: "main", isRemote: false, worktreePath: notCheckedOut ? ROOT : null },
     { name: "origin/main", isRemote: true, worktreePath: null },
   ],
-  currentBranch: "feature/agent-work",
+  currentBranch: notCheckedOut ? "main" : "feature/agent-work",
   defaultBranch: "main",
   worktrees: [ROOT, "/src/shop-api-agent-work"],
 };
+
+function checkoutBranch(branch: string): string {
+  checkoutState();
+  if (diffOf(index, worktree).length + diffOf(head!, index).length > 0) {
+    throw "git switch failed: the folder has uncommitted changes. Commit or put them back first. (dev mock)";
+  }
+  for (const candidate of repo.branches) {
+    if (candidate.worktreePath === ROOT) candidate.worktreePath = null;
+    if (candidate.name === branch) candidate.worktreePath = ROOT;
+  }
+  repo.currentBranch = branch;
+  return branch;
+}
+
+/**
+ * Branches: all of the changes of a branch checked out in the mock's one
+ * checkout (the opened folder or the linked worktree share its files), read
+ * from its files on disk, with what differs from the tip marked.
+ */
+function comparedOnDisk(head: string): Pick<Comparison, "checkout" | "uncommitted" | "files"> | null {
+  const branch = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === head);
+  if (!branch?.worktreePath) return null;
+  checkoutState();
+  const base = new Map([...files].flatMap(([path, file]) => (file.base === null ? [] : [[path, file.base] as const])));
+  const edited = new Set([...diffOf(headMap(), worktree)].map((file) => file.path));
+  return {
+    checkout: branch.worktreePath,
+    uncommitted: edited.size,
+    files: diffOf(base, worktree).map((file) => ({ ...file, uncommitted: edited.has(file.path) })),
+  };
+}
 
 // ------------------------------------------------------------- Fantomas
 
@@ -392,6 +428,7 @@ function formatCheck() {
 // the repository then starts in Commit mode.
 
 let head: Map<string, string> | null = null;
+const headMap = () => head!;
 let index = new Map<string, string>();
 let worktree = new Map<string, string>();
 
@@ -409,7 +446,7 @@ function checkoutState() {
   head = new Map([...files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
   index = new Map(head);
   worktree = new Map(head);
-  if (!searchParams.has("uncommitted")) return;
+  if (!searchParams.has("uncommitted") && !searchParams.has("dirtyfolder")) return;
   worktree.set(
     "Orders.fs",
     head
@@ -783,9 +820,18 @@ export function install() {
             range,
             commits: commits.map(({ paths: _, ...commit }) => commit),
             files: changedFiles(range ? commits.slice(newest, oldest + 1) : commits),
+            checkout: null,
+            uncommitted: 0,
+            ...(range ? null : comparedOnDisk(args.head)),
           } satisfies Comparison;
         }
+        case "checkout_branch":
+          return slowly(() => checkoutBranch(args.branch), 300);
         case "list_files": {
+          if (args.checkout) {
+            checkoutState();
+            return [...worktree.keys()].sort();
+          }
           addUnchangedFiles();
           return [...files]
             .filter(([, file]) => file.working !== null)
@@ -794,9 +840,11 @@ export function install() {
         }
         case "read_file_pair": {
           const file = files.get(args.path);
+          if (args.checkout) checkoutState();
           return {
-            base: file?.base ?? null,
-            working: file?.working ?? null,
+            base: files.get(args.oldPath ?? args.path)?.base ?? null,
+            working: args.checkout ? (worktree.get(args.path) ?? null) : (file?.working ?? null),
+            committed: args.checkout && worktree.has(args.path) ? (headMap().get(args.path) ?? null) : null,
             binary: false,
             tooLarge: false,
           } satisfies FilePair;
@@ -841,6 +889,19 @@ export function install() {
             const text = index.get(path);
             if (text === undefined) worktree.delete(path);
             else worktree.set(path, text);
+          }
+          return checkoutChanged(null);
+        case "undo_file_edits":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) {
+            const text = head!.get(path);
+            if (text === undefined) {
+              index.delete(path);
+              worktree.delete(path);
+            } else {
+              index.set(path, text);
+              worktree.set(path, text);
+            }
           }
           return checkoutChanged(null);
         case "reset_files_to_head":

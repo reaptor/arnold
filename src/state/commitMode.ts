@@ -14,6 +14,7 @@ import { type DiffDocument, type DiffMode, DiffEditor, type LineAction, type Mov
 import { carryOver, dropSelectedLines, type LineSelection, resetEdits, takeSelectedLines } from "../editor/resetLines";
 import * as ipc from "../ipc/commands";
 import type { ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
+import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
 import { comparePaths } from "./pathOrder";
 import {
   attachLanguageServer,
@@ -28,8 +29,6 @@ import {
   type ViewMode,
 } from "./review";
 
-/** How long typing pauses before an edit is saved to disk. */
-const SAVE_DELAY = 400;
 /** How long a notice stays in the status bar. */
 const NOTICE_TIME = 5000;
 
@@ -326,7 +325,7 @@ async function show() {
   const token = ++showToken;
   try {
     // A save under way would otherwise be read back half-way.
-    await saving;
+    await saved();
     const pair = await ipc.readWorkingPair(checkout, file, side ?? "committed");
     if (token !== showToken) return;
     const reason = pair.binary
@@ -347,7 +346,7 @@ async function show() {
     const key = keyOf(side, file.path);
     const same = key === shownKey;
     // Edits not saved yet stay, and decide whether a file of the explorer has changes.
-    const unsaved = same && pending?.path === file.path ? editor.texts()?.working : undefined;
+    const unsaved = same && hasPendingSave(file.path) ? editor.texts()?.working : undefined;
     const document = documentOf(file, side, side === null && unsaved !== undefined ? { ...pair, working: unsaved } : pair);
     const unchanged = side === null && !!document.plain && !document.deleted && pair.base !== null;
     const working = unsaved ?? document.working;
@@ -373,11 +372,6 @@ async function show() {
 
 // ------------------------------------------------------------ editing
 
-let pending: { checkout: string; path: string; text: string } | null = null;
-let saveTimer: number | undefined;
-/** The last save; saves run one after the other. */
-let saving: Promise<void> = Promise.resolve();
-
 /** The working text of `path` was edited: it is saved once typing pauses. */
 export function edited(path: string, text: string) {
   const checkout = state.checkout;
@@ -385,9 +379,7 @@ export function edited(path: string, text: string) {
   // Not from inside the editor's own update.
   if (shownAlone === path) queueMicrotask(() => switchView(path, false));
   else if (shownDiff === path && text === fileEditor()?.texts()?.base) queueMicrotask(() => switchView(path, true));
-  pending = { checkout, path, text };
-  window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void flushSave(), SAVE_DELAY);
+  queueSave(checkout, path, text, fail(`Saving ${path}`));
 }
 
 /**
@@ -410,24 +402,6 @@ function switchView(path: string, alone: boolean) {
   void attachLanguageServer(file, editor);
 }
 
-/** Saves an edit still waiting for typing to pause. */
-export function flushSave(): Promise<void> {
-  window.clearTimeout(saveTimer);
-  const job = pending;
-  pending = null;
-  if (job) {
-    saving = saving
-      .then(() => ipc.saveWorktreeFile(job.checkout, job.path, job.text))
-      .catch(fail(`Saving ${job.path}`));
-  }
-  return saving;
-}
-
-function dropPendingSave(path: string) {
-  if (pending?.path !== path) return;
-  pending = null;
-  window.clearTimeout(saveTimer);
-}
 
 // ------------------------------------------------------------ staging
 
@@ -525,7 +499,7 @@ export async function fileAction(action: LineAction, side: WorkingSide, file: Ch
     } else if (action === "reset") {
       if (!(await confirmReset(side, file))) return;
       dropPendingSave(file.path);
-      await saving;
+      await saved();
       if (side === "unstaged") await ipc.discardFiles(checkout, [file.path]);
       else await ipc.resetFilesToHead(checkout, pathsOf(file));
       snapshots.delete(keyOf("unstaged", file.path));
@@ -670,7 +644,7 @@ export async function showSection(key: string): Promise<DiffEditor | null> {
   sectionLoads.set(key, load);
   try {
     // A save under way would otherwise be read back half-way.
-    await saving;
+    await saved();
     const pair = await ipc.readWorkingPair(checkout, file, side);
     if (sectionLoads.get(key) !== load || sectionHosts.get(key) !== host) return sectionEditors.get(key) ?? null;
     const reason = pair.binary ? "Binary file." : pair.tooLarge ? "This file is too large to show." : null;
@@ -702,7 +676,7 @@ export function hideSection(key: string, keepFocused = false): boolean {
   const target = sectionEditors.get(key);
   const snapshot = target?.snapshot();
   if (snapshot) snapshots.set(key, snapshot);
-  if (target && pending?.path === pathOfKey(key)) void flushSave();
+  if (target && hasPendingSave(pathOfKey(key))) void flushSave();
   target?.destroy();
   sectionHosts.get(key)?.replaceChildren();
   sectionEditors.delete(key);
@@ -714,7 +688,7 @@ export function hideSection(key: string, keepFocused = false): boolean {
 async function refreshSections() {
   const checkout = state.checkout;
   if (!checkout) return;
-  await saving;
+  await saved();
   for (const [key, target] of [...sectionEditors]) {
     const side = sideOfKey(key);
     const path = pathOfKey(key);
@@ -730,7 +704,7 @@ async function refreshSections() {
         continue;
       }
       const document = documentOf(file, side, pair);
-      const unsaved = side === "unstaged" && pending?.path === path ? target.texts()?.working : undefined;
+      const unsaved = side === "unstaged" && hasPendingSave(path) ? target.texts()?.working : undefined;
       const working = unsaved ?? document.working;
       if (target.shows(path, document)) {
         target.updateTexts(document.base, working);

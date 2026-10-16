@@ -1,0 +1,142 @@
+import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js";
+import {
+  checkOutToEdit,
+  commitEdits,
+  editBlocked,
+  editInfoOpen,
+  folderHasChanges,
+  setEditInfoOpen,
+  setSource,
+  state,
+} from "../state/review";
+
+/** Closes a status bar popup on a click outside `root` or Escape. */
+function closeOnOutside(root: () => HTMLElement, close: () => void) {
+  const outside = (event: PointerEvent) => {
+    if (!root().contains(event.target as Node)) close();
+  };
+  const escape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") close();
+  };
+  window.addEventListener("pointerdown", outside);
+  window.addEventListener("keydown", escape);
+  onCleanup(() => {
+    window.removeEventListener("pointerdown", outside);
+    window.removeEventListener("keydown", escape);
+  });
+}
+
+/**
+ * Branches: whether the diff can be edited. With the branch checked out,
+ * how many files have uncommitted edits and a way to commit them; without,
+ * a "Read-only" pill saying why, and offering to check the branch out.
+ */
+export function EditStatus() {
+  return (
+    <Show when={state.comparison?.checkout} fallback={<ReadOnlyPill />}>
+      <Show when={state.comparison!.uncommitted > 0}>
+        <button
+          class="edit-status edited"
+          title={`Files of ${state.comparison!.checkout} that differ from the last commit of ${state.comparison!.head}. Commit them in Commit mode.`}
+          onClick={() => void commitEdits()}
+        >
+          <span class="edited-dot" aria-hidden="true">
+            ●
+          </span>
+          {state.comparison!.uncommitted} uncommitted {state.comparison!.uncommitted === 1 ? "edit" : "edits"}
+          <span class="edit-status-action">Commit…</span>
+        </button>
+      </Show>
+    </Show>
+  );
+}
+
+function ReadOnlyPill() {
+  let root!: HTMLDivElement;
+  closeOnOutside(() => root, () => setEditInfoOpen(false));
+  // Asked each time the popup opens: the folder may have changed meanwhile.
+  const [asked, setAsked] = createSignal(0);
+  createEffect(() => {
+    if (editInfoOpen()) setAsked((count) => count + 1);
+  });
+  const [dirty] = createResource(
+    () => (editInfoOpen() && editBlocked()?.checkOut ? asked() : false),
+    () => folderHasChanges(),
+  );
+
+  return (
+    <Show when={editBlocked()}>
+      {(blocked) => (
+        <div class="edit-status-root" ref={root}>
+          <button
+            class="edit-status read-only"
+            title="This diff cannot be edited: click for why"
+            onClick={() => setEditInfoOpen(!editInfoOpen())}
+          >
+            <LockIcon />
+            Read-only
+          </button>
+          <Show when={editInfoOpen()}>
+            <div class="language-popup edit-popup" role="dialog" aria-label="Editing">
+              <h3>Read-only</h3>
+              <p>{blocked().reason}</p>
+              <Show when={blocked().checkOut}>
+                {(branch) => (
+                  <Show
+                    when={!dirty.loading}
+                    fallback={<p class="edit-popup-note">Checking the folder for uncommitted changes…</p>}
+                  >
+                    <Show
+                      when={!dirty()}
+                      fallback={
+                        <>
+                          <p class="edit-popup-note">
+                            The folder has uncommitted changes on {state.repo?.currentBranch ?? "its checkout"}. Commit
+                            them or put them back before checking out {branch()}.
+                          </p>
+                          <div class="edit-popup-actions">
+                            <button
+                              class="secondary"
+                              onClick={() => {
+                                setEditInfoOpen(false);
+                                void setSource("commit");
+                              }}
+                            >
+                              Open Commit mode
+                            </button>
+                          </div>
+                        </>
+                      }
+                    >
+                      <div class="edit-popup-actions">
+                        <button
+                          class="primary"
+                          disabled={state.busy}
+                          onClick={() => {
+                            setEditInfoOpen(false);
+                            void checkOutToEdit();
+                          }}
+                        >
+                          Check out {branch()}
+                        </button>
+                      </div>
+                    </Show>
+                  </Show>
+                )}
+              </Show>
+            </div>
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg class="lock-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.3" />
+    </svg>
+  );
+}

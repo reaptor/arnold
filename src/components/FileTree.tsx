@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, 
 import { createStore } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
-import { allFiles, changedFiles, explorerSelection, openFile, state } from "../state/review";
+import { allFiles, changedFiles, explorerSelection, openFile, openFileMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
@@ -99,6 +99,8 @@ export function FileTree(props: { filter: string }) {
     () => new Map<string, FileStatus>(changedFiles().map((file) => [file.path, file.status])),
   );
   const changedFolders = createMemo(() => new Set([...changed().keys()].flatMap(ancestors)));
+  /** Files with uncommitted edits in the checkout a comparison reads. */
+  const edited = createMemo(() => new Set(changedFiles().flatMap((file) => (file.uncommitted ? [file.path] : []))));
 
   const rows = createMemo<Row[]>(() => {
     const needle = props.filter.toLowerCase();
@@ -214,7 +216,8 @@ export function FileTree(props: { filter: string }) {
                 const status = () => (row().kind === "file" ? statusOf(row().path) : undefined);
                 const title = () => {
                   const known = status();
-                  return known ? `${STATUS_NAME[known]}: ${row().path}` : row().path;
+                  const edits = edited().has(row().path) ? ", with uncommitted edits" : "";
+                  return known ? `${STATUS_NAME[known]}${edits}: ${row().path}` : row().path;
                 };
                 return (
                   <div
@@ -229,6 +232,11 @@ export function FileTree(props: { filter: string }) {
                     style={{ "padding-left": `${8 + row().depth * 12}px` }}
                     title={title()}
                     onClick={() => activate(row())}
+                    onContextMenu={(event) => {
+                      if (state.source === "branches" && row().kind === "file" && openFileMenu(row().path, event.clientX, event.clientY)) {
+                        event.preventDefault();
+                      }
+                    }}
                   >
                     <span class="tree-caret">
                       <Show when={row().kind === "folder"}>
@@ -251,7 +259,16 @@ export function FileTree(props: { filter: string }) {
                         </Show>
                       }
                     >
-                      {(known) => <span class={`status status-${known()}`}>{STATUS_LETTER[known()]}</span>}
+                      {(known) => (
+                        <>
+                          <Show when={edited().has(row().path)}>
+                            <span class="edited-dot" aria-label="uncommitted edits">
+                              ●
+                            </span>
+                          </Show>
+                          <span class={`status status-${known()}`}>{STATUS_LETTER[known()]}</span>
+                        </>
+                      )}
                     </Show>
                   </div>
                 );

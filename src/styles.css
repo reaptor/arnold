@@ -2807,3 +2807,98 @@ button.primary:hover:not(:disabled) {
   background: var(--pressed);
   color: var(--text);
 }
+
+/* ------------------------------------------------- editing a compared branch */
+
+/* Files with uncommitted edits: amber, apart from the A/M/D letters and the diff colors. */
+:root {
+  --edited: #b26b00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --edited: #e5a33b;
+  }
+}
+
+.edited-mark {
+  flex: none;
+  color: var(--edited);
+  font-size: 11px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.edited-dot {
+  flex: none;
+  color: var(--edited);
+  font-size: 9px;
+}
+
+/* Frames around the lines a checked-out branch's uncommitted edits changed (editFrames.ts). */
+.cm-editFrameLayer {
+  pointer-events: none;
+}
+
+.cm-editFrame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--edited);
+  border-radius: 3px;
+}
+
+.cm-editFrame-removed {
+  border: none;
+  border-radius: 1px;
+  background: var(--edited);
+}
+
+.edit-status-root {
+  display: flex;
+  min-width: 0;
+}
+
+.edit-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.edit-status:hover {
+  background: var(--hover);
+}
+
+.edit-status.edited {
+  color: var(--edited);
+  border-color: color-mix(in srgb, var(--edited) 45%, transparent);
+  background: color-mix(in srgb, var(--edited) 10%, transparent);
+}
+
+.edit-status-action {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.edit-popup {
+  left: 12px;
+  right: auto;
+  width: min(420px, calc(100vw - 24px));
+}
+
+.edit-popup .edit-popup-note {
+  color: var(--text);
+}
+
+.edit-popup-actions {
+  display: flex;
+  gap: 8px;
+}

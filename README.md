@@ -14,7 +14,7 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 **Commit.** An agent's uncommitted changes in Unstaged and Staged lists, editable in the diff, with `S`, `U` and `R` to stage, unstage and reset files or single lines, as in Git Extensions. Changes made by the agent, an editor or a terminal show up as they happen.
 
-**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files.
+**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files. When the branch is checked out, fix things right in the diff: edits are saved to it and marked until you commit them.
 
 **Push and open the pull request.** *Review against main*, *Push* and *Push & create PR* sit in the toolbar after committing. A new pull request gets a Markdown description and, if you like, a linked work item; once the branch has one, the button opens it instead.
 
@@ -119,7 +119,9 @@ The lists follow changes made anywhere: by the agent, an editor or a terminal. I
 
 ### What is compared
 
-Arnold compares the merge-base of the two branches with the last commit of the reviewed branch, as a pull request does. Only commits count: uncommitted and untracked files in any checkout are left out. A new commit or a fetch updates the diff and the branch pickers on their own.
+Arnold compares the merge-base of the two branches with the last commit of the reviewed branch, as a pull request does. A new commit or a fetch updates the diff and the branch pickers on their own.
+
+When the reviewed branch is checked out (in the opened folder or in a linked git worktree), the diff ends at that checkout's files instead, so uncommitted edits and untracked files are part of it, and it can be edited: see [Editing while comparing](#editing-while-comparing). A branch checked out nowhere is compared commit to commit, read-only.
 
 The commit picker narrows the diff to one or more consecutive commits of the branch, as in an Azure DevOps pull request. Tick commits to add them; click a row to see only that commit.
 
@@ -145,11 +147,22 @@ The toolbar switches between one file at a time and *All files*: every file of t
 
 ### The diff
 
-- Side-by-side or unified, read-only. Drag the divider between the sides to resize them; double-click it to make them equal again.
+- Side-by-side or unified. Drag the divider between the sides to resize them; double-click it to make them equal again.
 - Compared line by line first, so small edits far apart stay small. Changed words are marked red and green, as in Azure DevOps.
 - Added and deleted files show whole; deleted ones are tinted red.
 - `F7` / `Shift+F7` step through the changes; in the all-files view they carry on into the next or previous file.
 - Syntax highlighting for F#, C#, T-SQL, project and other XML files, JSON and Markdown.
+
+### Editing while comparing
+
+With the reviewed branch checked out and *All changes* picked, type straight into the diff (the right side, or the file shown whole). Edits are saved to that checkout as you pause typing, and edits made elsewhere (an editor, an agent) show up in the diff as they happen.
+
+- A file with uncommitted edits is marked **● edited** in Changes, in the explorer and in its header in the all-files view.
+- In the diff, the lines your uncommitted edits changed are framed in the same amber, so they stand apart from the branch's committed changes; removed lines leave an amber bar where they were.
+- Right-click in the diff for *Undo edits in selected lines* or *Undo all edits to file*: the lines go back to the branch's last commit, as an edit `Cmd+Z` / `Ctrl+Z` can take back. Right-click a file in Changes or the explorer for *Undo edits to file…*, which asks first when the file is not open (a file no commit has is deleted).
+- A file from the explorer shows on its own; your first edit turns it into a diff against the merge-base, and undoing the edits turns it back.
+- The status bar counts the files with uncommitted edits. Click *Commit…* to go to *Commit* mode on that checkout; its *Review against* button brings you back.
+- Otherwise the status bar shows **Read-only**, and typing into the diff says why. A picked run of commits shows commits only. For a branch that is not checked out, *Check out \<branch\>* switches the opened folder to it, but only when the folder has no uncommitted changes.
 
 ## Azure DevOps pull requests
 
@@ -251,7 +264,7 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files: Arnold never checks out. Only *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a checked-out branch are saved to that checkout, and *Check out \<branch\>* switches the opened folder to the branch (only when it has nothing uncommitted). *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
@@ -334,6 +347,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and four pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty` |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
+| `notcheckedout` | The folder is on `main`, so `feature/agent-work` is compared read-only until it is checked out; `dirtyfolder` also gives `main` uncommitted changes, so it cannot be |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |
 | `failpush` | Pushing the branch from *Commit* fails |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |

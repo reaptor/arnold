@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, discard, read_index, reset_to_head, set_index_text, stage, unstage, working_status, worktree_files,
+    commit, discard, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, working_status, worktree_files,
     write_worktree, FileStatus,
 };
 
@@ -188,4 +188,25 @@ async fn works_before_the_first_commit() {
     let status = working_status(root).await.unwrap();
     assert!(status.staged.is_empty());
     assert_eq!(worktree_files(root).await.unwrap(), vec!["a.txt".to_string()]);
+}
+
+#[tokio::test]
+async fn undoes_every_uncommitted_change_to_files() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "a.txt", "staged\n");
+    git(root, &["add", "a.txt"]);
+    write(root, "a.txt", "staged and more\n");
+    write(root, "added.txt", "new\n");
+    git(root, &["add", "added.txt"]);
+    write(root, "untracked.txt", "x\n");
+
+    let paths = ["a.txt".to_string(), "added.txt".into(), "untracked.txt".into(), "missing.txt".into()];
+    undo_edits(root, &paths).await.unwrap();
+    assert_eq!(read(root, "a.txt"), "one\ntwo\nthree\n");
+    assert!(!root.join("added.txt").exists());
+    assert!(!root.join("untracked.txt").exists());
+    let status = working_status(root).await.unwrap();
+    assert!(status.staged.is_empty() && status.unstaged.is_empty());
+    assert!(undo_edits(root, &["../outside.txt".into()]).await.is_err());
 }

@@ -3,6 +3,8 @@
 //! edits and committing. Every command acts on one checkout of the opened
 //! repository, never anything outside it.
 
+use std::path::PathBuf;
+
 use arnold_git::{NewCommit, WorkingStatus};
 use serde::Deserialize;
 use tauri::{AppHandle, State};
@@ -29,6 +31,13 @@ pub enum WorkingSide {
 pub async fn working_status(checkout: String, app: AppHandle, state: State<'_, AppState>) -> Result<WorkingStatus, String> {
     let checkout = state.checked_root(&checkout)?;
     let status = arnold_git::working_status(&checkout).await.map_err(text_error)?;
+    watch_checkout(app, &state, checkout).await?;
+    Ok(status)
+}
+
+/// Makes sure `checkout`'s files and index are watched (`checkout-changed`),
+/// in place of any other checkout. `checkout` has been through `checked_root`.
+pub(crate) async fn watch_checkout(app: AppHandle, state: &AppState, checkout: PathBuf) -> Result<(), String> {
     let watched = matches!(&*state.checkout_watch.lock().unwrap(), Some((path, _)) if *path == checkout);
     if !watched {
         let git_dir = arnold_git::git_dir(&checkout).await.map_err(text_error)?;
@@ -39,7 +48,7 @@ pub async fn working_status(checkout: String, app: AppHandle, state: State<'_, A
             Err(error) => eprintln!("[arnold] cannot watch {}: {error}", checkout.display()),
         }
     }
-    Ok(status)
+    Ok(())
 }
 
 /// Stops watching the checkout's files: its changes are no longer listed.
@@ -109,6 +118,14 @@ pub async fn discard_files(checkout: String, paths: Vec<String>, state: State<'_
 pub async fn reset_files_to_head(checkout: String, paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let checkout = state.checked_root(&checkout)?;
     arnold_git::reset_to_head(&checkout, &paths).await.map_err(text_error)
+}
+
+/// Undoes the uncommitted changes to `paths` (Branches, editing a checked-out
+/// branch): back to the last commit, and a file no commit has is deleted.
+#[tauri::command]
+pub async fn undo_file_edits(checkout: String, paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::undo_edits(&checkout, &paths).await.map_err(text_error)
 }
 
 /// Gives `path` this text in the index: some of its lines staged or unstaged.

@@ -52,7 +52,7 @@ async fn fetches_objects_without_writing_refs() {
     assert_eq!(git(local, &["for-each-ref"]), refs_before);
     assert!(!local.join(".git/FETCH_HEAD").exists());
 
-    let comparison = compare(local, &target, &source, None).await.unwrap();
+    let comparison = compare(local, &target, &source, None, None).await.unwrap();
     let paths: Vec<_> = comparison.files.iter().map(|file| file.path.as_str()).collect();
     assert_eq!(paths, ["b.txt"]);
 

@@ -31,12 +31,13 @@ import { changeKindColors } from "./changeKinds";
 import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
+import { editFrames, setCommitted } from "./editFrames";
 import { lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
 import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 import { matchingLine } from "./matchingLine";
-import type { LineSelection, TextEdit } from "./resetLines";
+import { type LineSelection, resetEdits, type TextEdit } from "./resetLines";
 import { draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
 
@@ -67,6 +68,12 @@ export interface DiffDocument {
   draft?: NewThreadPlace | null;
   /** The working text can be edited: a file of the working tree. */
   editable?: boolean;
+  /**
+   * The working text at the branch's last commit, when the working side is a
+   * checkout's file: the lines that differ from it (uncommitted edits) are
+   * framed. Null or absent: no frames.
+   */
+  committed?: string | null;
   /** What the selected lines can have done to them (Commit mode); none when reviewing. */
   lineActions?: readonly LineAction[];
   /** Fold long runs of unchanged lines away (the default); false shows the whole file. */
@@ -105,7 +112,13 @@ export interface DiffEditorCallbacks {
   onLineAction?(action: LineAction): void;
   /** A change's move button: `selection` is all of its lines. */
   onMoveChunk?(direction: MoveDirection, selection: LineSelection): void;
+  /** Typing or pasting into a read-only side, which does nothing. */
+  onBlockedEdit?(): void;
 }
+
+/** Whether a key pressed in an editor would change its text. */
+const isEditKey = (event: KeyboardEvent) =>
+  !event.ctrlKey && !event.metaKey && (event.key.length === 1 || ["Backspace", "Delete", "Enter", "Tab"].includes(event.key));
 
 /** Arrows of the move buttons: which way the change goes. */
 const MOVE_ARROWS: Record<MoveDirection, string> = { toBase: "←", toWorking: "→" };
@@ -343,6 +356,15 @@ export class DiffEditor {
     }
   }
 
+  /** Replaces the committed text the uncommitted edits are framed against (after a commit, say). */
+  setCommitted(committed: string | null) {
+    const document = this.document;
+    const view = this.working;
+    if (!document || !view || (document.committed ?? null) === committed) return;
+    this.document = { ...document, committed };
+    view.dispatch({ effects: setCommitted.of(committed) });
+  }
+
   /** Changes the working text as an edit of its own, which can be undone. */
   applyWorkingEdits(edits: TextEdit[]) {
     this.working?.dispatch({ changes: edits, userEvent: "input.reset", scrollIntoView: true });
@@ -363,6 +385,37 @@ export class DiffEditor {
     // A selection ending at the start of a line does not include that line.
     if (!range.empty && to > from && range.to === doc.line(to + 1).from) to--;
     return { side: view === working ? "b" : "a", from, to };
+  }
+
+  /**
+   * Edits that put the working text back to `committed` (the branch's last
+   * commit): all of it, or the selected lines of the working side.
+   */
+  private editUndo(all: boolean): TextEdit[] {
+    const committed = this.document?.committed;
+    const view = this.working;
+    if (committed == null || !this.document?.editable || !view) return [];
+    const working = view.state.doc.toString();
+    if (all) return working === committed ? [] : [replacement(working, committed)];
+    const selection = this.selectedLines();
+    return selection?.side === "b" ? resetEdits(committed, working, selection) : [];
+  }
+
+  /** Whether uncommitted edits can be undone here: in the selected lines, and in the whole file. */
+  editUndos(): { lines: boolean; file: boolean } {
+    return { lines: this.editUndo(false).length > 0, file: this.editUndo(true).length > 0 };
+  }
+
+  /**
+   * Puts the selected lines (or with `all` the whole file) back to the
+   * branch's last commit, as an edit that can itself be undone. Returns
+   * whether there was anything to undo.
+   */
+  undoEdits(all: boolean): boolean {
+    const edits = this.editUndo(all);
+    if (edits.length === 0) return false;
+    this.applyWorkingEdits(edits);
+    return true;
   }
 
   /** What the selected lines can have done to them. */
@@ -486,6 +539,7 @@ export class DiffEditor {
       // Tab indents where text can be typed; elsewhere it moves the focus.
       document.editable ? tabIndentation(Text.of(doc.split("\n"))) : [],
       this.supportSlot.of(this.support),
+      editFrames(document.committed ?? null),
       keymap.of([
         {
           key: "F7",
@@ -783,13 +837,27 @@ export class DiffEditor {
           this.callbacks.onFocus();
           return false;
         },
+        keydown: (event, view) => {
+          if (view.state.readOnly && isEditKey(event)) this.callbacks.onBlockedEdit?.();
+          return false;
+        },
+        // Pasting, dictation and composed characters arrive without a key of their own.
+        beforeinput: (_event, view) => {
+          if (view.state.readOnly) this.callbacks.onBlockedEdit?.();
+          return false;
+        },
         contextmenu: (event, view) => {
           event.preventDefault();
           this.lastFocused = view;
           const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
           // Line actions act on the right-clicked line unless it is part of the selection.
           const selection = view.state.selection.main;
-          if (this.lineActions().length > 0 && position !== null && (selection.empty || position < selection.from || position > selection.to)) {
+          const undoable = view === this.working && this.document?.editable && this.document.committed != null;
+          if (
+            (this.lineActions().length > 0 || undoable) &&
+            position !== null &&
+            (selection.empty || position < selection.from || position > selection.to)
+          ) {
             view.dispatch({ selection: { anchor: position } });
           }
           const comment = this.commentPlace(view, position);

@@ -7,6 +7,8 @@ interface Props {
   commits: Commit[];
   /** The commits shown, or null for all of the changes. */
   value: CommitRange | null;
+  /** Files with uncommitted edits that all of the changes include (the branch's checkout is read). */
+  edits?: number;
   onChange(range: CommitRange | null): void;
 }
 
@@ -47,7 +49,7 @@ export function CommitPicker(props: Props) {
 
   const count = createMemo(() => pickedCount(props.commits, props.value));
   const label = createMemo(() => {
-    if (!props.value) return "All changes";
+    if (!props.value) return props.edits ? "All changes + edits" : "All changes";
     if (count() === 1) return props.commits.find((commit) => commit.sha === props.value!.newest)?.subject ?? "1 commit";
     return plural(count());
   });
@@ -158,7 +160,10 @@ export function CommitPicker(props: Props) {
                       fallback={
                         <>
                           <span class="picker-name">All changes</span>
-                          <span class="commit-meta">{plural(props.commits.length)}</span>
+                          <span class="commit-meta">
+                            {plural(props.commits.length)}
+                            {props.edits ? ` + ${props.edits} uncommitted` : ""}
+                          </span>
                         </>
                       }
                     >

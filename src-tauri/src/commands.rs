@@ -91,7 +91,10 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
 }
 
 /// Compares `head` against its merge-base with `base` (or shows a run of its
-/// commits) and starts watching the repository's branches, so new commits show up.
+/// commits) and starts watching the repository's branches, so new commits
+/// show up. When `head` is checked out (in the opened folder or a linked
+/// worktree) all of its changes are read from that checkout's files, which
+/// are then watched too, so edits made there or in Arnold show up.
 #[tauri::command]
 pub async fn compare_branches(
     root: String,
@@ -102,14 +105,33 @@ pub async fn compare_branches(
     state: State<'_, AppState>,
 ) -> Result<Comparison, String> {
     let root = state.checked_root(&root)?;
-    let comparison = arnold_git::compare(&root, &base, &head, range.as_ref())
+    let branches = arnold_git::list_branches(&root).await.map_err(text_error)?;
+    state.allow_checkouts(&branches);
+    let checkout = branches
+        .iter()
+        .find(|branch| !branch.is_remote && branch.name == head)
+        .and_then(|branch| branch.worktree_path.as_deref())
+        .and_then(|path| state.checked_root(&path.to_string_lossy()).ok());
+    let comparison = arnold_git::compare(&root, &base, &head, range.as_ref(), checkout.as_deref())
         .await
         .map_err(text_error)?;
 
     let git_dir = arnold_git::common_dir(&root).await.map_err(text_error)?;
-    let handle = watcher::watch(app, git_dir).ok();
+    let handle = watcher::watch(app.clone(), git_dir).ok();
     *state.watch.lock().unwrap() = handle;
+    match &comparison.checkout {
+        Some(checkout) => crate::working::watch_checkout(app, &state, checkout.clone()).await?,
+        None => *state.checkout_watch.lock().unwrap() = None,
+    }
     Ok(comparison)
+}
+
+/// Checks `branch` out in the opened folder so it can be edited, when the
+/// folder has nothing uncommitted. Returns the local branch checked out.
+#[tauri::command]
+pub async fn checkout_branch(root: String, branch: String, state: State<'_, AppState>) -> Result<String, String> {
+    let root = state.checked_root(&root)?;
+    arnold_git::switch_branch(&root, &branch).await.map_err(text_error)
 }
 
 /// The branches again, after the watcher saw them change.
@@ -121,13 +143,19 @@ pub async fn list_branches(root: String, state: State<'_, AppState>) -> Result<V
     Ok(branches)
 }
 
-/// Every file of `commit`, for the file explorer.
+/// Every file of `commit`, for the file explorer; with `checkout`, the files
+/// on disk there instead (the checkout the comparison reads).
 #[tauri::command]
 pub async fn list_files(
     root: String,
     commit: String,
+    checkout: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
+    if let Some(checkout) = checkout {
+        let checkout = state.checked_root(&checkout)?;
+        return arnold_git::worktree_files(&checkout).await.map_err(text_error);
+    }
     let root = state.checked_root(&root)?;
     arnold_git::list_files(&root, &commit)
         .await
@@ -141,6 +169,10 @@ pub(crate) struct FilePair {
     base: Option<String>,
     /// Text being reviewed; `None` when the file was deleted.
     working: Option<String>,
+    /// When the working side is read from a checkout: the text the branch's
+    /// last commit has, which edits not committed yet differ from. `None`
+    /// when that commit lacks the file (or for other diffs).
+    committed: Option<String>,
     binary: bool,
     too_large: bool,
 }
@@ -152,6 +184,7 @@ pub async fn read_file_pair(
     commit: String,
     path: String,
     old_path: Option<String>,
+    checkout: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<FilePair, String> {
     let root = state.checked_root(&root)?;
@@ -160,10 +193,23 @@ pub async fn read_file_pair(
         .await
         .map_err(text_error)?;
 
-    let working_bytes = arnold_git::read_blob(&root, &commit, &path)
-        .await
-        .map_err(text_error)?;
-    Ok(file_pair(base_bytes, working_bytes))
+    let Some(checkout) = checkout else {
+        let working_bytes = arnold_git::read_blob(&root, &commit, &path).await.map_err(text_error)?;
+        return Ok(file_pair(base_bytes, working_bytes));
+    };
+    let checkout = state.checked_root(&checkout)?;
+    let (working_bytes, committed_bytes) = tokio::try_join!(
+        arnold_git::read_worktree(&checkout, &path),
+        arnold_git::read_blob(&root, &commit, &path),
+    )
+    .map_err(text_error)?;
+    let mut pair = file_pair(base_bytes, working_bytes);
+    if pair.working.is_some() {
+        if let Some(Decoded::Text(text)) = committed_bytes.as_deref().map(fsio::decode) {
+            pair.committed = Some(text);
+        }
+    }
+    Ok(pair)
 }
 
 /// The two sides of a diff, decoded for the editor.

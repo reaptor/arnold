@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { AllFilesView } from "./components/AllFilesView";
 import { WorkingFilesView } from "./components/WorkingFilesView";
 import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
+import { EditStatus } from "./components/EditStatus";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
@@ -21,6 +22,8 @@ import {
   setState,
   startWatching,
   state,
+  undoFileEdits,
+  undoLineEdits,
 } from "./state/review";
 
 /** "Go back" as editors have it: Ctrl+- on macOS, Alt+Left elsewhere. */
@@ -210,6 +213,29 @@ export function App() {
                 <kbd>F12</kbd>
               </li>
             </Show>
+            <Show when={menu().undo}>
+              {(undo) => (
+                <>
+                  <Show when={!menu().file}>
+                    <li class="menu-separator" />
+                    <li
+                      classList={{ disabled: !undo().lines }}
+                      title={undo().lines ? undefined : "The selected lines have no uncommitted edits"}
+                      onClick={() => undo().lines && undoLineEdits()}
+                    >
+                      <span>Undo edits in selected lines</span>
+                    </li>
+                  </Show>
+                  <li
+                    classList={{ disabled: !undo().file }}
+                    title={undo().file ? undefined : "The file has no uncommitted edits"}
+                    onClick={() => undo().file && void undoFileEdits(undo().path)}
+                  >
+                    <span>{menu().file ? "Undo edits to file…" : "Undo all edits to file"}</span>
+                  </li>
+                </>
+              )}
+            </Show>
             <Show when={menu().lines?.length}>
               <Show when={!menu().file}>
                 <li class="menu-separator" />
@@ -284,6 +310,9 @@ function StatusBar() {
               {comparison().files.length} files <span class="added">+{totals().added}</span>{" "}
               <span class="removed">−{totals().removed}</span>
             </span>
+            <Show when={state.source === "branches"}>
+              <EditStatus />
+            </Show>
             <Show when={state.source === "pullRequest" && state.pullRequest}>
               {(pullRequest) => (
                 <span title={pullRequest().url}>
@@ -291,9 +320,20 @@ function StatusBar() {
                 </span>
               )}
             </Show>
-            <span title={`Commits only: ${comparison().mergeBase} to ${comparison().headCommit}`}>
-              from {comparison().mergeBase.slice(0, 8)} to {comparison().headCommit.slice(0, 8)}
-            </span>
+            <Show
+              when={comparison().checkout}
+              fallback={
+                <span title={`Commits only: ${comparison().mergeBase} to ${comparison().headCommit}`}>
+                  from {comparison().mergeBase.slice(0, 8)} to {comparison().headCommit.slice(0, 8)}
+                </span>
+              }
+            >
+              {(checkout) => (
+                <span class="status-path" title={`From ${comparison().mergeBase} to the files of ${checkout()}, uncommitted edits included`}>
+                  from {comparison().mergeBase.slice(0, 8)} to {checkout()}
+                </span>
+              )}
+            </Show>
             <span class="toolbar-space" />
             <span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>
             <LanguageStatus />
