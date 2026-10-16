@@ -83,7 +83,7 @@ The files dock has three parts:
 
 - **Unstaged:** what the working tree changes compared with the index, untracked files included (as `A`). A file picked here shows index → working tree, and its working side can be edited: Arnold saves as you type, keeping the file's line endings and byte-order mark.
 - **Staged:** what the next commit takes. A file picked here shows the last commit → index, read-only.
-- **All files:** every file of the working tree. A file picked here shows the last commit → the file on disk, whatever of it is staged, as Unstaged does when nothing is staged; the whole file, without folding unchanged lines, and editable. Staging and resetting lines is done in Unstaged and Staged.
+- **All files:** every file of the working tree. A file picked here shows the last commit → the file on disk, whatever of it is staged, as Unstaged does when nothing is staged; the whole file, without folding unchanged lines, and editable. A file without changes is shown on its own, as one editor: the diff appears with its first edit and goes again when edits (or undo) take all its changes back, keeping the cursor and undo history either way. Staging and resetting lines is done in Unstaged and Staged.
 
 Each part marks only the file picked in it.
 

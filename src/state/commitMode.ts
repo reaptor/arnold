@@ -99,6 +99,8 @@ async function openCheckout(path: string) {
   await flushSave();
   snapshots.clear();
   shownKey = null;
+  shownAlone = null;
+  shownDiff = null;
   fileEditor()?.close();
   setAllFiles([]);
   setMessage(localStorage.getItem(messageKey(path)) ?? "");
@@ -120,6 +122,8 @@ export function leave() {
   void flushSave();
   snapshots.clear();
   shownKey = null;
+  shownAlone = null;
+  shownDiff = null;
   fileEditor()?.close();
   void ipc.stopWatchingCheckout();
   setState({ work: null, workSide: null, notice: null });
@@ -202,7 +206,9 @@ export async function selectWorkFile(side: WorkingSide, path: string) {
 
 /**
  * A file of the explorer, or the target of go-to-definition: the whole file
- * as it is on disk, editable, against the last commit (whatever is staged of it).
+ * as it is on disk, editable, against the last commit (whatever is staged of
+ * it). A file without changes is shown on its own, and switches between that
+ * and the diff as edits give it changes or take them all back.
  */
 export async function openTreeFile(path: string) {
   if (state.workSide === null && state.selected === path) return;
@@ -215,6 +221,10 @@ export async function openTreeFile(path: string) {
 const snapshots = new Map<string, Snapshot>();
 /** Side and path of what the editor shows. */
 let shownKey: string | null = null;
+/** A file of the explorer shown on its own because it has no changes: its first edit brings in the diff. */
+let shownAlone: string | null = null;
+/** A file of the explorer shown against the last commit: once edits take all its changes back, it is shown on its own. */
+let shownDiff: string | null = null;
 let showToken = 0;
 
 const keyOf = (side: WorkingSide | null, path: string) => `${side ?? "file"}:${path}`;
@@ -229,15 +239,16 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
   const working = pair.working ?? "";
   if (side === null) {
     // The explorer: the last commit → the working tree, as Unstaged shows it
-    // when nothing is staged, and the whole file. New and deleted files show
-    // whole. Lines are staged from Unstaged, which knows the index.
+    // when nothing is staged, and the whole file. New, deleted and unchanged
+    // files show on their own. Lines are staged from Unstaged, which knows
+    // the index.
     const added = pair.base === null;
     const deleted = pair.working === null;
     return {
       path: file.path,
       base,
       working: deleted ? base : working,
-      plain: added || deleted,
+      plain: added || deleted || base === working,
       deleted,
       editable: !deleted,
       lineActions: [],
@@ -273,6 +284,8 @@ async function show() {
   if (!editor || !checkout || !file) {
     editor?.close();
     shownKey = null;
+    shownAlone = null;
+    shownDiff = null;
     setState(
       "placeholder",
       state.work && state.work.unstaged.length + state.work.staged.length === 0
@@ -297,20 +310,32 @@ async function show() {
     if (reason) {
       editor.close();
       shownKey = null;
+      shownAlone = null;
+      shownDiff = null;
       setState("placeholder", reason);
       return;
     }
-    const document = documentOf(file, side, pair);
     const key = keyOf(side, file.path);
-    if (key === shownKey && editor.shows(file.path, document)) {
-      // Edits not saved yet stay; the other side follows the index.
-      const working = pending?.path === file.path ? (editor.texts()?.working ?? document.working) : document.working;
+    const same = key === shownKey;
+    // Edits not saved yet stay, and decide whether a file of the explorer has changes.
+    const unsaved = same && pending?.path === file.path ? editor.texts()?.working : undefined;
+    const document = documentOf(file, side, side === null && unsaved !== undefined ? { ...pair, working: unsaved } : pair);
+    const unchanged = side === null && !!document.plain && !document.deleted && pair.base !== null;
+    const working = unsaved ?? document.working;
+    if (same && editor.shows(file.path, document)) {
+      // The other side follows the index.
       editor.updateTexts(document.base, working);
       return;
     }
+    // Shown differently now (changed on disk): where the editor was stays.
+    const focused = same && !!editor.working?.hasFocus;
+    if (same) stash();
     shownKey = key;
+    shownAlone = document.plain && unchanged ? file.path : null;
+    shownDiff = side === null && !document.plain ? file.path : null;
     setState("placeholder", null);
-    editor.open(document, state.mode, snapshots.get(key));
+    editor.open({ ...document, working }, state.mode, snapshots.get(key));
+    if (focused) editor.focus();
     void attachLanguageServer(file, editor);
   } catch (error) {
     fail(`Reading ${file.path}`)(error);
@@ -328,9 +353,32 @@ let saving: Promise<void> = Promise.resolve();
 export function edited(path: string, text: string) {
   const checkout = state.checkout;
   if (!checkout || state.workSide === "staged") return;
+  // Not from inside the editor's own update.
+  if (shownAlone === path) queueMicrotask(() => switchView(path, false));
+  else if (shownDiff === path && text === fileEditor()?.texts()?.base) queueMicrotask(() => switchView(path, true));
   pending = { checkout, path, text };
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => void flushSave(), SAVE_DELAY);
+}
+
+/**
+ * A file of the explorer has its first change (`alone` false: from now on it
+ * is shown against the last commit), or edits took all its changes back
+ * (`alone`: shown on its own). The cursor, scroll position and undo history stay.
+ */
+function switchView(path: string, alone: boolean) {
+  const editor = fileEditor();
+  const texts = editor?.texts();
+  if (!editor || !texts || state.workSide !== null || state.selected !== path) return;
+  if ((alone ? shownDiff : shownAlone) !== path || (texts.working === texts.base) !== alone) return;
+  shownAlone = alone ? path : null;
+  shownDiff = alone ? null : path;
+  const file = treeFile(path);
+  const pair: FilePair = { base: texts.base, working: texts.working, binary: false, tooLarge: false };
+  const snapshot = editor.snapshot() ?? undefined;
+  editor.open({ ...documentOf(file, null, pair), plain: alone }, state.mode, snapshot);
+  editor.focus();
+  void attachLanguageServer(file, editor);
 }
 
 /** Saves an edit still waiting for typing to pause. */
