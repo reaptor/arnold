@@ -319,8 +319,6 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `files=40` | Adds that many changed files, for a large diff |
 | `platform=windows` | Shows the Windows title bar |
 
-`zed-trial/setup-trial-repo.sh` creates a small F# repository with a feature branch and a linked worktree — handy for trying the app (its uncommitted and untracked changes do not show: Arnold compares commits only).
-
 ### Layout
 
 | Path | Contents |

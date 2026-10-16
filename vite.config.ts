@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    watch: { ignored: ["**/src-tauri/**", "**/target/**", "**/zed-trial/**"] },
+    watch: { ignored: ["**/src-tauri/**", "**/target/**"] },
   },
   build: { target: "es2022" },
   test: { environment: "node" },
