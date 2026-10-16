@@ -3,6 +3,7 @@
 // Never loaded in the real app.
 
 import type { Channel } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
   ChangedFile,
@@ -22,6 +23,8 @@ import type {
   Reviewer,
   SetupEvent,
   Vote,
+  WorkingSide,
+  WorkingStatus,
 } from "./commands";
 
 interface FakeFile {
@@ -340,6 +343,111 @@ const repo: RepoInfo = {
   worktrees: [ROOT, "/fake/zed-trial/repo-worktree"],
 };
 
+// ------------------------------------------------------- uncommitted changes
+// The checkout's HEAD is the branch tip (each file's `working` text).
+// `?uncommitted` gives it an agent's uncommitted work: Orders.fs edited,
+// Pricing.fs partly staged, a new Discounts.fs and Audit.fs deleted. Opening
+// the repository then starts in Commit mode.
+
+let head: Map<string, string> | null = null;
+let index = new Map<string, string>();
+let worktree = new Map<string, string>();
+
+/** A few files that are not part of the diff, so the explorer has more to show. */
+function addUnchangedFiles() {
+  const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
+  for (const path of unchanged) {
+    if (!files.has(path)) files.set(path, { base: `// ${path}\n`, working: `// ${path}\n` });
+  }
+}
+
+function checkoutState() {
+  if (head) return;
+  addUnchangedFiles();
+  head = new Map([...files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
+  index = new Map(head);
+  worktree = new Map(head);
+  if (!searchParams.has("uncommitted")) return;
+  worktree.set(
+    "Orders.fs",
+    head
+      .get("Orders.fs")!
+      .replace("/// Net total of all lines, before VAT.", "/// Net total of all lines, before VAT and discounts.")
+      .replace('let maxLinesPerOrder: int = "ten"', "let maxLinesPerOrder: int = 10") +
+      `
+/// Number of lines with a quantity above zero.
+let lineCount (order: Order) : int =
+    order.Lines |> List.filter (fun line -> line.Quantity > 0) |> List.length
+`,
+  );
+  const pricing = head.get("Pricing.fs")!;
+  index.set("Pricing.fs", pricing.replace("let loyaltyRate = 0.10m // UNCOMMITTED edit", "let loyaltyRate = 0.12m"));
+  worktree.set(
+    "Pricing.fs",
+    index.get("Pricing.fs")! + "\n/// Discount for staff.\nlet staffDiscount (amount: decimal) : decimal =\n    amount * 0.8m\n",
+  );
+  worktree.set(
+    "src/Discounts.fs",
+    "module ZedTrial.Discounts\n\n/// Seasonal discount rate.\nlet seasonal = 0.05m\n\nlet apply (rate: decimal) (amount: decimal) =\n    amount * (1m - rate)\n",
+  );
+  worktree.delete("Audit.fs");
+}
+
+function diffOf(from: Map<string, string>, to: Map<string, string>): ChangedFile[] {
+  const paths = new Set([...from.keys(), ...to.keys()]);
+  const result: ChangedFile[] = [];
+  for (const path of paths) {
+    const a = from.get(path);
+    const b = to.get(path);
+    if (a === b) continue;
+    const aLines = new Set((a ?? "").split("\n"));
+    const bLines = new Set((b ?? "").split("\n"));
+    result.push({
+      path,
+      oldPath: null,
+      status: a === undefined ? "added" : b === undefined ? "deleted" : "modified",
+      additions: b === undefined ? 0 : [...bLines].filter((line) => !aLines.has(line)).length,
+      deletions: a === undefined ? 0 : [...aLines].filter((line) => !bLines.has(line)).length,
+      binary: false,
+    });
+  }
+  return result.sort((x, y) => x.path.localeCompare(y.path));
+}
+
+function workingStatus(): WorkingStatus {
+  checkoutState();
+  return {
+    branch: "feature/agent-work",
+    head: commits[0].sha,
+    unstaged: diffOf(index, worktree),
+    staged: diffOf(head!, index),
+  };
+}
+
+/** What the real watcher reports after any change to the checkout. */
+function checkoutChanged<T>(value: T): T {
+  setTimeout(() => void emit("checkout-changed"), 50);
+  return value;
+}
+
+function commitStaged(message: string) {
+  checkoutState();
+  if (searchParams.has("failcommit")) throw "git commit failed: pre-commit hook rejected the commit (dev mock)";
+  const staged = diffOf(head!, index);
+  if (staged.length === 0) throw "git commit failed: nothing to commit";
+  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  const subject = message.split("\n")[0];
+  for (const file of staged) {
+    const text = index.get(file.path) ?? null;
+    const known = files.get(file.path);
+    if (known) known.working = text;
+    else files.set(file.path, { base: null, working: text });
+  }
+  head = new Map(index);
+  commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author: "You", date: new Date().toISOString(), paths: staged.map((file) => file.path) });
+  return checkoutChanged({ sha, subject, branch: "feature/agent-work" });
+}
+
 // ------------------------------------------------------------ pull requests
 // `?devops`: origin is an Azure DevOps repository with a saved token.
 // `?devops=nopat`: no token yet (pasting "bad" is rejected, anything else works).
@@ -618,19 +726,15 @@ export function install() {
             base: args.base,
             head: args.head,
             mergeBase: range ? (commits[oldest + 1]?.sha ?? MERGE_BASE) : MERGE_BASE,
-            headCommit: range?.newest ?? TIP,
-            tipCommit: TIP,
+            headCommit: range?.newest ?? commits[0].sha,
+            tipCommit: commits[0].sha,
             range,
             commits: commits.map(({ paths: _, ...commit }) => commit),
             files: changedFiles(range ? commits.slice(newest, oldest + 1) : commits),
           } satisfies Comparison;
         }
         case "list_files": {
-          // A few files that are not part of the diff, so the explorer has more to show.
-          const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
-          for (const path of unchanged) {
-            if (!files.has(path)) files.set(path, { base: `// ${path}\n`, working: `// ${path}\n` });
-          }
+          addUnchangedFiles();
           return [...files]
             .filter(([, file]) => file.working !== null)
             .map(([path]) => path)
@@ -645,6 +749,70 @@ export function install() {
             tooLarge: false,
           } satisfies FilePair;
         }
+        case "working_status":
+          return workingStatus();
+        case "stop_watching_checkout":
+          return null;
+        case "read_working_pair": {
+          checkoutState();
+          const side = (payload as { side: WorkingSide | "committed" }).side;
+          const [from, to] = side === "unstaged" ? [index, worktree] : side === "staged" ? [head!, index] : [head!, worktree];
+          return {
+            base: from.get(args.oldPath ?? args.path) ?? null,
+            working: to.get(args.path) ?? null,
+            binary: false,
+            tooLarge: false,
+          } satisfies FilePair;
+        }
+        case "worktree_files":
+          checkoutState();
+          return [...new Set([...worktree.keys(), ...index.keys()])].sort();
+        case "stage_files":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) {
+            const text = worktree.get(path);
+            if (text === undefined) index.delete(path);
+            else index.set(path, text);
+          }
+          return checkoutChanged(null);
+        case "unstage_files":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) {
+            const text = head!.get(path);
+            if (text === undefined) index.delete(path);
+            else index.set(path, text);
+          }
+          return checkoutChanged(null);
+        case "discard_files":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) {
+            const text = index.get(path);
+            if (text === undefined) worktree.delete(path);
+            else worktree.set(path, text);
+          }
+          return checkoutChanged(null);
+        case "reset_files_to_head":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) {
+            const text = head!.get(path);
+            if (text === undefined) {
+              index.delete(path);
+            } else {
+              index.set(path, text);
+              worktree.set(path, text);
+            }
+          }
+          return checkoutChanged(null);
+        case "set_index_text":
+          checkoutState();
+          index.set(args.path, args.text);
+          return checkoutChanged(null);
+        case "save_worktree_file":
+          checkoutState();
+          worktree.set(args.path, args.text);
+          return checkoutChanged(null);
+        case "commit_staged":
+          return slowly(() => commitStaged(args.message), 500);
         case "pull_request_remotes":
           return devops === null ? [] : [prRemote()];
         case "list_pull_requests":

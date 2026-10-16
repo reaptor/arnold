@@ -848,9 +848,41 @@ button.primary:hover:not(:disabled) {
 
 /* ------------------------------------------------------------------- editor */
 
+/* The diff, and in Commit mode the commit message under it. */
+.content-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.content-column.hidden {
+  display: none;
+}
+
+/* Same size as the gaps between the dock's islands. */
+.content-sash {
+  flex: none;
+  height: var(--island-gap);
+  cursor: row-resize;
+}
+
+.commit-island {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* A short window takes room from the commit message last. */
+  max-height: calc(100% - 120px - var(--island-gap));
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
+}
+
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -1363,10 +1395,6 @@ button.primary:hover:not(:disabled) {
 }
 
 /* ------------------------------------------------------------ pull requests */
-
-.content.hidden {
-  display: none;
-}
 
 /* Branches | Pull request: always labelled, it decides what the rest of the toolbar is. */
 .source-switch {
@@ -2526,4 +2554,177 @@ button.primary:hover:not(:disabled) {
 .complete-message textarea:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+/* ------------------------------------------------------------- commit mode */
+
+/* "Stage all" / "Unstage all" at the end of a dock heading. */
+.dock-action {
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.dock-action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--pressed);
+}
+
+/* Under the diff, as in Git Extensions' commit dialog. */
+.commit-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+/* Sized by the gap above its island, not by a corner of its own. */
+.commit-message {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  font: inherit;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.commit-message:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.commit-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commit-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.commit-bar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusbar .notice {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.committed-dialog code {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.committed-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.committed-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  text-align: left;
+  height: auto;
+}
+
+.committed-choice .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.committed-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.committed-choice small {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.committed-choice.primary:not(:disabled) small {
+  color: inherit;
+  opacity: 0.85;
+}
+
+/* Moving a change to the other side: the column between the sides of the
+   split view (the merge view's own place for its controls), and buttons on
+   each change in the unified view. */
+.editor-host .cm-merge-revert {
+  width: 22px;
+  background: var(--bg);
+}
+
+.editor-host .arnold-two-moves .cm-merge-revert {
+  width: 40px;
+}
+
+.arnold-move-control {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+
+.editor-host .cm-merge-revert .arnold-move,
+.editor-host .cm-chunkButtons .arnold-move {
+  position: static;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: 13px/18px Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.editor-host .cm-merge-revert .arnold-move:hover,
+.editor-host .cm-chunkButtons .arnold-move:hover {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+.editor-host .cm-chunkButtons .arnold-move {
+  width: auto;
+  padding: 0 6px;
+  margin-right: 4px;
+  font-size: 12px;
+  background: var(--pressed);
+  color: var(--text);
 }

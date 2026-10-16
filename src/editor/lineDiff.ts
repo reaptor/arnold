@@ -7,7 +7,7 @@
 import { Change, diff, type DiffConfig } from "@codemirror/merge";
 
 /** A changed region in line numbers (0-based, end exclusive). */
-interface LineBlock {
+export interface LineBlock {
   fromA: number;
   toA: number;
   fromB: number;
@@ -54,7 +54,7 @@ function encodeLines(lineLists: string[][]): string[] | null {
 }
 
 /** Line-level differences between two versions of a file. */
-function lineBlocks(aLines: string[], bLines: string[]): LineBlock[] {
+export function lineBlocks(aLines: string[], bLines: string[]): LineBlock[] {
   const encoded = encodeLines([aLines, bLines]);
   if (!encoded) {
     // More distinct lines than code units: treat everything between the

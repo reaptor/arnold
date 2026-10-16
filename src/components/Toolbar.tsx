@@ -13,6 +13,7 @@ import {
   state,
 } from "../state/review";
 import { prs } from "../state/pullRequests";
+import { setCheckout } from "../state/commitMode";
 import { isMac, platform } from "../platform";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
@@ -25,6 +26,7 @@ import {
   BranchIcon,
   ArrowUpIcon,
   BackIcon,
+  CommitIcon,
   FileIcon,
   FilesIcon,
   PullRequestIcon,
@@ -61,16 +63,24 @@ export function Toolbar() {
       <Show when={state.repo}>
         {(repo) => (
           <>
-            <Show when={prs.remotes.length > 0}>
-              <div class="segmented source-switch" role="group" aria-label="What to review">
-                <button
-                  classList={{ on: state.source === "branches" }}
-                  onClick={() => void setSource("branches")}
-                  title="Compare a branch against a base branch"
-                >
-                  <BranchIcon />
-                  <span>Branches</span>
-                </button>
+            <div class="segmented source-switch" role="group" aria-label="What to review">
+              <button
+                classList={{ on: state.source === "commit" }}
+                onClick={() => void setSource("commit")}
+                title="Commit: stage, edit and commit the uncommitted changes of a checkout, the first step with an agent's work"
+              >
+                <CommitIcon />
+                <span>Commit</span>
+              </button>
+              <button
+                classList={{ on: state.source === "branches" }}
+                onClick={() => void setSource("branches")}
+                title="Compare a branch against a base branch"
+              >
+                <BranchIcon />
+                <span>Branches</span>
+              </button>
+              <Show when={prs.remotes.length > 0}>
                 <button
                   classList={{ on: state.source === "pullRequest" }}
                   onClick={() => void setSource("pullRequest")}
@@ -79,12 +89,23 @@ export function Toolbar() {
                   <PullRequestIcon />
                   <span>Pull request</span>
                 </button>
-              </div>
+              </Show>
+            </div>
+            <Show when={state.source === "commit"}>
+              <BranchPicker
+                label="Checkout to commit in"
+                value={state.work?.branch ?? (state.work ? "detached HEAD" : "")}
+                branches={repo().branches.filter((branch) => !branch.isRemote && branch.worktreePath)}
+                onChange={(name) => {
+                  const path = repo().branches.find((branch) => branch.name === name && !branch.isRemote)?.worktreePath;
+                  if (path) void setCheckout(path);
+                }}
+              />
             </Show>
-            <Show
-              when={state.source === "branches"}
-              fallback={<PullRequestPicker />}
-            >
+            <Show when={state.source === "pullRequest"}>
+              <PullRequestPicker />
+            </Show>
+            <Show when={state.source === "branches"}>
               <BranchPicker
                 label="Branch to review"
                 value={state.head}
@@ -99,7 +120,7 @@ export function Toolbar() {
                 onChange={(base) => setBranches({ base })}
               />
             </Show>
-            <Show when={state.source === "branches" || state.pullRequest}>
+            <Show when={state.source === "branches" || (state.source === "pullRequest" && state.pullRequest)}>
               <span class="toolbar-separator" />
               <CommitPicker
                 commits={state.comparison?.commits ?? []}
@@ -122,7 +143,7 @@ export function Toolbar() {
         <CreatePullRequestButton />
         <span class="toolbar-separator" />
       </Show>
-      <Show when={state.repo && (state.source === "branches" || state.pullRequest)}>
+      <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
         <Show when={state.backCount > 0}>
           <button class="icon-button" onClick={() => goBack()} title="Back to where you jumped from">
             <BackIcon />
@@ -140,7 +161,12 @@ export function Toolbar() {
           <button
             classList={{ on: state.view === "all" }}
             onClick={() => setView("all")}
-            title="All files: show every file of the diff in one list"
+            disabled={state.source === "commit"}
+            title={
+              state.source === "commit"
+                ? "All files: not in Commit mode, which shows one file at a time"
+                : "All files: show every file of the diff in one list"
+            }
             aria-label="All files"
           >
             <FilesIcon />

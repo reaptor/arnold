@@ -16,9 +16,19 @@ pub struct AppState {
     /// Checkouts of the opened repository. File commands refuse any other root.
     roots: Mutex<HashSet<PathBuf>>,
     watch: Mutex<Option<WatchHandle>>,
+    /// The checkout whose uncommitted changes are listed, with its watch.
+    pub(crate) checkout_watch: Mutex<Option<(PathBuf, WatchHandle)>>,
 }
 
 impl AppState {
+    /// Lets file commands use the checkouts the branches are checked out in,
+    /// which may have been added since the repository was opened.
+    pub(crate) fn allow_checkouts(&self, branches: &[Branch]) {
+        for path in branches.iter().filter_map(|branch| branch.worktree_path.as_deref()) {
+            self.allow_root(path);
+        }
+    }
+
     pub(crate) fn checked_root(&self, root: &str) -> Result<PathBuf, String> {
         let canonical = Path::new(root)
             .canonicalize()
@@ -39,7 +49,7 @@ impl AppState {
     }
 }
 
-fn text_error(error: impl std::fmt::Display) -> String {
+pub(crate) fn text_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
@@ -76,6 +86,7 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
     }
     *state.roots.lock().unwrap() = roots;
     *state.watch.lock().unwrap() = None;
+    *state.checkout_watch.lock().unwrap() = None;
     Ok(info)
 }
 
@@ -105,7 +116,9 @@ pub async fn compare_branches(
 #[tauri::command]
 pub async fn list_branches(root: String, state: State<'_, AppState>) -> Result<Vec<Branch>, String> {
     let root = state.checked_root(&root)?;
-    arnold_git::list_branches(&root).await.map_err(text_error)
+    let branches = arnold_git::list_branches(&root).await.map_err(text_error)?;
+    state.allow_checkouts(&branches);
+    Ok(branches)
 }
 
 /// Every file of `commit`, for the file explorer.
@@ -123,7 +136,7 @@ pub async fn list_files(
 
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct FilePair {
+pub(crate) struct FilePair {
     /// Text at the merge-base; `None` when the file did not exist there.
     base: Option<String>,
     /// Text being reviewed; `None` when the file was deleted.
@@ -150,7 +163,11 @@ pub async fn read_file_pair(
     let working_bytes = arnold_git::read_blob(&root, &commit, &path)
         .await
         .map_err(text_error)?;
+    Ok(file_pair(base_bytes, working_bytes))
+}
 
+/// The two sides of a diff, decoded for the editor.
+pub(crate) fn file_pair(base_bytes: Option<Vec<u8>>, working_bytes: Option<Vec<u8>>) -> FilePair {
     let mut pair = FilePair::default();
     for (bytes, is_working) in [(working_bytes, true), (base_bytes, false)] {
         let Some(bytes) = bytes else { continue };
@@ -165,5 +182,5 @@ pub async fn read_file_pair(
         pair.base = None;
         pair.working = None;
     }
-    Ok(pair)
+    pair
 }

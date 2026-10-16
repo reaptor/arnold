@@ -1,9 +1,30 @@
-// The read-only diff: a side-by-side MergeView or a single unified editor over
-// the same working text. Switching mode or file keeps the selection and scroll
-// position.
+// The diff: a side-by-side MergeView or a single unified editor over the same
+// working text. Reviewing, it is read-only; in Commit mode the working tree's
+// text can be edited and lines staged, unstaged or reset. Switching mode or
+// file keeps the selection and scroll position (and an edited file's undo
+// history).
 
-import { getChunks, getOriginalDoc, goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from "@codemirror/merge";
-import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
+import { historyField } from "@codemirror/commands";
+import {
+  type Chunk,
+  getChunks,
+  getOriginalDoc,
+  goToNextChunk,
+  goToPreviousChunk,
+  MergeView,
+  unifiedMergeView,
+  updateOriginalDoc,
+} from "@codemirror/merge";
+import {
+  Annotation,
+  ChangeSet,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  Text,
+  Transaction,
+} from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
@@ -12,12 +33,23 @@ import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
+import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 import { matchingLine } from "./matchingLine";
+import type { LineSelection, TextEdit } from "./resetLines";
 import { draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
 
 export type DiffMode = "split" | "unified";
+
+/** What can be done to the selected lines of an uncommitted change. */
+export type LineAction = "stage" | "unstage" | "reset";
+
+/** Which way a change moves between the two sides: into the base (left) or into the working (right) text. */
+export type MoveDirection = "toBase" | "toWorking";
+
+/** The keys of the line actions: plain where nothing can be typed, with Alt where it can. */
+export const LINE_ACTION_KEYS: Record<LineAction, string> = { stage: "S", unstage: "U", reset: "R" };
 
 export interface DiffDocument {
   path: string;
@@ -33,6 +65,17 @@ export interface DiffDocument {
   threads?: readonly PrThread[];
   /** A new comment being written about lines of the file. */
   draft?: NewThreadPlace | null;
+  /** The working text can be edited: a file of the working tree. */
+  editable?: boolean;
+  /** What the selected lines can have done to them (Commit mode); none when reviewing. */
+  lineActions?: readonly LineAction[];
+  /** Fold long runs of unchanged lines away (the default); false shows the whole file. */
+  collapseUnchanged?: boolean;
+  /**
+   * Buttons on each change that move it to the other side, by what they do
+   * ("Stage this change"); a direction without a label has no button.
+   */
+  moves?: Partial<Record<MoveDirection, string>>;
 }
 
 /** Where a comment would go: the selection, or the line under the pointer. */
@@ -42,6 +85,9 @@ export type CommentPlace = LineRange;
 export interface Snapshot {
   selection: EditorSelection;
   scrollTop: number;
+  /** An editable file's text and undo history; used again only while the file has that text. */
+  doc?: Text;
+  history?: unknown;
 }
 
 export interface DiffEditorCallbacks {
@@ -53,6 +99,39 @@ export interface DiffEditorCallbacks {
   onContextMenu(x: number, y: number, view: EditorView, position: number | null, comment: CommentPlace | null): void;
   /** F7 / Shift+F7 in the editor. */
   onStepChange(direction: 1 | -1): void;
+  /** The working text was edited (by typing, undo or a reset of lines). */
+  onChange?(text: string): void;
+  /** S, U or R on the selected lines. */
+  onLineAction?(action: LineAction): void;
+  /** A change's move button: `selection` is all of its lines. */
+  onMoveChunk?(direction: MoveDirection, selection: LineSelection): void;
+}
+
+/** Arrows of the move buttons: which way the change goes. */
+const MOVE_ARROWS: Record<MoveDirection, string> = { toBase: "←", toWorking: "→" };
+
+/** All of a change's lines: on the working side, or the base side for lines only removed. */
+function chunkLines(chunk: Chunk, a: Text, b: Text): LineSelection {
+  const lines = (doc: Text, from: number, to: number) => ({
+    from: doc.lineAt(Math.min(from, doc.length)).number - 1,
+    to: doc.lineAt(Math.min(Math.max(from, to - 1), doc.length)).number - 1,
+  });
+  return chunk.fromB < chunk.toB
+    ? { side: "b", ...lines(b, chunk.fromB, chunk.toB) }
+    : { side: "a", ...lines(a, chunk.fromA, chunk.toA) };
+}
+
+/** Marks text that changed on disk rather than in the editor. */
+const fromOutside = Annotation.define<boolean>();
+
+/** The one replacement turning `from` into `to`: what lies between their common start and end. */
+function replacement(from: string, to: string): { from: number; to: number; insert: string } {
+  let start = 0;
+  const shorter = Math.min(from.length, to.length);
+  while (start < shorter && from.charCodeAt(start) === to.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < shorter - start && from.charCodeAt(from.length - 1 - end) === to.charCodeAt(to.length - 1 - end)) end++;
+  return { from: start, to: from.length - end, insert: to.slice(start, to.length - end) };
 }
 
 const COLLAPSE = { margin: 3, minSize: 8 };
@@ -85,6 +164,8 @@ export class DiffEditor {
   private support: Extension = [];
   private readonly supportSlot = new Compartment();
   private layoutSplit: (() => void) | null = null;
+  /** The side last given the keyboard (or right-clicked): what line actions act on. */
+  private lastFocused: EditorView | null = null;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -205,7 +286,94 @@ export class DiffEditor {
   snapshot(): Snapshot | null {
     const view = this.working;
     if (!view) return null;
-    return { selection: view.state.selection, scrollTop: this.scroller()?.scrollTop ?? 0 };
+    const snapshot: Snapshot = { selection: view.state.selection, scrollTop: this.scroller()?.scrollTop ?? 0 };
+    if (this.document?.editable) {
+      snapshot.doc = view.state.doc;
+      snapshot.history = view.state.field(historyField, false);
+    }
+    return snapshot;
+  }
+
+  /** The texts shown: the base side, and the working side with any edits. */
+  texts(): { base: string; working: string } | null {
+    const document = this.document;
+    const view = this.working;
+    if (!document || !view) return null;
+    return { base: document.base, working: view.state.doc.toString() };
+  }
+
+  /** Whether the file shown is `path`, shown with these settings. */
+  shows(path: string, kind: Pick<DiffDocument, "plain" | "deleted" | "editable">): boolean {
+    const document = this.document;
+    return (
+      document?.path === path &&
+      !!document.plain === !!kind.plain &&
+      !!document.deleted === !!kind.deleted &&
+      !!document.editable === !!kind.editable
+    );
+  }
+
+  /**
+   * Brings the texts up to date with what changed elsewhere (on disk, in the
+   * index) without rebuilding the editors, so the cursor, scroll position
+   * and undo history stay. The change is not undoable on its own.
+   */
+  updateTexts(base: string, working: string) {
+    const document = this.document;
+    const view = this.working;
+    if (!document || !view) return;
+    this.document = { ...document, base, working };
+    const current = view.state.doc.toString();
+    if (current !== working) {
+      view.dispatch({
+        changes: replacement(current, working),
+        annotations: [fromOutside.of(true), Transaction.addToHistory.of(false)],
+      });
+    }
+    if (this.merge) {
+      const original = this.merge.a.state.doc.toString();
+      if (original !== base) this.merge.a.dispatch({ changes: replacement(original, base), annotations: fromOutside.of(true) });
+    } else if (this.unified && !document.plain) {
+      const original = getOriginalDoc(this.unified.state);
+      const text = original.toString();
+      if (text !== base) {
+        const changes = ChangeSet.of([replacement(text, base)], original.length);
+        this.unified.dispatch({ effects: updateOriginalDoc.of({ doc: Text.of(base.split("\n")), changes }) });
+      }
+    }
+  }
+
+  /** Changes the working text as an edit of its own, which can be undone. */
+  applyWorkingEdits(edits: TextEdit[]) {
+    this.working?.dispatch({ changes: edits, userEvent: "input.reset", scrollIntoView: true });
+  }
+
+  /**
+   * The lines selected (0-based, inclusive) on the side that last had the
+   * keyboard; the cursor's line when nothing is selected.
+   */
+  selectedLines(): LineSelection | null {
+    const working = this.working;
+    if (!working) return null;
+    const view = this.merge && this.lastFocused === this.merge.a ? this.merge.a : working;
+    const range = view.state.selection.main;
+    const doc = view.state.doc;
+    const from = doc.lineAt(range.from).number - 1;
+    let to = doc.lineAt(range.to).number - 1;
+    // A selection ending at the start of a line does not include that line.
+    if (!range.empty && to > from && range.to === doc.line(to + 1).from) to--;
+    return { side: view === working ? "b" : "a", from, to };
+  }
+
+  /** What the selected lines can have done to them. */
+  lineActions(): readonly LineAction[] {
+    return this.document?.lineActions ?? [];
+  }
+
+  private lineAction(action: LineAction): boolean {
+    if (!this.lineActions().includes(action) || !this.callbacks.onLineAction) return false;
+    this.callbacks.onLineAction(action);
+    return true;
   }
 
   /** Replaces the text after the file changed on disk, keeping the scroll position. */
@@ -294,6 +462,7 @@ export class DiffEditor {
   }
 
   private destroyViews() {
+    this.lastFocused = null;
     if (this.layoutSplit) splitLayouts.delete(this.layoutSplit);
     this.layoutSplit = null;
     this.merge?.destroy();
@@ -307,8 +476,15 @@ export class DiffEditor {
     const document = this.document!;
     const doc = document.working;
     const selection = snapshot && fits(snapshot.selection, doc.length) ? snapshot.selection : undefined;
+    // An edited file's undo history, while the file still has the text it was made for.
+    const history =
+      document.editable && snapshot?.history && snapshot.doc?.toString() === doc ? snapshot.history : undefined;
     const workingExtensions = [
-      this.sharedExtensions(document.path),
+      // Before basicSetup's own history, so that this initial value wins.
+      history ? historyField.init(() => history as never) : [],
+      this.sharedExtensions(document.path, !document.editable),
+      // Tab indents where text can be typed; elsewhere it moves the focus.
+      document.editable ? tabIndentation(Text.of(doc.split("\n"))) : [],
       this.supportSlot.of(this.support),
       keymap.of([
         {
@@ -321,6 +497,8 @@ export class DiffEditor {
         if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSemanticRanges)))) {
           this.mirrorSemanticRanges();
         }
+        const edited = update.transactions.some((tr) => tr.docChanged && !tr.annotation(fromOutside));
+        if (edited && this.document?.editable) this.callbacks.onChange?.(update.state.doc.toString());
       }),
     ];
 
@@ -336,15 +514,20 @@ export class DiffEditor {
         parent: this.parent,
         a: {
           doc: document.base,
-          extensions: this.sharedExtensions(document.path),
+          extensions: this.sharedExtensions(document.path, true),
         },
         b: { doc, selection, extensions: workingExtensions },
         highlightChanges: true,
         // changeKindColors draws the change gutter.
         gutter: false,
-        collapseUnchanged: COLLAPSE,
+        collapseUnchanged: document.collapseUnchanged === false ? undefined : COLLAPSE,
         diffConfig: lineFirstDiffConfig,
+        // The merge view places a control by each change, between the sides;
+        // its own revert is replaced by the move buttons.
+        ...(this.hasMoves() ? { revertControls: "b-to-a" as const, renderRevertControl: () => this.splitMoveControl() } : {}),
       });
+      const moves = this.document?.moves;
+      this.merge.dom.classList.toggle("arnold-two-moves", !!moves?.toBase && !!moves.toWorking);
       this.addSplitter(this.merge);
     } else {
       this.unified = new EditorView({
@@ -358,9 +541,9 @@ export class DiffEditor {
             highlightChanges: true,
             gutter: false,
             syntaxHighlightDeletions: true,
-            collapseUnchanged: COLLAPSE,
+            collapseUnchanged: document.collapseUnchanged === false ? undefined : COLLAPSE,
             diffConfig: lineFirstDiffConfig,
-            mergeControls: false,
+            mergeControls: this.hasMoves() ? (type, _action) => this.unifiedMoveButton(type) : false,
           }),
         ],
       });
@@ -455,6 +638,68 @@ export class DiffEditor {
     merge.a.dispatch({ effects: setSemanticRanges.of(mirrored) });
   }
 
+  private hasMoves(): boolean {
+    const moves = this.document?.moves;
+    return !!moves && (!!moves.toBase || !!moves.toWorking);
+  }
+
+  private moveButton(direction: MoveDirection, run: () => void): HTMLButtonElement {
+    const label = this.document?.moves?.[direction] ?? "";
+    const button = document.createElement("button");
+    button.className = `arnold-move arnold-move-${direction}`;
+    button.textContent = MOVE_ARROWS[direction];
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.onmousedown = (event) => {
+      // Before the merge view's own handler, which would revert the change.
+      event.preventDefault();
+      event.stopPropagation();
+      run();
+    };
+    return button;
+  }
+
+  /** Split view: the buttons beside a change, between the sides. */
+  private splitMoveControl(): HTMLElement {
+    const control = document.createElement("div");
+    control.className = "arnold-move-control";
+    const moves = this.document?.moves ?? {};
+    for (const direction of ["toBase", "toWorking"] as const) {
+      if (!moves[direction]) continue;
+      control.append(
+        this.moveButton(direction, () => {
+          // The merge view numbers its controls by change.
+          const merge = this.merge;
+          const chunk = merge?.chunks[Number(control.dataset.chunk)];
+          if (merge && chunk) this.callbacks.onMoveChunk?.(direction, chunkLines(chunk, merge.a.state.doc, merge.b.state.doc));
+        }),
+      );
+    }
+    return control;
+  }
+
+  /**
+   * Unified view: the buttons on a change's removed lines. "accept" takes the
+   * working text into the base, "reject" puts the base text back.
+   */
+  private unifiedMoveButton(type: "accept" | "reject"): HTMLElement {
+    const direction: MoveDirection = type === "accept" ? "toBase" : "toWorking";
+    if (!this.document?.moves?.[direction]) {
+      const none = document.createElement("span");
+      none.hidden = true;
+      return none;
+    }
+    const button = this.moveButton(direction, () => {
+      const view = this.unified;
+      if (!view) return;
+      const at = view.posAtDOM(button);
+      const chunk = getChunks(view.state)?.chunks.find((candidate) => candidate.fromB <= at && candidate.endB >= at);
+      if (chunk) this.callbacks.onMoveChunk?.(direction, chunkLines(chunk, getOriginalDoc(view.state), view.state.doc));
+    });
+    button.textContent = `${MOVE_ARROWS[direction]} ${this.document.moves[direction]!.replace(/ this change.*$/, "")}`;
+    return button;
+  }
+
   /** A draggable divider between the two sides; double-click makes them equal again. */
   private addSplitter(merge: MergeView) {
     const left = merge.a.dom.parentElement!;
@@ -497,11 +742,35 @@ export class DiffEditor {
     apply();
   }
 
-  private sharedExtensions(path: string): Extension {
+  private sharedExtensions(path: string, readOnly: boolean): Extension {
+    const actions = ["stage", "unstage", "reset"] as const;
+    // A plain letter acts where it cannot be typed, and on a selection where
+    // it can: typing over selected lines is what S and R are for here. With
+    // only a cursor it types.
+    const plain = (action: LineAction) => (view: EditorView) =>
+      (view.state.readOnly || !view.state.selection.main.empty) && this.lineAction(action);
+    const letterKeys = actions.flatMap((action) => {
+      const letter = LINE_ACTION_KEYS[action];
+      return [
+        { key: letter.toLowerCase(), run: plain(action) },
+        { key: letter, run: plain(action) },
+      ];
+    });
+    // Alt+S/U/R always act, on the cursor's line too. Matched by the physical
+    // key: macOS turns Alt+letter into a typed character (Alt+S is "ß"), for
+    // which CodeMirror runs no Alt binding.
+    const altKeys = {
+      any: (_view: EditorView, event: KeyboardEvent) => {
+        if (!event.altKey || event.ctrlKey || event.metaKey) return false;
+        const action = actions.find((candidate) => event.code === `Key${LINE_ACTION_KEYS[candidate]}`);
+        return action !== undefined && this.lineAction(action);
+      },
+    };
     return [
+      keymap.of([...letterKeys, altKeys]),
       basicSetup,
       // Read-only, but still focusable with a cursor for go-to-definition and selecting.
-      EditorState.readOnly.of(true),
+      EditorState.readOnly.of(readOnly),
       languageFor(path),
       semanticHighlight,
       prefersDark() ? riderIslandsDark : [],
@@ -509,13 +778,20 @@ export class DiffEditor {
       lineTints,
       threadMarks,
       EditorView.domEventHandlers({
-        focus: () => {
+        focus: (_event, view) => {
+          this.lastFocused = view;
           this.callbacks.onFocus();
           return false;
         },
         contextmenu: (event, view) => {
           event.preventDefault();
+          this.lastFocused = view;
           const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          // Line actions act on the right-clicked line unless it is part of the selection.
+          const selection = view.state.selection.main;
+          if (this.lineActions().length > 0 && position !== null && (selection.empty || position < selection.from || position > selection.to)) {
+            view.dispatch({ selection: { anchor: position } });
+          }
           const comment = this.commentPlace(view, position);
           this.callbacks.onContextMenu(event.clientX, event.clientY, view, position, comment);
           return true;

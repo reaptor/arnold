@@ -4,20 +4,21 @@
 
 **Review what your AI agents wrote before it gets merged.**
 
-Arnold is a desktop app for macOS and Windows for reviewing a git branch the way you review a pull request: every change against the branch it goes into, one file at a time or all at once, with an F# language server in the diff. Once a branch is reviewed, Arnold creates the pull request for colleagues, and Azure DevOps pull requests can be reviewed from start to finish, including commenting, voting and completing. Arnold never changes your working copy; fixes are made elsewhere.
+Arnold is a desktop app for macOS and Windows for reviewing a git branch the way you review a pull request: every change against the branch it goes into, one file at a time or all at once, with an F# language server in the diff. It starts where the agent stops: its uncommitted changes are gone through, fixed and committed first, line by line as in Git Extensions. Once a branch is reviewed, Arnold creates the pull request for colleagues, and Azure DevOps pull requests can be reviewed from start to finish, including commenting, voting and completing.
 
 ![Arnold reviewing an Azure DevOps pull request: the files dock on the left, the side-by-side diff with discussions on the right, and Approve and Complete in the toolbar](docs/screenshots/review.png)
 
 ## Highlights
 
+- **Commit an agent's work first:** its uncommitted changes in an Unstaged and a Staged list, editable, with `S`, `U` and `R` to stage, unstage and reset files or selected lines, as in Git Extensions. Committing leads on to reviewing the branch or creating its pull request.
 - **A pull request's diff for any branch:** merge-base → the branch's last commit, the way pull requests show changes. It updates on its own when the branch moves.
 - **Built for big reviews:** every changed file in one scrolling list, a file explorer next to it, and `F7` to step from change to change across files.
 - **Azure DevOps pull requests:** create one from a branch you reviewed, or pick one from the active ones, read its discussions in the diff, comment on lines or files, approve and complete.
 - **F# language features in the diff:** errors, hover, go to definition, find references and Rider's colors, from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and updates itself.
 - **Looks like Rider:** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
-- **Read-only by design:** Arnold never edits, commits or checks out; it pushes only the reviewed commit when you create a pull request.
+- **Reviewing is read-only:** only Commit mode changes the working copy; Arnold never checks out, and pushes only the reviewed commit when you create a pull request.
 
-**Contents:** [Install](#install) · [Getting started](#getting-started) · [Reviewing a branch](#reviewing-a-branch) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F# language features](#f-language-features) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
+**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing an agent's work](#committing-an-agents-work) · [Reviewing a branch](#reviewing-a-branch) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F# language features](#f-language-features) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
 ## Install
 
@@ -51,11 +52,44 @@ Without a folder they open the current one. Terminals that were open during the 
 
 1. **Open a repository:** with `arnold <folder>`, or the repository button at the left of the toolbar. Star a repository there to keep it in your favorites for switching between them.
 2. **Choose what to review:**
+   - *Commit*: the uncommitted changes of a checkout, to commit them first (see [Committing an agent's work](#committing-an-agents-work)).
    - *Branches*: the branch to review, and the base branch it goes into.
    - *Pull request*: shown when a remote of the repository is on Azure DevOps. Pick one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
 3. **Review:** go through the files in the dock or the all-files list, and step through the changes with `F7`.
 
-A repository opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
+A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
+
+## Committing an agent's work
+
+An agent usually leaves its work uncommitted. *Commit*, the first mode in the toolbar, is where it is gone through, fixed and committed, like the commit dialog of [Git Extensions](https://gitextensions.github.io/). The picker next to it chooses the checkout: the opened folder or any other worktree of the repository with a branch checked out (such as an agent's `.claude/worktrees/…`).
+
+The files dock has three parts:
+
+- **Unstaged:** what the working tree changes compared with the index, untracked files included (as `A`). A file picked here shows index → working tree, and its working side can be edited: Arnold saves as you type, keeping the file's line endings and byte-order mark.
+- **Staged:** what the next commit takes. A file picked here shows the last commit → index, read-only.
+- **All files:** every file of the working tree. A file picked here shows the last commit → the file on disk, whatever of it is staged, as Unstaged does when nothing is staged; the whole file, without folding unchanged lines, and editable. Staging and resetting lines is done in Unstaged and Staged.
+
+Each part marks only the file picked in it.
+
+What `S`, `U` and `R` do:
+
+| | In the lists | In the diff |
+|---|---|---|
+| `S` | Stage the file | Stage the selected lines (the cursor's line without a selection) |
+| `U` | Unstage the file | Unstage the selected lines |
+| `R` | Reset the file, after asking: unstaged changes are thrown away (an untracked file is deleted); a staged file goes back to the last commit | Unstaged: put the selected lines back as they are in the index, as an edit that undo brings back. Staged: put them back to the last commit in the index and the working tree, after asking |
+
+Where the text can be typed in (the working side of an unstaged file), plain `S` and `R` act on selected lines; with only a cursor they type, and `Alt+S` / `Alt+R` (`⌥S` / `⌥R` on macOS) act on the cursor's line. Both are in the right-click menus too, and *Stage all* / *Unstage all* sit on the list headings. Each change also has arrows that move it to the other side: in the split view between the two sides, in the unified view on the change. In Unstaged, `←` stages the change and `→` resets it to the index (undo brings it back); in Staged, `→` unstages it; in All files, `→` reverts it to the last commit.
+
+Within a change, lines work one by one: selecting some of a change stages or resets only those lines, selecting all of it the whole change.
+
+Write the message under the diff (drag the gap above it to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run. Arnold then asks how to go on:
+
+- **Review the branch** against the base branch, in *Branches*;
+- **Create a pull request** from it, which opens the pull request in *Pull request* (with an Azure DevOps remote);
+- **Keep committing** what is left.
+
+The lists follow changes made anywhere: by the agent, an editor or a terminal. *Commit* shows one file at a time; *All files* is for reviewing. F# language features work as in the review (see [F# language features](#f-language-features)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
 
 ## Reviewing a branch
 
@@ -95,7 +129,7 @@ The toolbar switches between one file at a time and *All files*: every file of t
 
 ## Azure DevOps pull requests
 
-When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudio.com or Azure DevOps Server, over HTTPS or SSH), the toolbar gets a *Branches | Pull request* switch.
+When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudio.com or Azure DevOps Server, over HTTPS or SSH), the toolbar's *Commit | Branches* switch gets a third choice, *Pull request*.
 
 ### Connecting
 
@@ -168,12 +202,14 @@ How it works:
 | `Shift+F12` | Find references (F#) |
 | `Ctrl+-` (macOS), `Alt+←` (Windows) | Back to where you jumped from |
 | `Ctrl+B` (on macOS also `Cmd+B`) | Hide or show the files dock |
-| `Ctrl+Enter` (`⌘+Enter`) | Send a comment |
+| `S` / `U` / `R` | Commit mode: stage / unstage / reset the file (lists) or the selected lines (diff; where text can be typed, plain keys need a selection and `Alt`/`⌥` acts on the cursor's line) |
+| `Tab` / `Shift+Tab` | Commit mode, where text can be typed: indent / outdent, in the file's own indentation (tabs, or its step of spaces); `Esc` then `Tab` leaves the editor |
+| `Ctrl+Enter` (`⌘+Enter`) | Commit; send a comment |
 | `Esc` | Close a menu, popup or dialog; cancel a comment |
 
 ## What Arnold writes
 
-Arnold never edits, resets, stages, commits or checks out. It writes only:
+Reviewing writes nothing to the repository's files: Arnold never checks out. Only *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets) and committing. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
@@ -253,6 +289,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | Option | What it does |
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and four pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty` |
+| `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
 | `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |
 | `lsp` | A stand-in language server that answers go-to-definition and reports unused `open`s; `projectfail` makes a project fail to load |
@@ -267,9 +304,9 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | Path | Contents |
 |---|---|
 | `src/` | UI: SolidJS + CodeMirror 6 (`@codemirror/merge`) |
-| `src-tauri/` | Tauri shell: commands, file decoding, branch watcher, preparing the language server's copy |
+| `src-tauri/` | Tauri shell: commands, file decoding, branch and checkout watchers, preparing the language server's copy |
 | `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
-| `crates/arnold-git/` | Read-only git access through the `git` CLI, and copying a commit's files out |
+| `crates/arnold-git/` | Git through the `git` CLI: reading for the review, copying a commit's files out, and staging and committing for Commit mode (`working.rs`) |
 | `crates/arnold-pr/` | Pull requests of code hosts: Azure DevOps remotes, its REST API, tokens in the system credential store |
 | `crates/arnold-lsp/` | Language servers: install/update, the minimal restore/build plan, and the proxy between editor and server |
 | `scripts/` | Taking the README's screenshots |

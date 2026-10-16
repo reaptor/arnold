@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
 import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile, state } from "../state/review";
 import { isOpen } from "../editor/threads";
@@ -224,7 +224,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
 }
 
 /** Title bar of a part of the dock; clicking it folds the part away. */
-function DockHeading(props: {
+export function DockHeading(props: {
   open: boolean;
   onToggle(): void;
   title: string;
@@ -233,12 +233,15 @@ function DockHeading(props: {
   /** How many of them the filter leaves, while filtering. */
   matching?: number;
   explanation: string;
+  /** Buttons at the end of the heading (Stage all). */
+  children?: JSX.Element;
 }) {
   return (
     <header class="dock-heading" title={props.explanation} onClick={() => props.onToggle()}>
       <Chevron class="dock-caret" open={props.open} />
       <span class="dock-title">{props.title}</span>
       <span class="dock-detail">{props.detail}</span>
+      {props.children}
       <span class="dock-count" classList={{ filtered: props.matching !== undefined }}>
         {props.matching !== undefined ? `${props.matching} of ${props.count}` : props.count}
       </span>

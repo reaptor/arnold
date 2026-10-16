@@ -149,7 +149,7 @@ pub async fn read_blob(root: &Path, rev: &str, path: &str) -> Result<Option<Vec<
     Ok(out.success.then_some(out.stdout))
 }
 
-async fn diff_files(cwd: &Path, revs: &[&str]) -> Result<Vec<ChangedFile>> {
+pub(crate) async fn diff_files(cwd: &Path, revs: &[&str]) -> Result<Vec<ChangedFile>> {
     let mut status_args = vec!["diff", "--name-status", "-z", "-M"];
     status_args.extend_from_slice(revs);
     let mut numstat_args = vec!["diff", "--numstat", "-z", "-M"];

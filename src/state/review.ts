@@ -10,6 +10,7 @@ import {
   type DiffDocument,
   type DiffEditorCallbacks,
   type DiffMode,
+  type LineAction,
   type Snapshot,
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
@@ -20,6 +21,7 @@ import type {
   Comparison,
   FilePair,
   FileStatus,
+  NewCommit,
   NewThreadPlace,
   PrChange,
   PrThread,
@@ -27,6 +29,8 @@ import type {
   RepoInfo,
   SetupEvent,
   Vote,
+  WorkingSide,
+  WorkingStatus,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
@@ -34,9 +38,14 @@ import { comparePaths } from "./pathOrder";
 import { placeName, setThreadActions } from "../editor/threads";
 import { azureHostLinks, setHostLinks } from "../components/Markdown";
 import * as pullRequests from "./pullRequests";
+import * as commitMode from "./commitMode";
 
-/** What is reviewed: one branch against another, or a pull request of the repository's code host. */
-export type Source = "branches" | "pullRequest";
+/**
+ * What is shown: the uncommitted changes of a checkout, to commit them (the
+ * first step with an agent's work); one branch against another; or a pull
+ * request of the repository's code host.
+ */
+export type Source = "commit" | "branches" | "pullRequest";
 
 /** A pull request picked for review, with the remote it came from. */
 export type ReviewedPullRequest = PullRequest & { remote: string };
@@ -117,6 +126,22 @@ interface State {
   error: string | null;
   /** Shown in place of the editor (nothing selected, binary file, ...). */
   placeholder: string | null;
+  /** Commit mode: the checkout whose uncommitted changes are listed. */
+  checkout: string | null;
+  /** Commit mode: its uncommitted changes, once read. */
+  work: WorkingStatus | null;
+  /**
+   * Commit mode: which diff of the selected file is shown: unstaged (index →
+   * working tree) or staged (HEAD → index). Null for a file opened from the
+   * explorer, shown whole.
+   */
+  workSide: WorkingSide | null;
+  /** Commit mode: the commit is being made. */
+  committing: boolean;
+  /** Commit mode: the commit just made, while asking what to do next. */
+  committed: NewCommit | null;
+  /** A short message in the status bar (Commit mode: what a key did or why not). */
+  notice: string | null;
   /** Files folded away in the all-files view. */
   collapsed: Record<string, boolean>;
   /**
@@ -126,7 +151,19 @@ interface State {
    * undefined when comments do not apply (two branches). `file`: the menu
    * of a file of the dock rather than of an editor.
    */
-  menu: { x: number; y: number; definition: boolean; comment?: string | null; file?: string } | null;
+  menu: {
+    x: number;
+    y: number;
+    definition: boolean;
+    comment?: string | null;
+    file?: string;
+    /** Commit mode: what can be done to the selected lines (an editor) or the file (a list of the dock). */
+    lines?: readonly LineAction[];
+    /** Commit mode: the list of the dock the file was right-clicked in. */
+    side?: WorkingSide;
+    /** Commit mode: the right-clicked editor can be typed in, so its line actions need Alt. */
+    editable?: boolean;
+  } | null;
 }
 
 export const [state, setState] = createStore<State>({
@@ -152,6 +189,12 @@ export const [state, setState] = createStore<State>({
   placeholder: "Open a repository to start reviewing.",
   collapsed: {},
   menu: null,
+  checkout: null,
+  work: null,
+  workSide: null,
+  committing: false,
+  committed: null,
+  notice: null,
 });
 
 /** What is known about a file that has been opened in this comparison. */
@@ -169,7 +212,27 @@ const sameItems = (a: readonly string[], b: readonly string[]) =>
  * would wrap each of possibly many thousands of paths.
  */
 const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sameItems });
-export { allFiles };
+export { allFiles, setAllFiles };
+
+/**
+ * The file the explorer marks and follows. In Commit mode each part of the
+ * dock marks only what was picked in it, so a file picked in Unstaged or
+ * Staged leaves the explorer alone.
+ */
+export const explorerSelection = (): string | null =>
+  state.source === "commit" && state.workSide !== null ? null : state.selected;
+
+/**
+ * The files with changes, for marking them in the explorer: those of the
+ * diff, or in Commit mode the uncommitted ones (unstaged first).
+ */
+export function changedFiles(): readonly ChangedFile[] {
+  if (state.source !== "commit") return state.comparison?.files ?? [];
+  const work = state.work;
+  if (!work) return [];
+  const unstaged = new Set(work.unstaged.map((file) => file.path));
+  return [...work.unstaged, ...work.staged.filter((file) => !unstaged.has(file.path))];
+}
 
 /** The discussions of a pull request, and which one (`remote/id`) they belong to. Kept out of the store. */
 const [discussion, setDiscussion] = createSignal<{ key: string; threads: readonly PrThread[] }>({ key: "", threads: [] });
@@ -205,6 +268,8 @@ const MAX_BACKGROUND_FILES = 50;
 const backStack: string[] = [];
 /** The editor of the one-file view. */
 let editor: DiffEditor | null = null;
+/** The editor of the one-file view, which Commit mode uses too. */
+export const fileEditor = () => editor;
 /** All-files view: where each file goes, and the editors of the files loaded so far. */
 const sectionHosts = new Map<string, HTMLElement>();
 const sectionEditors = new Map<string, DiffEditor>();
@@ -289,10 +354,22 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
         y,
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
         comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
+        lines: state.source === "commit" ? editorFor(path)?.lineActions() : undefined,
+        editable: !view.state.readOnly,
       });
     },
     onStepChange(direction) {
       void stepChange(direction);
+    },
+    onChange(text) {
+      const path = pathOf();
+      if (state.source === "commit" && path !== null) commitMode.edited(path, text);
+    },
+    onLineAction(action) {
+      if (state.source === "commit") void commitMode.lineAction(action);
+    },
+    onMoveChunk(direction, lines) {
+      if (state.source === "commit") void commitMode.moveChunk(direction, lines);
     },
   };
 }
@@ -324,11 +401,18 @@ export async function openRepoAt(path: string) {
     // language server; another only when that one is the base (or detached).
     const current = repo.currentBranch && repo.currentBranch !== base ? repo.currentBranch : null;
     const head = current ?? (has(remembered.head) && remembered.head !== base ? remembered.head : defaultHead(repo, base));
+    if (state.source === "commit") commitMode.leave();
     resetSessions();
     setState({ repo, base, head, source: "branches", pullRequest: null, range: null, comparison: null, selected: null });
     // The store's copy: a later repository replaces it.
     const opened = state.repo;
     await pullRequests.loadRemotes(repo.root);
+    if (opened !== state.repo) return;
+    // Uncommitted changes come first: they are committed before they are reviewed.
+    if (await commitMode.hasUncommitted(repo.root)) {
+      if (opened === state.repo) await setSource("commit");
+      return;
+    }
     if (opened !== state.repo) return;
     await setView("all");
     await refresh();
@@ -347,6 +431,7 @@ function defaultHead(repo: RepoInfo, base: string): string {
 
 export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
+  if (state.source === "commit") commitMode.leave();
   setState({ ...change, source: "branches", range: null });
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
@@ -366,8 +451,10 @@ export async function setBranches(change: { base?: string; head?: string }) {
  */
 export async function setSource(source: Source) {
   if (!state.repo || source === state.source) return;
+  if (state.source === "commit") commitMode.leave();
   resetSessions();
   setState({ source, range: null, selected: null });
+  if (source === "commit") return commitMode.enter();
   await setView("all");
   if (source === "pullRequest" && pullRequests.prs.list === null) void pullRequests.loadPullRequests();
   await refresh();
@@ -384,6 +471,7 @@ export async function openPullRequest(remote: string, id: number) {
   try {
     const pullRequest = await ipc.openPullRequest(repo.root, remote, id);
     if (repo !== state.repo || state.openingPullRequest !== id) return;
+    if (state.source === "commit") commitMode.leave();
     resetSessions();
     drafts.clear();
     setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
@@ -406,6 +494,7 @@ export function closePullRequest() {
 
 /** The two commits or branches compared, or null when nothing is picked yet. */
 function compared(): { base: string; head: string } | null {
+  if (state.source === "commit") return null;
   if (state.source === "pullRequest") {
     const pullRequest = state.pullRequest;
     return pullRequest?.sourceCommit && pullRequest.targetCommit
@@ -443,7 +532,7 @@ export async function setRange(range: CommitRange | null) {
  * Forgets the files of the last comparison. The language server keeps
  * running: it is replaced only when the reviewed commit changes.
  */
-function resetSessions() {
+export function resetSessions() {
   sessions.clear();
   backgroundSent.clear();
   backStack.length = 0;
@@ -526,6 +615,7 @@ const unchangedFile = (path: string): ChangedFile => ({
 /** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
 /** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
 export async function openFile(path: string) {
+  if (state.source === "commit") return commitMode.openTreeFile(path);
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
   if (state.view === "file") {
     if (path !== state.selected) await selectFile(path);
@@ -631,6 +721,8 @@ export function onRevealSection(handler: (path: string) => void) {
 
 export async function setView(view: ViewMode) {
   if (view === state.view) return;
+  // Commit mode shows one file at a time: one of its two diffs.
+  if (view === "all" && state.source === "commit") return;
   localStorage.setItem("arnold.view", view);
   const path = activePath();
   if (view === "all") {
@@ -773,8 +865,17 @@ let preparedKey: string | null = null;
 /** Bumped for each setup, so that a superseded one stops quietly. */
 let setupRun = 0;
 
+/**
+ * What the language server is set up for. A checkout the server runs in
+ * as it is (the opened folder, or Commit mode's checkout) is the same
+ * whatever its commit: its files on disk are what the server reads.
+ */
 const setupKey = (repo: RepoInfo, comparison: Comparison) =>
-  `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}\n${checkedOutHere(repo, comparison)}`;
+  checkedOutHere(repo, comparison)
+    ? inPlaceKey(repo.root, comparison.head)
+    : `${repo.root}\n${reviewedName(comparison)}\n${comparison.tipCommit}\ncopy`;
+
+const inPlaceKey = (root: string, branch: string) => `${root}\n${branch}\nin place`;
 
 const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, "") === b.replace(/[\\/]+$/, "");
 
@@ -802,9 +903,29 @@ function serverRoot(): string | null {
  * and loads the projects. The diff can be used all along; editors get
  * language features once the server runs.
  */
-async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
-  preparedKey = setupKey(repo, comparison);
+function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   const inPlace = checkedOutHere(repo, comparison);
+  return prepareLanguageFeatures(
+    setupKey(repo, comparison),
+    repo.root,
+    reviewedName(comparison),
+    comparison.tipCommit,
+    inPlace,
+  );
+}
+
+/**
+ * Commit mode: language features for a checkout as it is on disk, edits
+ * included. Nothing happens when they are already set up for it.
+ */
+export function setUpLanguageFeaturesIn(checkout: string, branch: string, commit: string) {
+  const key = inPlaceKey(checkout, branch);
+  if (key === preparedKey) return;
+  void prepareLanguageFeatures(key, checkout, branch, commit, true);
+}
+
+async function prepareLanguageFeatures(key: string, root: string, name: string, commit: string, inPlace: boolean) {
+  preparedKey = key;
   const run = ++setupRun;
   const current = () => run === setupRun;
   await lsp.stop();
@@ -815,7 +936,7 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   setState({
     lspStatus: null,
     languageSetup: {
-      commit: comparison.tipCommit,
+      commit,
       phase: "preparing",
       path: null,
       inPlace,
@@ -828,7 +949,7 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
 
   let prepared: { path: string | null };
   try {
-    prepared = await ipc.prepareWorkspace(repo.root, reviewedName(comparison), comparison.tipCommit, inPlace, (event) => {
+    prepared = await ipc.prepareWorkspace(root, name, commit, inPlace, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {
@@ -993,13 +1114,13 @@ function forEachShownEditor(action: (target: DiffEditor, file: ChangedFile) => v
       if (file) action(target, file);
     }
   } else {
-    const file = fileAt(state.selected);
+    const file = state.source === "commit" ? commitMode.shownFile() : fileAt(state.selected);
     if (file && editor) action(editor, file);
   }
 }
 
 /** Connects a file being shown to its language server, once that is running. */
-async function attachLanguageServer(file: ChangedFile, target: DiffEditor) {
+export async function attachLanguageServer(file: ChangedFile, target: DiffEditor) {
   // A deleted file is not in the prepared copy.
   const root = serverRoot();
   const language = languageIdFor(file.path);
@@ -1068,6 +1189,10 @@ async function displayUri(uri: string): Promise<EditorView | null> {
   if (path === null) {
     setState("lspStatus", `That definition is outside this repository: ${absolute ?? uri}`);
     return null;
+  }
+  if (state.source === "commit") {
+    if (path !== state.selected) await commitMode.openTreeFile(path);
+    return editor?.working ?? null;
   }
   const from = activePath();
   if (path !== from) {
@@ -1306,6 +1431,7 @@ let pullRequestCheckedAt = 0;
 let checkingPullRequest = false;
 
 export async function startWatching() {
+  await commitMode.startWatching();
   // The backend watches the repository's branches: a commit, fetch or new
   // branch updates the branch pickers and the diff.
   await ipc.onRefsChanged(() => {
@@ -1331,7 +1457,9 @@ async function refsChanged() {
       fail(error);
     }
   }
-  await refresh();
+  // A commit made elsewhere empties the staged list.
+  if (state.source === "commit") await commitMode.refreshWork();
+  else await refresh();
 }
 
 /** Asks the host whether the pull request under review has new pushes, and shows them. */

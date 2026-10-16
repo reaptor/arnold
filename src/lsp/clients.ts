@@ -8,6 +8,8 @@ import {
   jumpToDefinitionKeymap,
   LSPClient,
   LSPPlugin,
+  serverCompletion,
+  signatureHelp,
   type Transport,
 } from "@codemirror/lsp-client";
 import { type Extension, Prec } from "@codemirror/state";
@@ -123,9 +125,12 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         rootUri: pathToUri(root),
         // Loading a solution can keep a server busy for a while.
         timeout: 20_000,
-        // Only what helps reading: the editors are read-only, so completion,
-        // signature help, rename and formatting are left out.
+        // Completion and signature help only come up while typing, which
+        // Commit mode's editors allow. Rename and formatting are left out:
+        // they would change files no editor shows.
         extensions: [
+          serverCompletion(),
+          signatureHelp(),
           hoverTooltips(),
           keymap.of([...jumpToDefinitionKeymap, ...findReferencesKeymap]),
           // Before diagnostics: its publishDiagnostics hook only refreshes

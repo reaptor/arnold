@@ -7,6 +7,7 @@ mod lsp;
 mod pull_requests;
 mod watcher;
 mod workspace;
+mod working;
 
 use tauri::WebviewWindowBuilder;
 use tauri_plugin_window_state::StateFlags;
@@ -60,6 +61,17 @@ fn main() {
             commands::compare_branches,
             commands::list_files,
             commands::read_file_pair,
+            working::working_status,
+            working::stop_watching_checkout,
+            working::read_working_pair,
+            working::worktree_files,
+            working::stage_files,
+            working::unstage_files,
+            working::discard_files,
+            working::reset_files_to_head,
+            working::set_index_text,
+            working::save_worktree_file,
+            working::commit_staged,
             pull_requests::pull_request_remotes,
             pull_requests::list_pull_requests,
             pull_requests::set_pull_request_token,

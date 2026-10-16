@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, 
 import { createStore } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
-import { allFiles, openFile, state } from "../state/review";
+import { allFiles, changedFiles, explorerSelection, openFile, state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
@@ -96,7 +96,7 @@ export function FileTree(props: { filter: string }) {
   const tree = createMemo(() => buildTree(allFiles()));
   const fileSet = createMemo(() => new Set(allFiles()));
   const changed = createMemo(
-    () => new Map<string, FileStatus>((state.comparison?.files ?? []).map((file) => [file.path, file.status])),
+    () => new Map<string, FileStatus>(changedFiles().map((file) => [file.path, file.status])),
   );
   const changedFolders = createMemo(() => new Set([...changed().keys()].flatMap(ancestors)));
 
@@ -138,7 +138,7 @@ export function FileTree(props: { filter: string }) {
   // Follow the file shown in the editor: open its folders and scroll to it.
   createEffect(
     on(
-      () => state.selected,
+      explorerSelection,
       (path) => {
         if (!path || !fileSet().has(path)) return;
         for (const folder of ancestors(path)) if (!expanded[folder]) setExpanded(folder, true);
@@ -203,7 +203,7 @@ export function FileTree(props: { filter: string }) {
         when={rows().length > 0}
         fallback={
           <div class="file-empty">
-            {props.filter ? "No files match." : state.comparison ? "Loading files…" : ""}
+            {props.filter ? "No files match." : state.comparison || state.work ? "Loading files…" : ""}
           </div>
         }
       >
@@ -220,7 +220,7 @@ export function FileTree(props: { filter: string }) {
                   <div
                     class="tree-row"
                     classList={{
-                      selected: row().path === state.selected,
+                      selected: row().path === explorerSelection(),
                       cursor: row().path === cursor(),
                       [`changed-${status()}`]: status() !== undefined,
                     }}

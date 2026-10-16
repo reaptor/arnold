@@ -52,6 +52,13 @@ pub async fn common_dir(root: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(out))
 }
 
+/// The `.git` folder of the checkout at `root` itself: for a linked worktree
+/// the one in the common dir's `worktrees`, which holds its index.
+pub async fn git_dir(root: &Path) -> Result<PathBuf> {
+    let out = run_text(root, &["rev-parse", "--path-format=absolute", "--git-dir"]).await?;
+    Ok(PathBuf::from(out))
+}
+
 /// Local and remote-tracking branches, with where each local one is checked out.
 pub async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
     let out = run_text(

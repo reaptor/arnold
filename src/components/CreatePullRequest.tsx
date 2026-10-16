@@ -1,4 +1,4 @@
-import { createResource, createSignal, Match, onMount, Show, Switch } from "solid-js";
+import { createEffect, createResource, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import * as ipc from "../ipc/commands";
 import type { NewPullRequestPlan, PrRemote } from "../ipc/commands";
 import { currentRemote, loadPullRequests, openTokenDialog, prErrorText } from "../state/pullRequests";
@@ -10,6 +10,7 @@ import {
   rememberedDraft,
 } from "../state/newPullRequest";
 import { openPullRequest, state } from "../state/review";
+import { createRequested, setCreateRequested } from "../state/commitMode";
 import { DevOpsSetup, openInBrowser } from "./DevOpsSetup";
 import { ExternalIcon, PullRequestIcon } from "./icons";
 import { Markdown, MARKDOWN_GUIDE } from "./Markdown";
@@ -21,6 +22,12 @@ import { Markdown, MARKDOWN_GUIDE } from "./Markdown";
 export function CreatePullRequestButton() {
   const [open, setOpen] = createSignal(false);
   const ready = () => (state.comparison?.commits.length ?? 0) > 0;
+  // Asked for from Commit mode, after committing: opens once the branch is compared.
+  createEffect(() => {
+    if (!createRequested() || !state.comparison) return;
+    setCreateRequested(false);
+    if (ready()) setOpen(true);
+  });
   return (
     <Show when={currentRemote()}>
       {(remote) => (

@@ -106,6 +106,65 @@ export const readFilePair = (root: string, comparison: Comparison, file: Changed
     oldPath: file.oldPath,
   });
 
+// ------------------------------------------------------- uncommitted changes
+
+/** The uncommitted changes of a checkout. */
+export interface WorkingStatus {
+  /** Branch checked out; null when HEAD is detached. */
+  branch: string | null;
+  /** The commit checked out; null before the first commit. */
+  head: string | null;
+  /** Working tree against the index; untracked files are `added`. */
+  unstaged: ChangedFile[];
+  /** Index against HEAD: what a commit takes. */
+  staged: ChangedFile[];
+}
+
+/** Which diff of an uncommitted file: index → working tree, or HEAD → index. */
+export type WorkingSide = "unstaged" | "staged";
+
+export interface NewCommit {
+  sha: string;
+  subject: string;
+  branch: string | null;
+}
+
+/** Also starts watching the checkout: `onCheckoutChanged` follows every change to its files and index. */
+export const workingStatus = (checkout: string) => invoke<WorkingStatus>("working_status", { checkout });
+
+export const stopWatchingCheckout = () => invoke<void>("stop_watching_checkout");
+
+/** `committed`: the last commit → the working tree, whatever is staged. */
+export const readWorkingPair = (checkout: string, file: ChangedFile, side: WorkingSide | "committed") =>
+  invoke<FilePair>("read_working_pair", { checkout, path: file.path, oldPath: file.oldPath, side });
+
+export const worktreeFiles = (checkout: string) => invoke<string[]>("worktree_files", { checkout });
+
+export const stageFiles = (checkout: string, paths: string[]) => invoke<void>("stage_files", { checkout, paths });
+
+export const unstageFiles = (checkout: string, paths: string[]) => invoke<void>("unstage_files", { checkout, paths });
+
+/** Tracked files back to the index; untracked ones are deleted. */
+export const discardFiles = (checkout: string, paths: string[]) => invoke<void>("discard_files", { checkout, paths });
+
+/** Back to HEAD in the index and the working tree; a file HEAD lacks is only unstaged. */
+export const resetFilesToHead = (checkout: string, paths: string[]) =>
+  invoke<void>("reset_files_to_head", { checkout, paths });
+
+/** Gives the file this text in the index: some of its lines staged or unstaged. */
+export const setIndexText = (checkout: string, path: string, text: string) =>
+  invoke<void>("set_index_text", { checkout, path, text });
+
+export const saveWorktreeFile = (checkout: string, path: string, text: string) =>
+  invoke<void>("save_worktree_file", { checkout, path, text });
+
+export const commitStaged = (checkout: string, message: string) =>
+  invoke<NewCommit>("commit_staged", { checkout, message });
+
+/** A file or the index of the watched checkout changed. */
+export const onCheckoutChanged = (handler: () => void): Promise<UnlistenFn> =>
+  listen("checkout-changed", () => handler());
+
 // ------------------------------------------------------------ pull requests
 
 /** Where a personal access token comes from: saved from Arnold, or the environment variable. */
