@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, WorkingSide } from "../ipc/commands";
 import { fileAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
-import { allFiles, setState, state } from "../state/review";
+import { allFiles, ignoreTarget, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree } from "./FileTree";
 
@@ -146,6 +146,8 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
                     file: file.path,
                     side,
                     lines: side === "unstaged" ? ["stage", "reset"] : ["unstage", "reset"],
+                    // Untracked, so ignoring takes it off the list.
+                    ignore: side === "unstaged" && file.status === "added" ? ignoreTarget(file.path, false) : undefined,
                   });
                 }}
               >

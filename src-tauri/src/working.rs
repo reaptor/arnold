@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use arnold_git::{NewCommit, WorkingStatus};
+use arnold_git::{Ignored, NewCommit, WorkingStatus};
 use serde::Deserialize;
 use tauri::{AppHandle, State};
 
@@ -126,6 +126,27 @@ pub async fn reset_files_to_head(checkout: String, paths: Vec<String>, state: St
 pub async fn undo_file_edits(checkout: String, paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let checkout = state.checked_root(&checkout)?;
     arnold_git::undo_edits(&checkout, &paths).await.map_err(text_error)
+}
+
+/// Ignores `path` (a file, or a folder with `folder`) in the checkout's root `.gitignore`.
+#[tauri::command]
+pub async fn ignore_path(checkout: String, path: String, folder: bool, state: State<'_, AppState>) -> Result<Ignored, String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::ignore(&checkout, &path, folder).await.map_err(text_error)
+}
+
+/// Whether git tracks `path` (a file, or any file in a folder) in the checkout.
+#[tauri::command]
+pub async fn path_tracked(checkout: String, path: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::is_tracked(&checkout, &path).await.map_err(text_error)
+}
+
+/// Stops tracking `path` (a file, or a folder's files), keeping it on disk; how many files that was.
+#[tauri::command]
+pub async fn untrack_path(checkout: String, path: String, state: State<'_, AppState>) -> Result<usize, String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::untrack(&checkout, &path).await.map_err(text_error)
 }
 
 /// Gives `path` this text in the index: some of its lines staged or unstaged.

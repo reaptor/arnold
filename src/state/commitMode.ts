@@ -56,7 +56,8 @@ export function shownFile(): ChangedFile | null {
 
 let noticeTimer: number | undefined;
 
-function notify(text: string) {
+/** Shows `text` in the status bar for a while. */
+export function notify(text: string) {
   window.clearTimeout(noticeTimer);
   setState("notice", text);
   noticeTimer = window.setTimeout(() => setState("notice", null), NOTICE_TIME);

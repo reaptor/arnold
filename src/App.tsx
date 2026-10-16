@@ -16,6 +16,7 @@ import { prs } from "./state/pullRequests";
 import { fileAction, lineAction, listOf } from "./state/commitMode";
 import {
   addComment,
+  addToGitignore,
   attachEditor,
   goBack,
   goToDefinition,
@@ -23,6 +24,7 @@ import {
   setState,
   startWatching,
   state,
+  stopTracking,
   suggestionPlan,
   undoFileEdits,
   undoLineEdits,
@@ -254,6 +256,40 @@ export function App() {
                 )}
               </For>
             </Show>
+            <Show when={menu().ignore}>
+              {(ignore) => (
+                <>
+                  <Show when={menu().undo || menu().lines?.length}>
+                    <li class="menu-separator" />
+                  </Show>
+                  <li
+                    classList={{ disabled: !ignore().checkout }}
+                    title={ignore().checkout ? undefined : "Only for a branch checked out on disk: its .gitignore is the one to change"}
+                    onClick={() => ignore().checkout && void addToGitignore()}
+                  >
+                    <span>{ignore().folder ? "Add folder to .gitignore" : "Add to .gitignore"}</span>
+                  </li>
+                  {/* Not on the untracked files of Unstaged. */}
+                  <Show when={ignore().checkout && !menu().side}>
+                    <li
+                      classList={{ disabled: !ignore().tracked }}
+                      title={
+                        ignore().tracked === undefined
+                          ? "Checking whether git tracks it…"
+                          : ignore().tracked
+                            ? "Take it out of the repository, keeping it on disk"
+                            : ignore().folder
+                              ? "Git tracks no file in this folder"
+                              : "Git does not track this file"
+                      }
+                      onClick={() => ignore().tracked && void stopTracking()}
+                    >
+                      <span>{ignore().folder ? "Stop tracking folder…" : "Stop tracking…"}</span>
+                    </li>
+                  </Show>
+                </>
+              )}
+            </Show>
             <Show when={menu().comment !== undefined}>
               <li
                 classList={{ disabled: !menu().comment }}
@@ -340,7 +376,9 @@ function StatusBar() {
               )}
             </Show>
             <span class="toolbar-space" />
-            <span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>
+            <Show when={state.notice} fallback={<span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>}>
+              <span class="notice">{state.notice}</span>
+            </Show>
             <LanguageStatus />
           </>
         )}

@@ -132,7 +132,7 @@ The commit picker narrows the diff to one or more consecutive commits of the bra
 The left side has two parts:
 
 - **Changes:** every file in the diff, with its status (A, M, D, R) and line counts.
-- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around.
+- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit*, and in *Branches* when the branch is checked out): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk.
 
 The filter above them applies to both. Drag the gap between them to resize, click a heading to fold a part away, and press `Ctrl+B` to hide or show the whole dock.
 
@@ -272,7 +272,7 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a checked-out branch are saved to that checkout, and *Check out \<branch\>* switches the opened folder to the branch (only when it has nothing uncommitted). *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a checked-out branch are saved to that checkout, and *Check out \<branch\>* switches the opened folder to the branch (only when it has nothing uncommitted). *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;

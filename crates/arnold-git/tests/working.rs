@@ -4,8 +4,8 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, discard, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, working_status, worktree_files,
-    write_worktree, FileStatus,
+    commit, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    working_status, worktree_files, write_worktree, FileStatus,
 };
 
 fn git(cwd: &Path, args: &[&str]) -> String {
@@ -209,4 +209,63 @@ async fn undoes_every_uncommitted_change_to_files() {
     let status = working_status(root).await.unwrap();
     assert!(status.staged.is_empty() && status.unstaged.is_empty());
     assert!(undo_edits(root, &["../outside.txt".into()]).await.is_err());
+}
+
+#[tokio::test]
+async fn ignores_files_and_folders_in_the_root_gitignore() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "logs/today.log", "x\n");
+    write(root, "notes.txt", "x\n");
+
+    let file = ignore(root, "notes.txt", false).await.unwrap();
+    assert_eq!((file.pattern.as_str(), file.added, file.tracked), ("/notes.txt", true, false));
+    let folder = ignore(root, "logs", true).await.unwrap();
+    assert_eq!((folder.pattern.as_str(), folder.added), ("/logs/", true));
+    assert_eq!(read(root, ".gitignore"), "/notes.txt\n/logs/\n");
+    let unstaged: Vec<_> = working_status(root).await.unwrap().unstaged.into_iter().map(|f| f.path).collect();
+    assert_eq!(unstaged, [".gitignore"]);
+
+    // Once only; a tracked file is reported, as ignoring does not untrack it.
+    let again = ignore(root, "notes.txt", false).await.unwrap();
+    assert!(!again.added);
+    let tracked = ignore(root, "a.txt", false).await.unwrap();
+    assert!(tracked.added && tracked.tracked);
+    assert!(ignore(root, "../outside", false).await.is_err());
+}
+
+#[tokio::test]
+async fn ignoring_keeps_the_gitignore_line_endings() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, ".gitignore", "bin\r\nobj");
+    ignore(root, "out.log", false).await.unwrap();
+    assert_eq!(read(root, ".gitignore"), "bin\r\nobj\r\n/out.log\r\n");
+}
+
+#[tokio::test]
+async fn untracking_keeps_files_on_disk() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "bin/a.dll", "x\n");
+    write(root, "bin/b.dll", "y\n");
+    git(root, &["add", "."]);
+    git(root, &["commit", "--quiet", "-m", "bin"]);
+
+    assert_eq!(untrack(root, "bin").await.unwrap(), 2);
+    assert_eq!(untrack(root, "a.txt").await.unwrap(), 1);
+    assert!(!is_tracked(root, "bin").await.unwrap() && !is_tracked(root, "a.txt").await.unwrap());
+    assert!(is_tracked(root, "b.txt").await.unwrap());
+    assert_eq!(read(root, "bin/a.dll"), "x\n");
+    assert_eq!(read(root, "a.txt"), "one\ntwo\nthree\n");
+    let staged: Vec<_> = working_status(root).await.unwrap().staged.into_iter().map(|f| (f.path, f.status)).collect();
+    assert_eq!(
+        staged,
+        [
+            ("a.txt".to_string(), FileStatus::Deleted),
+            ("bin/a.dll".to_string(), FileStatus::Deleted),
+            ("bin/b.dll".to_string(), FileStatus::Deleted),
+        ]
+    );
+    assert_eq!(untrack(root, "a.txt").await.unwrap(), 0);
 }

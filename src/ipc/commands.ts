@@ -153,6 +153,23 @@ export const readFilePair = (root: string, comparison: Comparison, file: Changed
 /** Undoes every uncommitted change to `paths` in `checkout`: back to the last commit; a file no commit has is deleted. */
 export const undoFileEdits = (checkout: string, paths: string[]) => invoke<void>("undo_file_edits", { checkout, paths });
 
+/** What `ignorePath` did: the `.gitignore` line, whether it was new, and whether git tracks the path all the same. */
+export interface Ignored {
+  pattern: string;
+  added: boolean;
+  tracked: boolean;
+}
+
+/** Ignores `path` (a file, or a folder) in `checkout`'s root `.gitignore`. */
+export const ignorePath = (checkout: string, path: string, folder: boolean) =>
+  invoke<Ignored>("ignore_path", { checkout, path, folder });
+
+/** Whether git tracks `path` (a file, or any file in a folder) in `checkout`. */
+export const pathTracked = (checkout: string, path: string) => invoke<boolean>("path_tracked", { checkout, path });
+
+/** Stops tracking `path` (a file, or a folder's files) in `checkout`, keeping it on disk; resolves to how many files. */
+export const untrackPath = (checkout: string, path: string) => invoke<number>("untrack_path", { checkout, path });
+
 /** Checks `branch` out in the opened folder (only when it has nothing uncommitted); resolves to the local branch. */
 export const checkoutBranch = (root: string, branch: string) => invoke<string>("checkout_branch", { root, branch });
 

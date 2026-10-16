@@ -182,6 +182,18 @@ interface State {
      * `path`, in the selected lines (an editor) and in the whole file.
      */
     undo?: { path: string; lines: boolean; file: boolean };
+    /**
+     * A file or folder of the explorer (or an untracked file of Unstaged):
+     * adding it to the root `.gitignore` of `checkout`; null when no
+     * checkout shows the files (a branch that is not checked out).
+     */
+    ignore?: {
+      path: string;
+      folder: boolean;
+      checkout: string | null;
+      /** Whether git tracks it (or files in the folder), for "Stop tracking"; undefined while asking. */
+      tracked?: boolean;
+    };
   } | null;
 }
 
@@ -1698,6 +1710,88 @@ export function openFileMenu(path: string, x: number, y: number): boolean {
   menuComment = canComment(path) ? { path, lines: null } : null;
   setState("menu", { x, y, definition: false, comment: menuComment && placeName(menuComment), file: path });
   return true;
+}
+
+/** What "Add to .gitignore" would act on for `path`; undefined in Pull request mode, which never writes to the repository's files. */
+export function ignoreTarget(path: string, folder: boolean): NonNullable<State["menu"]>["ignore"] {
+  if (state.source === "commit") return { path, folder, checkout: state.checkout };
+  if (state.source === "branches") return { path, folder, checkout: state.comparison?.checkout ?? null };
+  return undefined;
+}
+
+/** Right-click on a row of the explorer: a file's menu (see `openFileMenu`) and adding it to `.gitignore`. */
+export function openTreeMenu(path: string, folder: boolean, x: number, y: number): boolean {
+  const ignore = ignoreTarget(path, folder);
+  if (!ignore) return false;
+  if (!folder && state.source === "branches" && openFileMenu(path, x, y)) {
+    setState("menu", "ignore", ignore);
+  } else {
+    menuTarget = null;
+    menuComment = null;
+    setState("menu", { x, y, definition: false, file: path, ignore });
+  }
+  const checkout = ignore.checkout;
+  if (checkout) {
+    void ipc.pathTracked(checkout, path).then(
+      (tracked) => {
+        if (state.menu?.ignore?.path === path && state.menu.ignore.checkout === checkout) setState("menu", "ignore", "tracked", tracked);
+      },
+      () => {},
+    );
+  }
+  return true;
+}
+
+/**
+ * "Add to .gitignore" in a context menu: a line ignoring just that file or
+ * folder at the end of the checkout's root `.gitignore`. The checkout's
+ * watcher then refreshes the lists, where it no longer shows if untracked.
+ */
+export async function addToGitignore() {
+  const ignore = state.menu?.ignore;
+  setState("menu", null);
+  if (!ignore?.checkout) return;
+  const what = ignore.folder ? `${ignore.path}/` : ignore.path;
+  try {
+    await flushSave();
+    const result = await ipc.ignorePath(ignore.checkout, ignore.path, ignore.folder);
+    const done = result.added ? `Added ${result.pattern} to .gitignore` : `.gitignore already has ${result.pattern}`;
+    commitMode.notify(
+      result.tracked
+        ? `${done}, but git still tracks ${what}: .gitignore only keeps out untracked files (see Stop tracking)`
+        : done,
+    );
+  } catch (error) {
+    fail(`Adding ${what} to .gitignore: ${String(error)}`);
+  }
+}
+
+/**
+ * "Stop tracking…" in the explorer's menu: after asking, the file (or the
+ * folder's files) leaves the index, a removal staged for the next commit,
+ * and stays on disk.
+ */
+export async function stopTracking() {
+  const ignore = state.menu?.ignore;
+  setState("menu", null);
+  if (!ignore?.checkout || !ignore.tracked) return;
+  const what = ignore.folder ? `${ignore.path}/` : ignore.path;
+  const sure = await confirm(
+    `Stop tracking ${what}? ${ignore.folder ? "Its files stay" : "It stays"} on disk; the removal from the repository is staged, for the next commit. Add ${ignore.folder ? "the folder" : "it"} to .gitignore as well to keep ${ignore.folder ? "them" : "it"} out of the changes.`,
+    { title: "Stop tracking", kind: "warning", okLabel: "Stop tracking" },
+  );
+  if (!sure) return;
+  try {
+    await flushSave();
+    const count = await ipc.untrackPath(ignore.checkout, ignore.path);
+    commitMode.notify(
+      ignore.folder
+        ? `Stopped tracking ${count} ${count === 1 ? "file" : "files"} in ${what}: the removal is staged`
+        : `Stopped tracking ${what}: the removal is staged`,
+    );
+  } catch (error) {
+    fail(`Stopping tracking ${what}: ${String(error)}`);
+  }
 }
 
 /**

@@ -520,6 +520,45 @@ let lineCount (order: Order) : int =
   worktree.delete("Audit.fs");
 }
 
+/** `.gitignore` lines added by "Add to .gitignore" (`/path` or `/folder/`); only these patterns are understood. */
+const ignoredPatterns = new Set<string>();
+
+/** Whether git would leave `path` out of `tree`'s lists: untracked and ignored (only the repository folder ignores anything). */
+function isIgnored(path: string, tree: Map<string, string>): boolean {
+  if (tree !== worktree || index.has(path)) return false;
+  return [...ignoredPatterns].some((pattern) =>
+    pattern.endsWith("/") ? `/${path}`.startsWith(pattern) : `/${path}` === pattern,
+  );
+}
+
+function ignorePath(checkout: string, path: string, folder: boolean) {
+  checkoutState();
+  const tree = treeOf(checkout);
+  const pattern = `/${path}${folder ? "/" : ""}`;
+  const current = tree.get(".gitignore") ?? "";
+  const added = !current.split("\n").includes(pattern);
+  if (added) tree.set(".gitignore", `${current}${current && !current.endsWith("\n") ? "\n" : ""}${pattern}\n`);
+  ignoredPatterns.add(pattern);
+  const tracked = [...(tree === worktree ? index : tipFor(checkout)).keys()].some((known) =>
+    folder ? known.startsWith(`${path}/`) : known === path,
+  );
+  return checkoutChanged({ pattern, added, tracked });
+}
+
+/** The paths `path` names in the checkout's index: the file, or the folder's files. */
+function trackedUnder(checkout: string, path: string): string[] {
+  checkoutState();
+  const tree = treeOf(checkout);
+  return [...(tree === worktree ? index : tipFor(checkout)).keys()].filter((known) => known === path || known.startsWith(`${path}/`));
+}
+
+function untrackPath(checkout: string, path: string) {
+  if (treeOf(checkout) !== worktree) throw "untracking only works in the repository folder (dev mock)";
+  const paths = trackedUnder(checkout, path);
+  for (const known of paths) index.delete(known);
+  return checkoutChanged(paths.length);
+}
+
 function diffOf(from: Map<string, string>, to: Map<string, string>): ChangedFile[] {
   const paths = new Set([...from.keys(), ...to.keys()]);
   const result: ChangedFile[] = [];
@@ -546,7 +585,7 @@ function workingStatus(): WorkingStatus {
   return {
     branch: "feature/agent-work",
     head: commits[0].sha,
-    unstaged: diffOf(index, worktree),
+    unstaged: diffOf(index, worktree).filter((file) => !isIgnored(file.path, worktree)),
     staged: diffOf(head!, index),
     sync: { remote: "origin", remoteBranch: "feature/agent-work", published: pushedCommits > 0, ahead: commits.length - pushedCommits, behind: 0 },
   };
@@ -1048,7 +1087,8 @@ export function install() {
         case "list_files": {
           if (args.checkout) {
             checkoutState();
-            return [...treeOf(args.checkout).keys()].sort();
+            const tree = treeOf(args.checkout);
+            return [...tree.keys()].filter((path) => !isIgnored(path, tree)).sort();
           }
           addUnchangedFiles();
           return [...(ownDiffOf(args.commit)?.files ?? files)]
@@ -1085,7 +1125,7 @@ export function install() {
         }
         case "worktree_files":
           checkoutState();
-          return [...new Set([...worktree.keys(), ...index.keys()])].sort();
+          return [...new Set([...worktree.keys(), ...index.keys()])].filter((path) => !isIgnored(path, worktree)).sort();
         case "stage_files":
           checkoutState();
           for (const path of (payload as { paths: string[] }).paths) {
@@ -1110,6 +1150,12 @@ export function install() {
             else worktree.set(path, text);
           }
           return checkoutChanged(null);
+        case "ignore_path":
+          return ignorePath(args.checkout, args.path, (payload as { folder: boolean }).folder);
+        case "path_tracked":
+          return trackedUnder(args.checkout, args.path).length > 0;
+        case "untrack_path":
+          return untrackPath(args.checkout, args.path);
         case "undo_file_edits": {
           checkoutState();
           const tree = treeOf(args.checkout);

@@ -240,9 +240,85 @@ pub async fn undo_edits(checkout: &Path, paths: &[String]) -> Result<()> {
     Ok(())
 }
 
-async fn is_tracked(checkout: &Path, path: &str) -> Result<bool> {
+/// What `ignore` did.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Ignored {
+    /// The line it ignores `path` with, as written to `.gitignore`.
+    pub pattern: String,
+    /// False when `.gitignore` already had that line.
+    pub added: bool,
+    /// Git tracks `path` (or files in the folder) all the same: `.gitignore`
+    /// only keeps untracked files out.
+    pub tracked: bool,
+}
+
+/// Ignores `path` (a file, or a folder with `folder`) in `checkout`: a line
+/// matching only it, anchored at the root, at the end of the root `.gitignore`,
+/// which is made if need be and keeps its line endings.
+pub async fn ignore(checkout: &Path, path: &str, folder: bool) -> Result<Ignored> {
+    resolve(checkout, path)?;
+    let pattern = ignore_pattern(path, folder);
+    let file = resolve(checkout, ".gitignore")?;
+    let current = match tokio::fs::read(&file).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(io_error(".gitignore", error)),
+    };
+    let text = String::from_utf8_lossy(current.strip_prefix(BOM).unwrap_or(&current)).replace("\r\n", "\n");
+    let added = !text.lines().any(|line| line == pattern);
+    if added {
+        let mut text = text;
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&pattern);
+        text.push('\n');
+        tokio::fs::write(&file, encode_like(&text, &current))
+            .await
+            .map_err(|e| io_error(".gitignore", e))?;
+    }
+    let tracked = is_tracked(checkout, path).await?;
+    Ok(Ignored { pattern, added, tracked })
+}
+
+/// A `.gitignore` line matching `path` and nothing else: from the root, its
+/// wildcards and trailing spaces escaped, ending in `/` for a folder.
+fn ignore_pattern(path: &str, folder: bool) -> String {
+    let mut pattern = String::from("/");
+    for c in path.trim_end_matches('/').chars() {
+        if matches!(c, '\\' | '*' | '?' | '[') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    let spaces = pattern.len() - pattern.trim_end_matches(' ').len();
+    pattern.truncate(pattern.len() - spaces);
+    pattern.push_str(&"\\ ".repeat(spaces));
+    if folder {
+        pattern.push('/');
+    }
+    pattern
+}
+
+/// Whether git tracks `path` in `checkout`: the file, or any file in the folder.
+pub async fn is_tracked(checkout: &Path, path: &str) -> Result<bool> {
     let out = run(checkout, &["--literal-pathspecs", "ls-files", "-z", "--", path]).await?;
     Ok(!out.is_empty())
+}
+
+/// Stops tracking `path` (a file, or every file in a folder): takes it out of
+/// the index, which stages its removal, and leaves it on disk. Returns how
+/// many files git no longer tracks. Git refuses a file whose staged text
+/// differs from both HEAD and the file on disk, which would be lost.
+pub async fn untrack(checkout: &Path, path: &str) -> Result<usize> {
+    resolve(checkout, path)?;
+    let out = run(
+        checkout,
+        &["--literal-pathspecs", "rm", "--cached", "-r", "--ignore-unmatch", "--", path],
+    )
+    .await?;
+    Ok(String::from_utf8_lossy(&out).lines().filter(|line| line.starts_with("rm '")).count())
 }
 
 /// Makes the index hold `text` (with `\n` line endings, as the editor has
@@ -395,6 +471,14 @@ fn existing(checkout: &Path, relative: &str) -> Result<Option<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignore_patterns_match_only_the_path() {
+        assert_eq!(ignore_pattern("bin/out.log", false), "/bin/out.log");
+        assert_eq!(ignore_pattern("obj", true), "/obj/");
+        assert_eq!(ignore_pattern("a*b?[c]\\d.txt", false), "/a\\*b\\?\\[c]\\\\d.txt");
+        assert_eq!(ignore_pattern("#notes ", false), "/#notes\\ ");
+    }
 
     #[test]
     fn encodes_like_the_original() {

@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, 
 import { createStore } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
-import { allFiles, changedFiles, explorerSelection, openFile, openFileMenu, state } from "../state/review";
+import { allFiles, changedFiles, explorerSelection, openFile, openTreeMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
@@ -233,7 +233,7 @@ export function FileTree(props: { filter: string }) {
                     title={title()}
                     onClick={() => activate(row())}
                     onContextMenu={(event) => {
-                      if (state.source === "branches" && row().kind === "file" && openFileMenu(row().path, event.clientX, event.clientY)) {
+                      if (openTreeMenu(row().path, row().kind === "folder", event.clientX, event.clientY)) {
                         event.preventDefault();
                       }
                     }}

@@ -44,8 +44,8 @@ pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 pub use switch::switch_branch;
 pub use worktree::{detached_worktree, find_worktree, Worktree};
 pub use working::{
-    commit, discard, encode_like, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage,
-    working_status, worktree_files, write_worktree, NewCommit, WorkingStatus,
+    commit, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,
 };
 
 pub type Result<T> = std::result::Result<T, GitError>;
