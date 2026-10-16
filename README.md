@@ -87,6 +87,8 @@ The files dock has three parts:
 
 Each part marks only the file picked in it.
 
+*Commit* starts in the toolbar's *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys in the lists move through it and the lists follow as you scroll; clicking a file shows it on its own, as in a review, and the choice of view is remembered.
+
 What `S`, `U` and `R` do:
 
 | | In the lists | In the diff |
@@ -111,7 +113,7 @@ Arnold says what it committed in the status bar and stays in Commit mode. On the
 - **Push**, with the number of commits it would send: pushes the branch to its upstream, or to `origin` as a new branch that then becomes its upstream. Never forced: when the remote's branch has commits the local one lacks, the button is off and says to pull first. To an Azure DevOps remote Arnold sends the personal access token it has; otherwise git's own credentials are used.
 - **Push & create PR** (with an Azure DevOps remote): pushes as *Push* does, then reviews the branch in *Branches* with the *Create pull request* dialog open. With nothing to push it reads *Create PR*. When the branch has an active pull request already, it reads *Push & view PR* (or *View PR*) and opens that pull request in *Pull request* instead.
 
-The lists follow changes made anywhere: by the agent, an editor or a terminal. *Commit* shows one file at a time; *All files* is for reviewing. F# language features work as everywhere else (see [F#](#f)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
+The lists follow changes made anywhere: by the agent, an editor or a terminal. In *Commit*, the dock's *All files* explorer opens a file on its own. F# language features work as everywhere else (see [F#](#f)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
 
 ## Comparing branches
 

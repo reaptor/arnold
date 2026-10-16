@@ -1,5 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { AllFilesView } from "./components/AllFilesView";
+import { WorkingFilesView } from "./components/WorkingFilesView";
 import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
@@ -165,8 +166,11 @@ export function App() {
           <Show when={state.view === "file" && state.placeholder}>
             <div class="placeholder">{state.placeholder}</div>
           </Show>
-          <Show when={state.view === "all"}>
+          <Show when={state.view === "all" && state.source !== "commit"}>
             <AllFilesView />
+          </Show>
+          <Show when={state.view === "all" && state.source === "commit"}>
+            <WorkingFilesView />
           </Show>
         </section>
         {/* Commit mode: the message under the diff, in an island of its own; the gap between them resizes it. */}

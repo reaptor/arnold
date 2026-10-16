@@ -1114,6 +1114,26 @@ button.primary:hover:not(:disabled) {
   font-weight: 600;
 }
 
+/* Commit mode: "Unstaged" and "Staged" above their files. */
+.section-group {
+  flex: none;
+  margin: 6px 2px -4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.section-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.section-header .section-action {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .section-host.hidden {
   display: none;
 }

@@ -166,10 +166,9 @@ export function Toolbar() {
           <button
             classList={{ on: state.view === "all" }}
             onClick={() => setView("all")}
-            disabled={state.source === "commit"}
             title={
               state.source === "commit"
-                ? "All files: not in Commit mode, which shows one file at a time"
+                ? "All files: every uncommitted file in one list, Unstaged then Staged"
                 : "All files: show every file of the diff in one list"
             }
             aria-label="All files"

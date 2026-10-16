@@ -328,6 +328,7 @@ function documentOf(file: ChangedFile, session: Session): DiffDocument {
 /** The editor showing `path`, if one does. */
 function editorFor(path: string | null): DiffEditor | null {
   if (path === null) return null;
+  if (state.view === "all" && state.source === "commit") return commitMode.languageEditorFor(path);
   if (state.view === "all") return sectionEditors.get(path) ?? null;
   return state.selected === path ? editor : null;
 }
@@ -338,17 +339,27 @@ function activePath(): string | null {
   return state.selected;
 }
 
-const activeEditor = () => editorFor(activePath());
+const activeEditor = () => (state.source === "commit" ? commitMode.currentEditor() : editorFor(activePath()));
 
-function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
+/**
+ * What an editor reports back. `side`: a section of Commit mode's all-files
+ * view, which becomes the file acted on once it is focused or clicked.
+ */
+export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide): DiffEditorCallbacks {
+  const activate = () => {
+    const path = pathOf();
+    if (side && path !== null) commitMode.focusSection(side, path);
+  };
   return {
     onFocus() {
       const path = pathOf();
+      if (side) return activate();
       if (state.view !== "all" || path === null) return;
       focusedPath = path;
       if (state.selected !== path) setState("selected", path);
     },
     onContextMenu(x, y, view, position, comment) {
+      activate();
       menuTarget = position === null ? null : { view, position };
       const path = pathOf();
       menuComment = path !== null && comment && canComment(path) ? { path, lines: comment } : null;
@@ -357,7 +368,10 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
         y,
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
         comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
-        lines: state.source === "commit" ? editorFor(path)?.lineActions() : undefined,
+        lines:
+          state.source === "commit"
+            ? (side && path !== null ? commitMode.sectionEditor(side, path) : editorFor(path))?.lineActions()
+            : undefined,
         editable: !view.state.readOnly,
       });
     },
@@ -369,16 +383,18 @@ function callbacksFor(pathOf: () => string | null): DiffEditorCallbacks {
       if (state.source === "commit" && path !== null) commitMode.edited(path, text);
     },
     onLineAction(action) {
+      activate();
       if (state.source === "commit") void commitMode.lineAction(action);
     },
     onMoveChunk(direction, lines) {
+      activate();
       if (state.source === "commit") void commitMode.moveChunk(direction, lines);
     },
   };
 }
 
 export function attachEditor(host: HTMLElement) {
-  editor = new DiffEditor(host, callbacksFor(() => state.selected));
+  editor = new DiffEditor(host, editorCallbacks(() => state.selected));
   setThreadActions({ reply, createThread, cancelDraft });
   lsp.onDisplayFile(displayUri);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
@@ -723,9 +739,8 @@ export function onRevealSection(handler: (path: string) => void) {
 }
 
 export async function setView(view: ViewMode) {
+  if (state.source === "commit") return commitMode.setView(view);
   if (view === state.view) return;
-  // Commit mode shows one file at a time: one of its two diffs.
-  if (view === "all" && state.source === "commit") return;
   localStorage.setItem("arnold.view", view);
   const path = activePath();
   if (view === "all") {
@@ -774,7 +789,7 @@ export async function showSection(path: string): Promise<DiffEditor | null> {
       return null;
     }
     const session = sessionFor(file, pair);
-    const target = new DiffEditor(host, callbacksFor(() => path));
+    const target = new DiffEditor(host, editorCallbacks(() => path));
     sectionEditors.set(path, target);
     target.open(documentOf(file, session), state.mode, session.snapshot ?? undefined);
     void attachLanguageServer(file, target);
@@ -818,6 +833,7 @@ export function setMode(mode: DiffMode) {
   setState("mode", mode);
   editor?.setMode(mode);
   for (const target of sectionEditors.values()) target.setMode(mode);
+  commitMode.setSectionMode(mode);
   activeEditor()?.focus();
 }
 
@@ -837,6 +853,7 @@ export const previousChange = () => stepChange(-1);
  * out, and stops at the last one.
  */
 async function stepChange(direction: 1 | -1) {
+  if (state.view === "all" && state.source === "commit") return commitMode.stepChange(direction);
   if (state.view !== "all") {
     if (direction > 0) editor?.nextChange();
     else editor?.previousChange();
@@ -1111,7 +1128,9 @@ function onServerEvent(event: ipc.LspEvent) {
 
 /** Every editor on screen, with its file. */
 function forEachShownEditor(action: (target: DiffEditor, file: ChangedFile) => void) {
-  if (state.view === "all") {
+  if (state.view === "all" && state.source === "commit") {
+    commitMode.forEachSection(action);
+  } else if (state.view === "all") {
     for (const [path, target] of sectionEditors) {
       const file = fileAt(path);
       if (file) action(target, file);

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { ChangedFile, WorkingSide } from "../ipc/commands";
-import { fileAction, listOf, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
+import { fileAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
 import { allFiles, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree } from "./FileTree";
@@ -135,7 +135,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
                 ref={row}
                 classList={{ file: true, selected: selectedIn(side, file.path) }}
                 title={fileTitle(side, file)}
-                onClick={() => void selectWorkFile(side, file.path)}
+                onClick={() => void openWorkFile(side, file.path)}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   void selectWorkFile(side, file.path);

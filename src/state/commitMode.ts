@@ -1,19 +1,23 @@
 // Commit mode: the uncommitted changes of a checkout, in two lists like the
 // commit dialog of Git Extensions. A file picked in Unstaged shows index →
-// working tree, editable; picked in Staged it shows HEAD → index. S stages,
-// U unstages and R resets the selected lines (or, in the lists, files), and
-// committing leads on to reviewing the branch or creating a pull request.
+// working tree, editable; picked in Staged it shows HEAD → index. The
+// all-files view (the default) shows every file of both lists at once, each
+// as it shows when picked. S stages, U unstages and R resets the selected
+// lines (or, in the lists, files), and committing leads on to reviewing the
+// branch or creating a pull request.
 
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { createSignal } from "solid-js";
 import { reconcile } from "solid-js/store";
-import type { DiffDocument, LineAction, MoveDirection, Snapshot } from "../editor/diffEditor";
+import type { SectionEntry } from "../components/SectionList";
+import { type DiffDocument, type DiffMode, DiffEditor, type LineAction, type MoveDirection, type Snapshot } from "../editor/diffEditor";
 import { carryOver, dropSelectedLines, type LineSelection, resetEdits, takeSelectedLines } from "../editor/resetLines";
 import * as ipc from "../ipc/commands";
 import type { ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { comparePaths } from "./pathOrder";
 import {
   attachLanguageServer,
+  editorCallbacks,
   fileEditor,
   openPullRequest,
   setAllFiles,
@@ -21,6 +25,7 @@ import {
   setState,
   setUpLanguageFeaturesIn,
   state,
+  type ViewMode,
 } from "./review";
 
 /** How long typing pauses before an edit is saved to disk. */
@@ -102,6 +107,8 @@ async function openCheckout(path: string) {
   shownAlone = null;
   shownDiff = null;
   fileEditor()?.close();
+  for (const key of [...sectionEditors.keys()]) hideSection(key);
+  sectionSnapshotsClear();
   setAllFiles([]);
   setMessage(localStorage.getItem(messageKey(path)) ?? "");
   // One file at a time, without changing the remembered choice for reviewing.
@@ -110,7 +117,7 @@ async function openCheckout(path: string) {
     work: null,
     workSide: null,
     selected: null,
-    view: "file",
+    view: rememberedView(),
     menu: null,
     placeholder: "Reading the uncommitted changes…",
   });
@@ -174,30 +181,46 @@ async function readWork() {
  * After the lists changed: the file shown stays if it is still listed; a
  * file gone from its list (all staged, say) gives way to the one now at its
  * place, as in Git Extensions, else to the same file in the other list.
+ * The all-files view brings the files it shows up to date instead.
  */
 async function keepSelection(formerIndex: number) {
   const side = state.workSide;
   const path = state.selected;
-  if (path !== null && (side === null || entryOf(side, path))) return show();
+  const all = state.view === "all";
+  const pick = (to: WorkingSide, file: string) =>
+    all ? (setState({ selected: file, workSide: to }), refreshSections()) : selectWorkFile(to, file);
+  if (path !== null && (side === null || entryOf(side, path))) return all ? refreshSections() : show();
   if (side !== null && path !== null) {
     const list = listOf(side);
     const next = list[Math.min(Math.max(formerIndex, 0), list.length - 1)];
-    if (next) return selectWorkFile(side, next.path);
+    if (next) return pick(side, next.path);
     const other: WorkingSide = side === "unstaged" ? "staged" : "unstaged";
-    if (entryOf(other, path)) return selectWorkFile(other, path);
+    if (entryOf(other, path)) return pick(other, path);
   }
   const first: [WorkingSide, ChangedFile | undefined][] = [
     ["unstaged", listOf("unstaged")[0]],
     ["staged", listOf("staged")[0]],
   ];
   const [firstSide, firstFile] = first.find(([, file]) => file) ?? ["unstaged", undefined];
-  if (firstFile) return selectWorkFile(firstSide, firstFile.path);
+  if (firstFile) return pick(firstSide, firstFile.path);
   setState({ selected: null, workSide: null });
-  return show();
+  return all ? refreshSections() : show();
 }
 
-/** Picks a file in Unstaged or Staged. */
+/** A file clicked in Unstaged or Staged: shown on its own, leaving the all-files view (not for next time). */
+export async function openWorkFile(side: WorkingSide, path: string) {
+  if (state.view !== "all") return selectWorkFile(side, path);
+  setState({ selected: path, workSide: side, menu: null });
+  await setView("file", false);
+}
+
+/** Picks a file in Unstaged or Staged (arrow keys, a menu); the all-files view scrolls to it. */
 export async function selectWorkFile(side: WorkingSide, path: string) {
+  if (state.view === "all") {
+    setState({ selected: path, workSide: side, menu: null });
+    revealSection?.(keyOf(side, path));
+    return;
+  }
   if (side === state.workSide && path === state.selected) return;
   stash();
   setState({ selected: path, workSide: side, menu: null });
@@ -211,6 +234,11 @@ export async function selectWorkFile(side: WorkingSide, path: string) {
  * and the diff as edits give it changes or take them all back.
  */
 export async function openTreeFile(path: string) {
+  // The all-files view lists Unstaged and Staged: a file of the explorer is shown on its own.
+  if (state.view === "all") {
+    setState({ selected: path, workSide: null, menu: null });
+    return setView("file", false);
+  }
   if (state.workSide === null && state.selected === path) return;
   stash();
   setState({ selected: path, workSide: null, menu: null });
@@ -277,6 +305,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
 
 /** Shows the selected file, or brings it up to date when the editor already shows it. */
 async function show() {
+  if (state.view === "all") return refreshSections();
   const editor = fileEditor();
   const checkout = state.checkout;
   const file = shownFile();
@@ -420,7 +449,7 @@ export function moveChunk(direction: MoveDirection, lines: LineSelection) {
  * a whole. In a file of the explorer only resetting (to the last commit) applies.
  */
 export async function lineAction(action: LineAction, lines?: LineSelection) {
-  const editor = fileEditor();
+  const editor = currentEditor();
   const file = shownFile();
   const side = state.workSide;
   const checkout = state.checkout;
@@ -539,6 +568,232 @@ export async function unstageAll() {
   if (!checkout || files.length === 0) return;
   await ipc.unstageFiles(checkout, files.flatMap(pathsOf)).catch(fail("Could not unstage the files"));
   await refreshWork();
+}
+
+// ------------------------------------------------------------ all-files view
+
+const VIEW_KEY = "arnold.commitView";
+
+/** Commit mode's view: every listed file at once (the default), or one file at a time. */
+const rememberedView = (): ViewMode => (localStorage.getItem(VIEW_KEY) === "file" ? "file" : "all");
+
+/** Where each file of the all-files view is shown once near the screen, by side and path. */
+const sectionHosts = new Map<string, HTMLElement>();
+const sectionEditors = new Map<string, DiffEditor>();
+/** Bumped for each load of a section, so that a superseded one stops quietly. */
+const sectionLoads = new Map<string, number>();
+/** The section with keyboard focus: it is not unloaded while scrolled away. */
+let focusedKey: string | null = null;
+let revealSection: ((key: string) => void) | null = null;
+
+const sideOfKey = (key: string): WorkingSide => (key.startsWith("unstaged:") ? "unstaged" : "staged");
+const pathOfKey = (key: string) => key.slice(key.indexOf(":") + 1);
+
+/** Snapshots of sections belong to one checkout. */
+function sectionSnapshotsClear() {
+  for (const key of [...snapshots.keys()]) if (key.startsWith("unstaged:") || key.startsWith("staged:")) snapshots.delete(key);
+}
+
+/** Switches between one file at a time and every listed file; `remember` keeps the choice for next time. */
+export async function setView(view: ViewMode, remember = true) {
+  if (view === state.view) return;
+  if (remember) localStorage.setItem(VIEW_KEY, view);
+  if (view === "all") {
+    await flushSave();
+    stash();
+    fileEditor()?.close();
+    shownKey = null;
+    shownAlone = null;
+    shownDiff = null;
+    focusedKey = null;
+    // A file of the explorer is not listed: the first listed file is selected instead.
+    if (state.workSide === null) {
+      const first = sectionEntries()[0];
+      setState({ selected: first ? first.file.path : null, workSide: first ? sideOfKey(first.key) : null });
+    }
+    setState({ view, menu: null });
+  } else {
+    // The all-files view goes away, and its sections with it.
+    setState({ view, menu: null });
+    await show();
+  }
+}
+
+/** The files of the all-files view: Unstaged, then Staged. */
+export function sectionEntries(): SectionEntry[] {
+  const group = (side: WorkingSide, heading: string) =>
+    listOf(side).map((file, index) => ({ key: keyOf(side, file.path), file, group: index === 0 ? heading : undefined }));
+  return [...group("unstaged", `Unstaged · ${listOf("unstaged").length}`), ...group("staged", `Staged · ${listOf("staged").length}`)];
+}
+
+export const selectedSection = () => (state.workSide && state.selected !== null ? keyOf(state.workSide, state.selected) : null);
+
+export function selectSection(key: string) {
+  setState({ selected: pathOfKey(key), workSide: sideOfKey(key) });
+}
+
+/** A section's editor got the keyboard (or a click): it is the file acted on. */
+export function focusSection(side: WorkingSide, path: string) {
+  focusedKey = keyOf(side, path);
+  if (state.workSide !== side || state.selected !== path) setState({ selected: path, workSide: side });
+}
+
+export function onRevealSection(handler: ((key: string) => void) | null) {
+  revealSection = handler;
+}
+
+export function registerSection(key: string, host: HTMLElement) {
+  sectionHosts.set(key, host);
+}
+
+export function unregisterSection(key: string) {
+  hideSection(key);
+  sectionHosts.delete(key);
+}
+
+export function setSectionCollapsed(key: string, collapsed: boolean) {
+  setState("collapsed", key, collapsed);
+  if (collapsed) hideSection(key);
+}
+
+/** Loads a file into its section of the all-files view, if not done yet. */
+export async function showSection(key: string): Promise<DiffEditor | null> {
+  const shown = sectionEditors.get(key);
+  if (shown) return shown;
+  const host = sectionHosts.get(key);
+  const side = sideOfKey(key);
+  const path = pathOfKey(key);
+  const file = entryOf(side, path);
+  const checkout = state.checkout;
+  if (!host || !file || !checkout || state.view !== "all" || state.source !== "commit") return null;
+  const load = (sectionLoads.get(key) ?? 0) + 1;
+  sectionLoads.set(key, load);
+  try {
+    // A save under way would otherwise be read back half-way.
+    await saving;
+    const pair = await ipc.readWorkingPair(checkout, file, side);
+    if (sectionLoads.get(key) !== load || sectionHosts.get(key) !== host) return sectionEditors.get(key) ?? null;
+    const reason = pair.binary ? "Binary file." : pair.tooLarge ? "This file is too large to show." : null;
+    if (reason) {
+      const note = document.createElement("div");
+      note.className = "section-note";
+      note.textContent = reason;
+      host.replaceChildren(note);
+      return null;
+    }
+    const target = new DiffEditor(host, editorCallbacks(() => path, side));
+    sectionEditors.set(key, target);
+    target.open(documentOf(file, side, pair), state.mode, snapshots.get(key));
+    void attachLanguageServer(file, target);
+    return target;
+  } catch (error) {
+    fail(`Reading ${path}`)(error);
+    return null;
+  }
+}
+
+/**
+ * Unloads a section of the all-files view to save memory. `keepFocused`
+ * leaves the one with keyboard focus alone. Returns whether an editor was removed.
+ */
+export function hideSection(key: string, keepFocused = false): boolean {
+  if (keepFocused && key === focusedKey) return false;
+  sectionLoads.set(key, (sectionLoads.get(key) ?? 0) + 1); // A load still under way is no longer wanted.
+  const target = sectionEditors.get(key);
+  const snapshot = target?.snapshot();
+  if (snapshot) snapshots.set(key, snapshot);
+  if (target && pending?.path === pathOfKey(key)) void flushSave();
+  target?.destroy();
+  sectionHosts.get(key)?.replaceChildren();
+  sectionEditors.delete(key);
+  if (focusedKey === key) focusedKey = null;
+  return target !== undefined;
+}
+
+/** After the lists changed: every file shown takes what is on disk and in the index now; edits not saved yet stay. */
+async function refreshSections() {
+  const checkout = state.checkout;
+  if (!checkout) return;
+  await saving;
+  for (const [key, target] of [...sectionEditors]) {
+    const side = sideOfKey(key);
+    const path = pathOfKey(key);
+    const file = entryOf(side, path);
+    // A file gone from its list goes with its section.
+    if (!file) continue;
+    try {
+      const pair = await ipc.readWorkingPair(checkout, file, side);
+      if (sectionEditors.get(key) !== target) continue;
+      if (pair.binary || pair.tooLarge) {
+        hideSection(key);
+        void showSection(key);
+        continue;
+      }
+      const document = documentOf(file, side, pair);
+      const unsaved = side === "unstaged" && pending?.path === path ? target.texts()?.working : undefined;
+      const working = unsaved ?? document.working;
+      if (target.shows(path, document)) {
+        target.updateTexts(document.base, working);
+        continue;
+      }
+      // Shown differently now (staged as a whole, say): where the editor was stays.
+      const focused = !!target.working?.hasFocus;
+      const snapshot = target.snapshot();
+      if (snapshot) snapshots.set(key, snapshot);
+      target.open({ ...document, working }, state.mode, snapshots.get(key));
+      if (focused) target.focus();
+      void attachLanguageServer(file, target);
+    } catch (error) {
+      fail(`Reading ${path}`)(error);
+    }
+  }
+}
+
+/** The editor the keyboard commands act on: the file shown, or in the all-files view the selected file's section. */
+export function currentEditor(): DiffEditor | null {
+  if (state.view !== "all") return fileEditor();
+  const key = selectedSection();
+  return key ? (sectionEditors.get(key) ?? null) : null;
+}
+
+export const sectionEditor = (side: WorkingSide, path: string) => sectionEditors.get(keyOf(side, path)) ?? null;
+
+/** The editor the language server talks to for `path`: its working tree text (Unstaged) where shown, else Staged. */
+export const languageEditorFor = (path: string) =>
+  sectionEditors.get(keyOf("unstaged", path)) ?? sectionEditors.get(keyOf("staged", path)) ?? null;
+
+/** Every section on screen, with its file. */
+export function forEachSection(action: (target: DiffEditor, file: ChangedFile) => void) {
+  for (const [key, target] of sectionEditors) {
+    const file = entryOf(sideOfKey(key), pathOfKey(key));
+    if (file) action(target, file);
+  }
+}
+
+export function setSectionMode(mode: DiffMode) {
+  for (const target of sectionEditors.values()) target.setMode(mode);
+}
+
+/** F7 / Shift+F7 in the all-files view: the next change, on into the next file. */
+export async function stepChange(direction: 1 | -1) {
+  const entries = sectionEntries();
+  const from = selectedSection();
+  const current = from && !state.collapsed[from] ? await showSection(from) : null;
+  if (current?.stepChange(direction)) return current.focus();
+  let index = entries.findIndex((entry) => entry.key === from);
+  if (index < 0) index = direction > 0 ? -1 : entries.length;
+  for (let next = index + direction; next >= 0 && next < entries.length; next += direction) {
+    const key = entries[next].key;
+    if (state.collapsed[key]) continue;
+    const target = await showSection(key);
+    if (!target) continue; // Binary or too large to show.
+    focusSection(sideOfKey(key), pathOfKey(key));
+    revealSection?.(key);
+    target.enterChange(direction);
+    target.focus();
+    return;
+  }
+  current?.focus();
 }
 
 // ------------------------------------------------------------ committing
