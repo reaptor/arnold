@@ -32,7 +32,7 @@ interface FakeFile {
   working: string | null;
 }
 
-const ORDERS_BASE = `module ZedTrial.Orders
+const ORDERS_BASE = `module Shop.Orders
 
 open System
 open System.IO
@@ -57,7 +57,7 @@ let total (order: Order) : decimal =
 const ORDERS_WORKING =
   ORDERS_BASE.replace("/// Total including VAT.", "/// Total including VAT, rounded to two decimals.") +
   `
-// PLANTED ERROR (check 4): a string where an int is expected.
+/// Most lines one order may have.
 let maxLinesPerOrder: int = "ten"
 
 /// Total for a returning customer, formatted for display.
@@ -69,7 +69,7 @@ let loyaltyTotalText (order: Order) : string =
     |> Currency.format
 `;
 
-const PRICING_BASE = `module ZedTrial.Pricing
+const PRICING_BASE = `module Shop.Pricing
 
 let vatRate = 0.25m
 
@@ -136,7 +136,7 @@ const files = new Map<string, FakeFile>([
   ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WORKING }],
   ["Pricing.fs", { base: PRICING_BASE, working: PRICING_WORKING }],
   ["src/Api/OrderController.cs", { base: CSHARP_BASE, working: CSHARP_WORKING }],
-  ["Audit.fs", { base: null, working: 'module ZedTrial.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n' }],
+  ["Audit.fs", { base: null, working: 'module Shop.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n' }],
   ["db/Orders.sql", { base: SQL_BASE, working: SQL_WORKING }],
   ["docs/Legacy.md", { base: "# Legacy notes\n\nRemoved by the agent.\n", working: null }],
 ]);
@@ -169,12 +169,13 @@ for (let index = 1; index <= extraFiles; index++) {
   files.set("src/Large/Inventory.fs", { base, working: lines.join("\n") + "\n" });
 }
 
-const ROOT = "/fake/zed-trial/repo";
+const ROOT = "/src/shop-api";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 
-// `?lsp` starts a stand-in language server that only answers go-to-definition,
+// `?lsp` starts a stand-in language server that answers go-to-definition,
 // with the first whole-word occurrence of the symbol in the same file, and
-// reports every `open` as unused the way FsAutoComplete does.
+// hover, with a `let`'s declaration line; it reports every `open` as unused
+// and a string bound to an `int` as a type error, the way FsAutoComplete does.
 const fakeServer = new URLSearchParams(location.search).has("lsp");
 
 /** The open documents of the stand-in server, by URI. */
@@ -248,6 +249,13 @@ async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: 
 function publishUnusedOpens(uri: string, text: string) {
   const diagnostics = text.split("\n").flatMap((line, index) => {
     const name = /^\s*open\s+(\S+)/.exec(line);
+    const mistyped = /^\s*let\s+\w+\s*:\s*int\s*=\s*("[^"]*")/.exec(line);
+    if (mistyped) {
+      const start = line.indexOf(mistyped[1]);
+      const range = { start: { line: index, character: start }, end: { line: index, character: start + mistyped[1].length } };
+      const message = "This expression was expected to have type\n    'int'    \nbut here has type\n    'string'    ";
+      return [{ range, severity: 1, code: "FS0001", source: "F# Compiler", message }];
+    }
     if (!name) return [];
     const start = line.indexOf(name[1], name[0].length - name[1].length);
     const range = { start: { line: index, character: start }, end: { line: index, character: start + name[1].length } };
@@ -269,9 +277,9 @@ function fakeServerAnswer(raw: string): unknown {
   }
   if (message.id === undefined) return undefined;
   if (message.method === "initialize") {
-    return { capabilities: { textDocumentSync: 1, definitionProvider: true } };
+    return { capabilities: { textDocumentSync: 1, definitionProvider: true, hoverProvider: true } };
   }
-  if (message.method !== "textDocument/definition") return null;
+  if (message.method !== "textDocument/definition" && message.method !== "textDocument/hover") return null;
   const uri = params.textDocument.uri;
   const lines = (serverDocs.get(uri) ?? "").split("\n");
   const line = lines[params.position.line] ?? "";
@@ -279,6 +287,7 @@ function fakeServerAnswer(raw: string): unknown {
   const start = line.slice(0, at).search(/\w+$/);
   const word = line.slice(start === -1 ? at : start).match(/^\w+/)?.[0];
   if (!word) return null;
+  if (message.method === "textDocument/hover") return fakeHover(lines, word);
   const pattern = new RegExp(`\\b${word}\\b`);
   for (const [index, text] of lines.entries()) {
     const column = text.search(pattern);
@@ -288,6 +297,21 @@ function fakeServerAnswer(raw: string): unknown {
     }
   }
   return null;
+}
+
+/** A `let`'s declaration as FsAutoComplete shows it, with its `///` comment. */
+function fakeHover(lines: string[], word: string) {
+  const index = lines.findIndex((text) => new RegExp(`^\\s*let\\s+(?:rec\\s+)?${word}\\b`).test(text));
+  if (index === -1) return null;
+  const declaration = lines[index]
+    .trim()
+    .replace(/^let\s+(rec\s+)?/, "val ")
+    .replace(/\s*=\s*$/, "")
+    .replace(/\)\s*:\s*/, ") : ")
+    .replace(/\s*=.*$/, "");
+  const comment = (lines[index - 1] ?? "").trim().replace(/^\/\/\/\s?/, "");
+  const doc = lines[index - 1]?.trim().startsWith("///") ? `\n\n${comment}` : "";
+  return { contents: { kind: "markdown", value: "```fsharp\n" + declaration + "\n```" + doc } };
 }
 
 // The branch's commits, newest first. Each changed file belongs to one of
@@ -334,13 +358,13 @@ const repo: RepoInfo = {
   root: ROOT,
   branches: [
     { name: "feature/agent-work", isRemote: false, worktreePath: ROOT },
-    { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/fake/zed-trial/repo-worktree" },
+    { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/src/shop-api-agent-work" },
     { name: "main", isRemote: false, worktreePath: null },
     { name: "origin/main", isRemote: true, worktreePath: null },
   ],
   currentBranch: "feature/agent-work",
   defaultBranch: "main",
-  worktrees: [ROOT, "/fake/zed-trial/repo-worktree"],
+  worktrees: [ROOT, "/src/shop-api-agent-work"],
 };
 
 // ------------------------------------------------------------- Fantomas
@@ -354,7 +378,9 @@ let formatted = false;
 function formatCheck() {
   if (unformattedMode === null || formatted) return unformattedMode === null ? null : { unformatted: [], errors: [] };
   if (unformattedMode === "fail") throw "dotnet tool run fantomas failed (exit code 1): Run \"dotnet tool restore\" to make the \"fantomas\" command available. (dev mock)";
-  const unformatted = ["src/Orders.fs", "src/Pricing.fs", ...Array.from({ length: 14 }, (_, i) => `tests/Case${i + 1}.fs`)];
+  const unformatted = ["src/Orders.fs", "src/Pricing.fs", "src/Discounts.fs", "tests/OrderTests.fs"];
+  // `?unformatted=many`: more than the dialog lists.
+  if (unformattedMode === "many") unformatted.push(...Array.from({ length: 14 }, (_, i) => `tests/Case${i + 1}.fs`));
   const errors = unformattedMode === "errors" ? ["Failed to format src/Broken.fs: Fantomas.Core.ParseException: ParseException"] : [];
   return { unformatted, errors };
 }
@@ -404,7 +430,7 @@ let lineCount (order: Order) : int =
   );
   worktree.set(
     "src/Discounts.fs",
-    "module ZedTrial.Discounts\n\n/// Seasonal discount rate.\nlet seasonal = 0.05m\n\nlet apply (rate: decimal) (amount: decimal) =\n    amount * (1m - rate)\n",
+    "module Shop.Discounts\n\n/// Seasonal discount rate.\nlet seasonal = 0.05m\n\nlet apply (rate: decimal) (amount: decimal) =\n    amount * (1m - rate)\n",
   );
   worktree.delete("Audit.fs");
 }

@@ -2,24 +2,31 @@
 
 # Arnold
 
-**Review what your AI agents wrote before it gets merged.**
+**From an agent's uncommitted changes to a merged pull request, in one app.**
 
-Arnold is a desktop app for macOS and Windows for reviewing a git branch the way you review a pull request: every change against the branch it goes into, one file at a time or all at once, with an F# language server in the diff. It starts where the agent stops: its uncommitted changes are gone through, fixed and committed first, line by line as in Git Extensions, with the code base checked by Fantomas on the way. From there the branch is pushed, reviewed against main, and turned into a pull request for colleagues, linked to a work item; Azure DevOps pull requests can be reviewed from start to finish, including commenting, voting and completing.
+Arnold is a desktop app for macOS and Windows that takes code changes the whole way: commit them, compare branches, push, open a pull request and review it until it is completed. It is built for the work AI agents leave behind. Their uncommitted changes are gone through, fixed and committed line by line as in Git Extensions; the branch is reviewed the way its pull request will show it; and Azure DevOps pull requests are created, linked to work items, discussed, voted on and completed without leaving the app.
 
-![Arnold reviewing an Azure DevOps pull request: the files dock on the left, the side-by-side diff with discussions on the right, and Approve and Complete in the toolbar](docs/screenshots/review.png)
+F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with errors, hover, go to definition and completion while you edit, and in repositories that use Fantomas, an unformatted code base is caught before it is committed.
+
+![Arnold in Commit mode: the Unstaged and Staged lists on the left, the side-by-side diff of an F# file with the agent's fix, the commit message, and Review against main, Push and Push & create PR in the toolbar](docs/screenshots/commit.png)
 
 ## Highlights
 
-- **Commit an agent's work first:** its uncommitted changes in an Unstaged and a Staged list, editable, with `S`, `U` and `R` to stage, unstage and reset files or selected lines, as in Git Extensions. In a repository that uses Fantomas, an unformatted code base is caught before the commit and can be formatted into it.
-- **From commit to pull request in the toolbar:** *Review against main*, *Push*, and *Push & create PR*, which becomes *View PR* once the branch has one; a new pull request can be linked to a work item.
-- **A pull request's diff for any branch:** merge-base → the branch's last commit, the way pull requests show changes. It updates on its own when the branch moves.
-- **Built for big reviews:** every changed file in one scrolling list, a file explorer next to it, and `F7` to step from change to change across files.
-- **Azure DevOps pull requests:** create one from a branch you reviewed, or pick one from the active ones, read its discussions in the diff, comment on lines or files, approve and complete.
-- **F# language features in the diff:** errors, hover, go to definition, find references and Rider's colors, from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and updates itself.
-- **Looks like Rider:** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
-- **Reviewing is read-only:** only Commit mode changes the working copy or pushes a branch; reviewing never checks out, and pushes only the reviewed commit when you create a pull request.
+**Commit.** An agent's uncommitted changes in Unstaged and Staged lists, editable in the diff, with `S`, `U` and `R` to stage, unstage and reset files or single lines, as in Git Extensions. Changes made by the agent, an editor or a terminal show up as they happen.
 
-**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing an agent's work](#committing-an-agents-work) · [Reviewing a branch](#reviewing-a-branch) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F# language features](#f-language-features) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
+**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files.
+
+**Push and open the pull request.** *Review against main*, *Push* and *Push & create PR* sit in the toolbar after committing. A new pull request gets a Markdown description and, if you like, a linked work item; once the branch has one, the button opens it instead.
+
+**Review pull requests.** The active Azure DevOps pull requests, their discussions in the diff, comments on lines and files, votes, and completing with the merge type of your choice.
+
+**F#, including Fantomas.** Errors, hover, go to definition, find references, completion and Rider's colors from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and keeps up to date itself. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
+
+**Safe by default.** Comparing and reviewing never touch the checkout; only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
+
+**Looks like Rider.** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
+
+**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
 ## Install
 
@@ -52,15 +59,15 @@ Without a folder they open the current one. Terminals that were open during the 
 ## Getting started
 
 1. **Open a repository:** with `arnold <folder>`, or the repository button at the left of the toolbar. Star a repository there to keep it in your favorites for switching between them.
-2. **Choose what to review:**
-   - *Commit*: the uncommitted changes of a checkout, to commit them first (see [Committing an agent's work](#committing-an-agents-work)).
-   - *Branches*: the branch to review, and the base branch it goes into.
-   - *Pull request*: shown when a remote of the repository is on Azure DevOps. Pick one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
-3. **Review:** go through the files in the dock or the all-files list, and step through the changes with `F7`.
+2. **Pick a mode** in the toolbar:
+   - *Commit*: the uncommitted changes of a checkout, to go through and commit (see [Committing](#committing)).
+   - *Branches*: a branch against the base branch it goes into (see [Comparing branches](#comparing-branches)).
+   - *Pull request*: shown when a remote of the repository is on Azure DevOps; one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
+3. **Go through the changes:** pick files in the dock or scroll the all-files list, and step from change to change with `F7`.
 
 A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
 
-### From an agent's work to a pull request
+### The whole way: from an agent's work to a pull request
 
 1. **Commit:** the repository opens in *Commit* when the agent left uncommitted changes. Go through *Unstaged*, fix what needs fixing right in the diff, stage with `S` (files, or selected lines), write the message and commit with `Ctrl+Enter` (`⌘Enter`). If the repository uses Fantomas and the code base is not formatted, Arnold asks first: *Run Fantomas and commit*, *Commit without formatting* or *Cancel*.
 2. **Review:** *Review against main* in the toolbar shows the branch as its pull request will: every change since it left main, one file at a time or all at once, with F# language features.
@@ -68,7 +75,7 @@ A repository with uncommitted changes opens in *Commit*. Otherwise it opens on t
 4. **Create the pull request:** *Push & create PR* in *Commit*, or *Create pull request* in *Branches*: title, Markdown description, draft or not, and an optional work item to link. Once the branch has an active pull request the button reads *View PR* / *View pull request* and opens it instead.
 5. **Review the pull request:** in *Pull request*, colleagues' discussions show in the diff; comment, vote and complete from Arnold.
 
-## Committing an agent's work
+## Committing
 
 An agent usually leaves its work uncommitted. *Commit*, the first mode in the toolbar, is where it is gone through, fixed and committed, like the commit dialog of [Git Extensions](https://gitextensions.github.io/). The picker next to it chooses the checkout: the opened folder or any other worktree of the repository with a branch checked out (such as an agent's `.claude/worktrees/…`).
 
@@ -94,11 +101,9 @@ Within a change, lines work one by one: selecting some of a change stages or res
 
 Write the message under the diff (drag the gap above it to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
 
-When the repository uses [Fantomas](https://fsprojects.github.io/fantomas/) (it is in `.config/dotnet-tools.json` or `dotnet-tools.json`), Arnold first runs `dotnet tool run fantomas --check .` on the checkout (restoring the repository's tools if needed). If Fantomas would change files, or cannot check them, Arnold says so and asks:
+When the repository uses Fantomas, Arnold checks the formatting before it commits and, if the code base is not formatted, asks whether to format first (see [Fantomas](#fantomas)).
 
-- **Run Fantomas and commit** formats the files Fantomas listed and stages only their formatting, then commits. A listed file without other unstaged changes is staged whole; one with other unstaged changes gets its staged text formatted (through a copy beside it, so the same `.editorconfig` applies) and keeps those changes unstaged, formatted on disk. Other unstaged files stay as they are. If Fantomas cannot format a file as staged, nothing is committed.
-- **Commit without formatting** commits as it is.
-- **Cancel** does neither.
+![The code base is not formatted: Fantomas would reformat four files; Run Fantomas and commit, Commit without formatting, or Cancel](docs/screenshots/fantomas.png)
 
 Arnold says what it committed in the status bar and stays in Commit mode. On the right of the toolbar are three buttons for the branch checked out:
 
@@ -106,9 +111,9 @@ Arnold says what it committed in the status bar and stays in Commit mode. On the
 - **Push**, with the number of commits it would send: pushes the branch to its upstream, or to `origin` as a new branch that then becomes its upstream. Never forced: when the remote's branch has commits the local one lacks, the button is off and says to pull first. To an Azure DevOps remote Arnold sends the personal access token it has; otherwise git's own credentials are used.
 - **Push & create PR** (with an Azure DevOps remote): pushes as *Push* does, then reviews the branch in *Branches* with the *Create pull request* dialog open. With nothing to push it reads *Create PR*. When the branch has an active pull request already, it reads *Push & view PR* (or *View PR*) and opens that pull request in *Pull request* instead.
 
-The lists follow changes made anywhere: by the agent, an editor or a terminal. *Commit* shows one file at a time; *All files* is for reviewing. F# language features work as in the review (see [F# language features](#f-language-features)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
+The lists follow changes made anywhere: by the agent, an editor or a terminal. *Commit* shows one file at a time; *All files* is for reviewing. F# language features work as everywhere else (see [F#](#f)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
 
-## Reviewing a branch
+## Comparing branches
 
 ### What is compared
 
@@ -148,6 +153,8 @@ The toolbar switches between one file at a time and *All files*: every file of t
 
 When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudio.com or Azure DevOps Server, over HTTPS or SSH), the toolbar's *Commit | Branches* switch gets a third choice, *Pull request*.
 
+![Arnold reviewing an Azure DevOps pull request: the files dock on the left, the side-by-side diff with discussions on the right, and Approve and Complete in the toolbar](docs/screenshots/review.png)
+
 ### Connecting
 
 Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, voting and completing need **Code (Read & write)**; showing a linked work item's title needs **Work Items (Read)** as well (optional). Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
@@ -161,6 +168,8 @@ Arnold checks the token with Azure DevOps before saving it, one per organization
 ### Creating a pull request
 
 Once a branch is reviewed (an AI agent's, say), *Create pull request* in the toolbar opens one on Azure DevOps from the branch to review into the base branch, for colleagues to review. When the branch has an active pull request already (preferably one into the base branch), the button reads *View pull request* and opens it in *Pull request*. The title and description start out as Azure DevOps fills them in (the commit's subject for one commit; otherwise the branch name, with the commits listed), the description is Markdown with a preview, and *Create as a draft* is remembered. An optional *Work item* field links the pull request to a work item: type its number (`1234`, `#1234`, or paste its address) and Arnold shows its type, title and state, and will not create the pull request with a number Azure DevOps does not know. Linking needs no more than the Code scope; showing the title needs *Work Items → Read* on the token, and without it the work item is linked by its number.
+
+![Create pull request: title, a work item linked to User Story 1234 (Loyalty discount for returning customers, Active), a Markdown description and Create as a draft](docs/screenshots/create-pr.png)
 
 When Azure DevOps does not have the branch yet, or has an older commit of it, Arnold first pushes the commit you reviewed, not whatever the branch points at by now, and says so in the dialog. It never forces: if the branch on Azure DevOps has commits you have not reviewed, nothing is pushed or created. The push goes to the remote's HTTPS address with the token and moves the remote-tracking branch (`origin/<branch>`) along, as `git push` would; the local branch and its upstream setting are left alone. When a pull request between the two branches is open already, the dialog offers to review it instead. The new pull request opens in Arnold.
 
@@ -194,13 +203,17 @@ As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 ![The Complete pull request dialog: merge type, commit message and what to do after merging](docs/screenshots/complete.png)
 
-## F# language features
+## F#
 
-In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. The file headers of the all-files view count the errors of every changed F# file.
+### Language features
 
-The language server needs the reviewed code on disk with its packages restored. For the branch checked out in the opened folder it runs right there; for any other branch or a pull request Arnold prepares a copy. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
+In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (in *Commit*) there is completion and signature help too. The file headers of the all-files view count the errors of every changed F# file.
 
-![The F# language features popup: copying the commit, restoring, building, starting FsAutoComplete and loading projects](docs/screenshots/language.png)
+![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
+
+The language server needs the code on disk with its packages restored. For the branch checked out in the opened folder (and in *Commit*) it runs right there; for any other branch or a pull request Arnold prepares a copy. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
+
+![The F# language features popup: restoring, building, starting FsAutoComplete and loading projects](docs/screenshots/language.png)
 
 How it works:
 
@@ -209,6 +222,16 @@ How it works:
 - It needs the .NET SDK (8 or newer). The SDK the repository selects (`global.json`) decides which build of the server runs.
 - The server runs in the opened folder when the reviewed branch is checked out there, else in a copy of the reviewed commit in `.arnold/worktrees/<branch>`. Checking out another branch in the folder moves it to a copy. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. A new commit updates the copy in place, so restore and build output are reused.
 - The server stops when Arnold closes or you pick another branch.
+
+### Fantomas
+
+When the repository uses [Fantomas](https://fsprojects.github.io/fantomas/) (it is in `.config/dotnet-tools.json` or `dotnet-tools.json`), *Commit* first runs `dotnet tool run fantomas --check .` on the checkout, restoring the repository's tools if needed. If Fantomas would change files, or cannot check them, Arnold lists them and asks:
+
+- **Run Fantomas and commit** formats the files Fantomas listed and stages only their formatting, then commits. A listed file without other unstaged changes is staged whole; one with other unstaged changes gets its staged text formatted (through a short-lived copy beside it, so the same `.editorconfig` applies) and keeps those changes unstaged, formatted on disk. Other unstaged files stay as they are. If Fantomas cannot format a file as staged, nothing is committed.
+- **Commit without formatting** commits as it is.
+- **Cancel** does neither.
+
+Files Fantomas cannot parse are listed separately; they are left as they are.
 
 ## Keyboard shortcuts
 
@@ -309,7 +332,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and four pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty` |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
-| `unformatted` | The repository uses Fantomas and it would reformat files; `=errors` adds a file it cannot parse, `=fail` makes the check fail |
+| `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |
 | `failpush` | Pushing the branch from *Commit* fails |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
 | `workitems=noaccess` | The token may not read work items. Otherwise work items below 90000 exist (1234 has a real title) and higher numbers do not |

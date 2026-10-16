@@ -32,7 +32,7 @@ async function pullRequest(p) {
 }
 
 async function openPullRequestList(p) {
-  await p.click(".source-switch button:nth-child(2)");
+  await p.click(".source-switch button:has-text('Pull request')");
   await p.waitForTimeout(1500);
 }
 
@@ -45,9 +45,51 @@ const around = (box, margin) => ({
 });
 
 const shots = {
+  async commit() {
+    const p = await page("?uncommitted&devops=empty&lsp");
+    await p.click(".dock li.file:has-text('Orders.fs')");
+    // Until the F# projects have loaded.
+    await p.waitForTimeout(4000);
+    await p.locator(".commit-message").fill("Add the loyalty total for returning customers");
+    await p.waitForTimeout(300);
+    await p.screenshot({ path: `${out}/commit.png` });
+  },
+  async fantomas() {
+    const p = await page("?uncommitted&unformatted");
+    await p.locator(".commit-message").fill("Add the loyalty total for returning customers");
+    await p.click(".commit-bar button[type=submit]");
+    await p.waitForTimeout(1500);
+    await p.screenshot({ path: `${out}/fantomas.png`, clip: around(await p.locator(".unformatted-dialog").boundingBox(), 40) });
+  },
+  async "create-pr"() {
+    const p = await page("?devops=empty&lsp");
+    await p.click(".toolbar .create-pr-button");
+    await p.waitForTimeout(1500);
+    await p.locator(".create-dialog input[type=text]").nth(1).fill("1234");
+    await p.waitForTimeout(1200);
+    await p.screenshot({ path: `${out}/create-pr.png`, clip: around(await p.locator(".create-dialog").boundingBox(), 40) });
+  },
+  async fsharp() {
+    const p = await page("?lsp");
+    await p.click("li.file:has-text('Orders.fs')");
+    await p.waitForTimeout(2000);
+    const error = p.locator(".cm-lintRange-error").first();
+    await error.scrollIntoViewIfNeeded();
+    await error.hover();
+    await p.waitForTimeout(800);
+    const box = await error.boundingBox();
+    // The new side, where the language server works.
+    const editor = await p.locator(".cm-editor:has(.cm-lintRange-error)").first().boundingBox();
+    await p.screenshot({
+      path: `${out}/fsharp.png`,
+      clip: { x: editor.x, y: Math.max(40, box.y - 260), width: editor.width, height: 420 },
+    });
+  },
   async review() {
     const p = await page("?devops&lsp");
     await pullRequest(p);
+    // Until the F# projects have loaded.
+    await p.waitForTimeout(3500);
     await p.screenshot({ path: `${out}/review.png` });
   },
   async "pull-requests"() {
