@@ -126,6 +126,24 @@ const theme = EditorView.theme(
       borderTopColor: color.popup,
       borderBottomColor: color.popup,
     },
+    // The completion's documentation is a tooltip inside the list's, beside
+    // it: not clipped. The list keeps the rounded corners itself.
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+      overflow: "visible",
+    },
+    ".cm-tooltip-autocomplete > ul": {
+      borderRadius: "8px",
+    },
+    ".cm-completionInfo": {
+      padding: "6px 10px",
+    },
+    ".cm-completionInfo pre": {
+      margin: "0 0 6px",
+      whiteSpace: "pre-wrap",
+    },
+    ".cm-completionInfo p": {
+      margin: "0",
+    },
     ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
       backgroundColor: color.popupSelection,
       color: color.text,

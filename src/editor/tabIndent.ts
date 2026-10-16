@@ -1,6 +1,7 @@
 // Tab and Shift+Tab in an editable editor: indentation, as in an IDE, rather
 // than moving the keyboard focus. Escape and then Tab still leaves the editor.
 
+import { acceptCompletion } from "@codemirror/autocomplete";
 import { indentLess, indentMore } from "@codemirror/commands";
 import { getIndentUnit, indentUnit } from "@codemirror/language";
 import { EditorSelection, type Extension, Prec, type StateCommand, type Text } from "@codemirror/state";
@@ -72,7 +73,8 @@ export const outdent: StateCommand = (target) => !target.state.readOnly && inden
 export function tabIndentation(doc: Text): Extension {
   return [
     indentUnit.of(detectIndentUnit(doc)),
-    // Ahead of completion and the rest, which leave Tab to the browser.
-    Prec.high(keymap.of([{ key: "Tab", run: insertIndent, shift: outdent }])),
+    // Ahead of the rest, which leave Tab to the browser. Tab takes the
+    // highlighted completion while the list is open, as in Rider.
+    Prec.high(keymap.of([{ key: "Tab", run: (view) => acceptCompletion(view) || insertIndent(view), shift: outdent }])),
   ];
 }

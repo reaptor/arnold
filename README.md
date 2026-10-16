@@ -230,7 +230,7 @@ As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 ### Language features
 
-In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (in *Commit*) there is completion and signature help too. The file headers of the all-files view count the errors of every changed F# file.
+In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (in *Commit*, a checked-out branch and a pull request's worktree) there is completion and signature help too: the list comes up as a name starts or after a dot (`Ctrl+Space` asks anywhere), narrows as you type, shows the highlighted item's signature and documentation beside it, and `Tab` or `Enter` takes it. The file headers of the all-files view count the errors of every changed F# file.
 
 ![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
 
