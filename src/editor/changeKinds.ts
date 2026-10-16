@@ -1,4 +1,4 @@
-// Diff colors: a change is green when it only adds lines, gray when it only
+// Diff colors: a change is green when it only adds lines, red when it only
 // removes lines, and red on the old side and green on the new side when it
 // replaces lines (styles.css has the colors). CodeMirror's
 // merge view marks every change the same way, so this classifies its chunks

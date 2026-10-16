@@ -36,14 +36,12 @@
   /* CodeMirror's light caret row; the dark one is the editor scheme's. */
   --caret-row: #cceeff44;
   --diff-inserted: rgb(190 230 190 / 0.6);
-  --diff-deleted: rgb(214 214 214 / 0.7);
   --diff-old-line: rgb(255 222 222 / 0.6);
   --diff-old-text: rgb(250 175 175 / 0.85);
   --diff-new-line: rgb(190 230 190 / 0.6);
   --diff-new-text: rgb(140 210 140 / 0.85);
   --diff-inserted-mark: #8fcb93;
   --diff-old-mark: #e8918f;
-  --diff-deleted-mark: #a8a8a8;
   --island-radius: 10px;
   --island-gap: 6px;
   font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -76,19 +74,17 @@
     --banner-error: #56272b;
     --scrollbar: rgb(255 255 255 / 0.15);
     --scrollbar-hover: rgb(255 255 255 / 0.3);
-    /* DIFF_INSERTED and DIFF_DELETED; the marks are lighter takes on them
-       for the change gutter. Replaced lines are red on the old side and green
-       on the new side, as in Azure DevOps. */
+    /* Added lines and the new side of replaced lines are green, removed
+       lines and the old side of replaced lines red, as in Azure DevOps; the
+       marks are takes on them for the change gutter. */
     --caret-row: #202424;
     --diff-inserted: rgb(41 66 31 / 0.8);
-    --diff-deleted: rgb(66 66 66 / 0.6);
     --diff-old-line: rgb(110 38 42 / 0.45);
     --diff-old-text: rgb(150 48 54 / 0.85);
     --diff-new-line: rgb(41 66 31 / 0.8);
     --diff-new-text: rgb(44 86 32 / 0.9);
     --diff-inserted-mark: #4f8a3a;
     --diff-old-mark: #a84a4f;
-    --diff-deleted-mark: #868686;
   }
 }
 
@@ -933,9 +929,8 @@ button.primary:hover:not(:disabled) {
 }
 
 /* Diff colors (classes from changeKinds.ts): added lines are green and
-   removed lines gray as in the IDE. Replaced lines are red on the old side
-   and green on the new side with the changed words a shade stronger, as in
-   Azure DevOps. The unified view shows the old lines as a deleted chunk.
+   removed lines red. Replaced lines are red on the old side and green on the
+   new side with the changed words a shade stronger, as in Azure DevOps. The unified view shows the old lines as a deleted chunk.
    Lines and changed words only name their color: lineTints.ts paints it in a
    layer under the selection, which the line's own background would cover.
    The deleted chunk is a widget with native selection, so it keeps its own. */
@@ -962,19 +957,12 @@ button.primary:hover:not(:disabled) {
   --line-bg: var(--diff-inserted);
 }
 
-.diff-host .cm-editor .cm-changedLine.cm-kind-deleted {
-  --line-bg: var(--diff-deleted);
-}
-
-.diff-host .cm-editor .cm-deletedChunk {
-  background: var(--diff-deleted);
-}
-
+.diff-host .cm-editor .cm-changedLine.cm-kind-deleted,
 .diff-host .cm-editor.cm-merge-a .cm-changedLine.cm-kind-modified {
   --line-bg: var(--diff-old-line);
 }
 
-.diff-host .cm-editor .cm-deletedChunk:has(+ .cm-kind-modified) {
+.diff-host .cm-editor .cm-deletedChunk {
   background: var(--diff-old-line);
 }
 
@@ -1022,11 +1010,9 @@ button.primary:hover:not(:disabled) {
   background: linear-gradient(var(--diff-inserted-mark), var(--diff-inserted-mark)) center / 3px 100% no-repeat;
 }
 
-.diff-host .cm-changeMark.cm-kind-deleted {
-  background: linear-gradient(var(--diff-deleted-mark), var(--diff-deleted-mark)) center / 3px 100% no-repeat;
-}
-
-/* Replaced lines: red on the old side, green on the new side. */
+/* Removed lines, and replaced lines on the old side: red. The new side of
+   replaced lines is green. */
+.diff-host .cm-changeMark.cm-kind-deleted,
 .diff-host .cm-merge-a .cm-changeMark.cm-kind-modified,
 .diff-host .cm-changeMark.cm-kind-modified.cm-kind-old {
   background: linear-gradient(var(--diff-old-mark), var(--diff-old-mark)) center / 3px 100% no-repeat;
