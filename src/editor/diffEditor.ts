@@ -30,7 +30,7 @@ import { basicSetup } from "codemirror";
 import { changeKindColors } from "./changeKinds";
 import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
-import { languageFor } from "./languages";
+import { languageFor, languageLoading } from "./languages";
 import { editFrames, setCommitted } from "./editFrames";
 import { type LineBlock, lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
@@ -618,6 +618,20 @@ export class DiffEditor {
           }),
         ],
       });
+      // Deletions are drawn with the language there is when they are first
+      // shown: once it has loaded, the view is made again with it.
+      const unified = this.unified;
+      void languageLoading(document.path)?.then(
+        () => {
+          if (this.unified !== unified) return;
+          const focused = unified.hasFocus;
+          const again = this.snapshot();
+          this.destroyViews();
+          this.build(again ?? undefined);
+          if (focused) this.unified?.focus();
+        },
+        () => {},
+      );
     }
     this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);

@@ -536,20 +536,73 @@ function formatCheck() {
 
 // ------------------------------------------------------- uncommitted changes
 // The checkout's HEAD is the branch tip (each file's `working` text).
-// `?uncommitted` gives it an agent's uncommitted work: Orders.fs edited,
-// Pricing.fs partly staged, a new Discounts.fs and Audit.fs deleted. Opening
-// the repository then starts in Commit mode.
+// `?uncommitted` gives it an agent's uncommitted work: Orders.fs and
+// web/checkout.ts edited, Pricing.fs partly staged, a new Discounts.fs and
+// Audit.fs deleted. Opening the repository then starts in Commit mode.
 
 let head: Map<string, string> | null = null;
 const headMap = () => head!;
 let index = new Map<string, string>();
 let worktree = new Map<string, string>();
 
+/** Files in other languages than the shop's, for trying syntax highlighting. */
+const OTHER_LANGUAGES: Record<string, string> = {
+  "web/checkout.ts": `import { formatMoney } from "./money";
+
+/** A line of the basket, as the API returns it. */
+export interface Line {
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export function total(lines: readonly Line[]): string {
+  const sum = lines.reduce((acc, line) => acc + line.quantity * line.unitPrice, 0);
+  return formatMoney(sum, "SEK");
+}
+`,
+  "scripts/report.py": `import csv
+from decimal import Decimal
+
+
+def totals(path: str) -> dict[str, Decimal]:
+    """Sums the order lines of a CSV export per customer."""
+    result: dict[str, Decimal] = {}
+    with open(path, newline="") as file:
+        for row in csv.DictReader(file):
+            result[row["customer"]] = result.get(row["customer"], Decimal(0)) + Decimal(row["amount"])
+    return result
+`,
+  ".github/workflows/ci.yml": `name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: dotnet test --configuration Release # all projects
+`,
+  Dockerfile: `FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish src/Api/Api.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+COPY --from=build /app /app
+ENTRYPOINT ["dotnet", "/app/Api.dll"]
+`,
+};
+
 /** A few files that are not part of the diff, so the explorer has more to show. */
 function addUnchangedFiles() {
   const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
   for (const path of unchanged) {
     if (!files.has(path)) files.set(path, { base: `// ${path}\n`, working: `// ${path}\n` });
+  }
+  for (const [path, text] of Object.entries(OTHER_LANGUAGES)) {
+    if (!files.has(path)) files.set(path, { base: text, working: text });
   }
 }
 
@@ -583,6 +636,10 @@ let lineCount (order: Order) : int =
     "module Shop.Discounts\n\n/// Seasonal discount rate.\nlet seasonal = 0.05m\n\nlet apply (rate: decimal) (amount: decimal) =\n    amount * (1m - rate)\n",
   );
   worktree.delete("Audit.fs");
+  worktree.set(
+    "web/checkout.ts",
+    head.get("web/checkout.ts")!.replace('return formatMoney(sum, "SEK");', 'return formatMoney(sum, currency); // from the basket'),
+  );
 }
 
 /** `.gitignore` lines added by "Add to .gitignore" (`/path` or `/folder/`); only these patterns are understood. */
