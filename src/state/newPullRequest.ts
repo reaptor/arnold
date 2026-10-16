@@ -33,3 +33,16 @@ export function rememberedDraft(): boolean {
 export function rememberDraft(draft: boolean) {
   localStorage.setItem(DRAFT_KEY, String(draft));
 }
+
+/**
+ * The work item a pull request is to be linked to, as typed: `1234`,
+ * `#1234` or the work item's address. Null when nothing is typed;
+ * "invalid" when it is not a work item number.
+ */
+export function parseWorkItem(text: string): number | null | "invalid" {
+  const typed = text.trim();
+  if (!typed) return null;
+  const match = /^#?(\d+)$/.exec(typed) ?? /\/_workitems\/edit\/(\d+)\/?(?:[?#].*)?$/.exec(typed);
+  const id = match ? Number(match[1]) : Number.NaN;
+  return Number.isSafeInteger(id) && id > 0 ? id : "invalid";
+}

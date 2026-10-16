@@ -2448,6 +2448,7 @@ button.primary:hover:not(:disabled) {
 @media (max-width: 1100px) {
   .create-pr-button .action-label,
   .pr-actions .action-label,
+  .branch-actions .action-label,
   .source-switch span {
     display: none;
   }
@@ -2551,6 +2552,32 @@ button.primary:hover:not(:disabled) {
   -webkit-user-select: text;
 }
 
+.complete-message small {
+  font-weight: normal;
+}
+
+.create-optional {
+  color: var(--muted);
+}
+
+.work-item-status {
+  color: var(--muted);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.work-item-found {
+  color: var(--text);
+}
+
+.work-item-state {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--banner);
+  color: var(--muted);
+}
+
 .complete-message textarea:focus {
   border-color: var(--accent);
   outline: none;
@@ -2630,15 +2657,61 @@ button.primary:hover:not(:disabled) {
   gap: 6px;
 }
 
+.branch-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar .branch-actions button {
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-color: var(--control-border);
+}
+
+.push-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
 .statusbar .notice {
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.committed-dialog code {
+.unformatted-files {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow: auto;
   font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
-  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.unformatted-output {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--banner);
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .committed-choices {

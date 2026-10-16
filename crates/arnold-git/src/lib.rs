@@ -10,13 +10,15 @@
 //!
 //! `working` is the exception: it stages, unstages, puts files back and
 //! commits in the checkout it is given, for committing an agent's changes
-//! before they are reviewed.
+//! before they are reviewed; `publish` pushes the branch checked out there,
+//! when asked to, never forced.
 
 mod cli;
 mod compare;
 mod export;
 mod files;
 mod refs;
+mod publish;
 mod push;
 mod remotes;
 mod working;
@@ -26,6 +28,7 @@ pub use compare::{compare, read_blob, ChangedFile, Commit, CommitRange, Comparis
 pub use export::{app_folder, export_commit};
 pub use files::{list_files, tree_files, TreeFile};
 pub use refs::{common_dir, git_dir, list_branches, open, Branch, RepoInfo};
+pub use publish::{branch_sync, push_branch, BranchSync};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 pub use working::{

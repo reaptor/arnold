@@ -136,3 +136,17 @@ export const MergeIcon = (props: IconProps) => (
     <path d="M4.5 5v6M4.5 5a5 3 0 0 0 5.5 3" />
   </Icon>
 );
+
+/** Formatting code: ragged lines made even. */
+export const FormatIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M2.5 4h11M5.5 8h8M2.5 12h11" />
+  </Icon>
+);
+
+/** Closing, cancelling. */
+export const CloseIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </Icon>
+);

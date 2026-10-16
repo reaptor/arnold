@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod formatting;
 mod fsio;
 mod lsp;
 mod pull_requests;
@@ -72,6 +73,9 @@ fn main() {
             working::set_index_text,
             working::save_worktree_file,
             working::commit_staged,
+            working::push_checkout_branch,
+            formatting::check_formatting,
+            formatting::format_and_stage,
             pull_requests::pull_request_remotes,
             pull_requests::list_pull_requests,
             pull_requests::set_pull_request_token,
@@ -84,6 +88,7 @@ fn main() {
             pull_requests::update_pull_request,
             pull_requests::plan_pull_request,
             pull_requests::create_pull_request,
+            pull_requests::work_item,
             workspace::prepare_workspace,
             lsp::lsp_start,
             lsp::lsp_send,

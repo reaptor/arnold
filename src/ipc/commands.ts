@@ -118,6 +118,22 @@ export interface WorkingStatus {
   unstaged: ChangedFile[];
   /** Index against HEAD: what a commit takes. */
   staged: ChangedFile[];
+  /** Where the branch is pushed and how far it is ahead; null when detached or without a remote. */
+  sync: BranchSync | null;
+}
+
+/** Where the checked-out branch is pushed, and how it stands against it. */
+export interface BranchSync {
+  /** Its upstream's remote, else `origin` (or the only remote). */
+  remote: string;
+  /** The branch's name there. */
+  remoteBranch: string;
+  /** The remote has the branch (as of the last fetch or push). */
+  published: boolean;
+  /** Commits a push would send. */
+  ahead: number;
+  /** Commits of the remote's branch the local one lacks: a push would be refused. */
+  behind: number;
 }
 
 /** Which diff of an uncommitted file: index → working tree, or HEAD → index. */
@@ -160,6 +176,33 @@ export const saveWorktreeFile = (checkout: string, path: string, text: string) =
 
 export const commitStaged = (checkout: string, message: string) =>
   invoke<NewCommit>("commit_staged", { checkout, message });
+
+/** Pushes the checked-out branch to its upstream, or to `origin` as a new branch that becomes its upstream. Never forced. */
+export const pushCheckoutBranch = (checkout: string) => invoke<void>("push_checkout_branch", { checkout });
+
+/** What Fantomas found: files it would change, and files it could not format. */
+export interface FormatCheck {
+  unformatted: string[];
+  errors: string[];
+}
+
+/** Runs `fantomas --check` on the checkout; null when the repository does not use Fantomas. */
+export const checkFormatting = (checkout: string) => invoke<FormatCheck | null>("check_formatting", { checkout });
+
+/** What formatting before a commit did. */
+export interface Formatted {
+  /** Files whose formatting is staged. */
+  staged: string[];
+  /** Files Fantomas could not format; their staged text is as it was. */
+  failed: string[];
+}
+
+/**
+ * Formats the files with the repository's Fantomas and stages only the
+ * formatting: other unstaged changes, also of those files, stay unstaged.
+ */
+export const formatAndStage = (checkout: string, paths: string[]) =>
+  invoke<Formatted>("format_and_stage", { checkout, paths });
 
 /** A file or the index of the watched checkout changed. */
 export const onCheckoutChanged = (handler: () => void): Promise<UnlistenFn> =>
@@ -337,7 +380,27 @@ export interface NewPullRequest {
   /** Markdown. */
   description: string;
   draft: boolean;
+  /** A work item to link the pull request to. */
+  workItem: number | null;
 }
+
+export interface WorkItem {
+  id: number;
+  title: string;
+  /** `Bug`, `User Story`, `Task`, ... */
+  kind: string;
+  /** `New`, `Active`, ... */
+  state: string;
+  /** Its page on the host. */
+  url: string;
+}
+
+/** `noAccess`: the token may not read work items, which linking one does not need. */
+export type WorkItemLookup = { kind: "found"; item: WorkItem } | { kind: "notFound" } | { kind: "noAccess" };
+
+/** Looks a work item of the remote's organization up, to show what a new pull request is linked to. */
+export const workItem = (root: string, remote: string, id: number) =>
+  invoke<WorkItemLookup>("work_item", { root, remote, id });
 
 export const planPullRequest = (root: string, remote: string, head: string, base: string, commit: string) =>
   invoke<NewPullRequestPlan>("plan_pull_request", { root, remote, head, base, commit });

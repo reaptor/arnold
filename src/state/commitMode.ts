@@ -15,6 +15,7 @@ import { comparePaths } from "./pathOrder";
 import {
   attachLanguageServer,
   fileEditor,
+  openPullRequest,
   setAllFiles,
   setBranches,
   setState,
@@ -108,7 +109,6 @@ async function openCheckout(path: string) {
     workSide: null,
     selected: null,
     view: "file",
-    committed: null,
     menu: null,
     placeholder: "Reading the uncommitted changes…",
   });
@@ -122,7 +122,7 @@ export function leave() {
   shownKey = null;
   fileEditor()?.close();
   void ipc.stopWatchingCheckout();
-  setState({ work: null, workSide: null, committed: null, notice: null });
+  setState({ work: null, workSide: null, notice: null });
 }
 
 // ------------------------------------------------------------ reading
@@ -276,7 +276,7 @@ async function show() {
     setState(
       "placeholder",
       state.work && state.work.unstaged.length + state.work.staged.length === 0
-        ? "No uncommitted changes."
+        ? "No uncommitted changes. Review the branch, push it or create its pull request from the toolbar."
         : "Pick a file to see its changes.",
     );
     return;
@@ -511,44 +511,146 @@ export function setCommitMessage(text: string) {
 export const canCommit = () =>
   !state.committing && message().trim() !== "" && (state.work?.staged.length ?? 0) > 0;
 
-/** Commits what is staged, then asks how to go on. */
+/** Commits what is staged. */
 export async function commit() {
   const checkout = state.checkout;
   if (!checkout || !canCommit()) return;
   await flushSave();
-  setState("committing", true);
+  setState("committing", "Checking the formatting…");
   try {
+    const go = await formattingChecked(checkout);
+    if (go.answer === "cancel") return;
+    if (go.answer === "format") {
+      setState("committing", "Formatting with Fantomas…");
+      const formatted = await ipc.formatAndStage(checkout, go.files);
+      if (formatted.failed.length > 0) {
+        setState(
+          "error",
+          `Fantomas could not format ${formatted.failed.join(", ")} as staged, so nothing was committed. ` +
+            "The formatting of the other files is staged.",
+        );
+        return;
+      }
+    }
+    setState("committing", "Committing…");
     const made = await ipc.commitStaged(checkout, message().trim());
     setCommitMessage("");
-    setState("committed", made);
+    notify(`Committed ${made.sha.slice(0, 8)} ${made.subject} on ${made.branch ?? "a detached HEAD"}.`);
   } catch (error) {
-    fail("The commit failed")(error);
+    fail(state.committing === "Committing…" ? "The commit failed" : "Formatting with Fantomas failed")(error);
   } finally {
-    setState("committing", false);
+    setState("committing", null);
   }
   await refreshWork();
 }
 
+export type FormatAnswer = "format" | "commit" | "cancel";
+
+let answerFormatting: ((answer: FormatAnswer) => void) | null = null;
+
+/**
+ * When the repository uses Fantomas and it would reformat the code base (or
+ * cannot check it), asks whether to format first, commit as it is, or stop.
+ * `files`: what Fantomas would reformat.
+ */
+async function formattingChecked(checkout: string): Promise<{ answer: FormatAnswer; files: string[] }> {
+  let unformatted: NonNullable<typeof state.unformatted>;
+  try {
+    const check = await ipc.checkFormatting(checkout);
+    if (!check || (check.unformatted.length === 0 && check.errors.length === 0)) return { answer: "commit", files: [] };
+    unformatted = check;
+  } catch (error) {
+    unformatted = { unformatted: [], errors: [], failure: String(error) };
+  }
+  setState("unformatted", unformatted);
+  const answer = await new Promise<FormatAnswer>((resolve) => (answerFormatting = resolve));
+  return { answer, files: unformatted.unformatted };
+}
+
+/** The answer to the Not formatted dialog. */
+export function answerFormatCheck(answer: FormatAnswer) {
+  setState("unformatted", null);
+  answerFormatting?.(answer);
+  answerFormatting = null;
+}
+
+// ------------------------------------------------------------ going on
+
 /** The branch the default comparison goes against: the repository's default branch. */
 export const reviewBase = () => state.repo?.defaultBranch ?? (state.base || null);
 
-/** After committing: review the branch against the base branch. */
-export async function reviewCommitted() {
-  const branch = state.committed?.branch;
+/** Why the checked-out branch cannot be reviewed against the base branch; null when it can. */
+export function whyNoReview(): string | null {
+  const branch = state.work?.branch;
   const base = reviewBase();
-  setState("committed", null);
-  if (!branch || !base) return;
+  if (!branch) return "The checkout is not on a branch.";
+  if (!base) return "The repository has no default branch to review against.";
+  if (branch === base) return `${branch} is the base branch itself.`;
+  return null;
+}
+
+/** Why the checked-out branch cannot be pushed; null when it can. */
+export function whyNoPush(): string | null {
+  const work = state.work;
+  if (!work?.branch) return "The checkout is not on a branch.";
+  const sync = work.sync;
+  if (!sync) return "The repository has no remote to push to.";
+  if (sync.behind > 0) {
+    return `${sync.remote}/${sync.remoteBranch} has ${sync.behind === 1 ? "a commit" : `${sync.behind} commits`} that ${work.branch} lacks. Pull first.`;
+  }
+  if (sync.published && sync.ahead === 0) return `${sync.remote}/${sync.remoteBranch} is up to date.`;
+  return null;
+}
+
+/** Reviews the checked-out branch against the base branch, in Branches. */
+export async function reviewBranch() {
+  const branch = state.work?.branch;
+  const base = reviewBase();
+  if (whyNoReview() || !branch || !base) return;
+  await flushSave();
   await setBranches({ head: branch, base });
+}
+
+/** Pushes the checked-out branch. Resolves to whether it is on the remote now. */
+export async function pushBranch(): Promise<boolean> {
+  const checkout = state.checkout;
+  const work = state.work;
+  if (!checkout || !work?.branch || !work.sync || state.committing) return false;
+  if (whyNoPush()) return work.sync.published && work.sync.ahead === 0 && work.sync.behind === 0;
+  const { remote, remoteBranch } = work.sync;
+  setState("committing", `Pushing ${work.branch} to ${remote}…`);
+  try {
+    await ipc.pushCheckoutBranch(checkout);
+    notify(`Pushed ${work.branch} to ${remote}/${remoteBranch}.`);
+    return true;
+  } catch (error) {
+    fail(`Pushing ${work.branch} failed`)(error);
+    return false;
+  } finally {
+    setState("committing", null);
+    await refreshWork();
+  }
 }
 
 const [createRequested, setCreateRequested] = createSignal(false);
 /** Set when the Create pull request dialog should open as soon as it can. */
 export { createRequested, setCreateRequested };
 
-/** After committing: review the branch against the base branch, with the Create pull request dialog open. */
-export async function createPullRequestFromCommitted() {
+/**
+ * Pushes the checked-out branch, then reviews it against the base branch
+ * with the Create pull request dialog open.
+ */
+export async function pushAndCreatePullRequest() {
+  if (whyNoReview() || !(await pushBranch())) return;
   setCreateRequested(true);
-  await reviewCommitted();
+  await reviewBranch();
+}
+
+/** Pushes the checked-out branch when it has commits to push, then opens its pull request in Pull request. */
+export async function pushAndViewPullRequest(remote: string, id: number) {
+  if (!whyNoPush() && !(await pushBranch())) return;
+  await flushSave();
+  await openPullRequest(remote, id);
 }
 
 // ------------------------------------------------------------ watching

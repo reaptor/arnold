@@ -77,6 +77,35 @@ pub struct NewPullRequest {
     /// Markdown.
     pub description: String,
     pub draft: bool,
+    /// Work items to link to it, by id.
+    #[serde(default)]
+    pub work_items: Vec<u64>,
+}
+
+/// A work item, to show which one a new pull request is linked to.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItem {
+    pub id: u64,
+    pub title: String,
+    /// `Bug`, `User Story`, `Task`, ...
+    pub kind: String,
+    /// `New`, `Active`, ...
+    pub state: String,
+    /// Its page on the host.
+    pub url: String,
+}
+
+/// Looking a work item up by id.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WorkItemLookup {
+    Found { item: WorkItem },
+    /// No such work item, or none the token's owner can see.
+    NotFound,
+    /// The token may not read work items (it lacks Work Items → Read); a
+    /// pull request can still be linked to it by id.
+    NoAccess,
 }
 
 /// A change to a pull request as a whole.

@@ -343,6 +343,22 @@ const repo: RepoInfo = {
   worktrees: [ROOT, "/fake/zed-trial/repo-worktree"],
 };
 
+// ------------------------------------------------------------- Fantomas
+
+// `?unformatted` makes the repository use Fantomas with files it would
+// reformat; `?unformatted=errors` adds a file it cannot parse, and
+// `?unformatted=fail` makes the check itself fail. Formatting clears it.
+const unformattedMode = searchParams.get("unformatted");
+let formatted = false;
+
+function formatCheck() {
+  if (unformattedMode === null || formatted) return unformattedMode === null ? null : { unformatted: [], errors: [] };
+  if (unformattedMode === "fail") throw "dotnet tool run fantomas failed (exit code 1): Run \"dotnet tool restore\" to make the \"fantomas\" command available. (dev mock)";
+  const unformatted = ["src/Orders.fs", "src/Pricing.fs", ...Array.from({ length: 14 }, (_, i) => `tests/Case${i + 1}.fs`)];
+  const errors = unformattedMode === "errors" ? ["Failed to format src/Broken.fs: Fantomas.Core.ParseException: ParseException"] : [];
+  return { unformatted, errors };
+}
+
 // ------------------------------------------------------- uncommitted changes
 // The checkout's HEAD is the branch tip (each file's `working` text).
 // `?uncommitted` gives it an agent's uncommitted work: Orders.fs edited,
@@ -421,7 +437,17 @@ function workingStatus(): WorkingStatus {
     head: commits[0].sha,
     unstaged: diffOf(index, worktree),
     staged: diffOf(head!, index),
+    sync: { remote: "origin", remoteBranch: "feature/agent-work", published: pushedCommits > 0, ahead: commits.length - pushedCommits, behind: 0 },
   };
+}
+
+// `?failpush` makes pushing fail. Pushed: how many of `commits` the remote has.
+let pushedCommits = 0;
+
+function pushBranch() {
+  if (searchParams.has("failpush")) throw "git push failed: Authentication failed for 'https://example.com/repo.git' (dev mock)";
+  pushedCommits = commits.length;
+  return checkoutChanged(null);
 }
 
 /** What the real watcher reports after any change to the checkout. */
@@ -813,6 +839,15 @@ export function install() {
           return checkoutChanged(null);
         case "commit_staged":
           return slowly(() => commitStaged(args.message), 500);
+        case "push_checkout_branch":
+          return slowly(pushBranch, 700);
+        case "check_formatting":
+          return slowly(formatCheck, 600);
+        case "format_and_stage":
+          return slowly(() => {
+            formatted = true;
+            return { staged: args.paths, failed: [] };
+          }, 800);
         case "pull_request_remotes":
           return devops === null ? [] : [prRemote()];
         case "list_pull_requests":
@@ -875,6 +910,24 @@ export function install() {
             checkToken();
             return planPullRequest(args.head, args.base, args.commit);
           }, 600);
+        case "work_item":
+          return slowly(() => {
+            checkToken();
+            const id = Number(args.id);
+            // `?workitems=noaccess`: the token may not read work items. Numbers from 90000 do not exist.
+            if (searchParams.get("workitems") === "noaccess") return { kind: "noAccess" };
+            if (id >= 90000) return { kind: "notFound" };
+            return {
+              kind: "found",
+              item: {
+                id,
+                title: id === 1234 ? "Loyalty discount for returning customers" : `Work item ${id} (dev mock)`,
+                kind: id % 2 === 0 ? "User Story" : "Bug",
+                state: "Active",
+                url: `https://dev.azure.com/contoso/Shop/_workitems/edit/${id}`,
+              },
+            };
+          }, 400);
         case "create_pull_request":
           return slowly(() => {
             checkToken();

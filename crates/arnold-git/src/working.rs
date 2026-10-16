@@ -5,7 +5,7 @@
 //!
 //! Unlike the rest of the crate this writes to the repository: the checkout's
 //! files, its index and, with `commit`, its branch. It only ever acts on the
-//! checkout it is given, and nothing here pushes.
+//! checkout it is given, and nothing here pushes (`publish` does).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -13,6 +13,7 @@ use serde::Serialize;
 
 use crate::cli::{run, run_raw, run_text, run_with_input, GitError};
 use crate::compare::{diff_files, ChangedFile, FileStatus};
+use crate::publish::{branch_sync, BranchSync};
 use crate::Result;
 
 const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
@@ -30,6 +31,9 @@ pub struct WorkingStatus {
     pub unstaged: Vec<ChangedFile>,
     /// Index against HEAD: what a commit would take.
     pub staged: Vec<ChangedFile>,
+    /// Where the branch is pushed and how far it is ahead; `None` when
+    /// detached or the repository has no remote.
+    pub sync: Option<BranchSync>,
 }
 
 /// What `checkout` has not committed yet, staged and not.
@@ -47,7 +51,17 @@ pub async fn working_status(checkout: &Path) -> Result<WorkingStatus> {
     unstaged.sort_by(|a, b| a.path.cmp(&b.path));
     let mut staged = staged;
     staged.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(WorkingStatus { branch, head, unstaged, staged })
+    let sync = match (&branch, &head) {
+        (Some(branch), Some(_)) => branch_sync(checkout, branch).await?,
+        _ => None,
+    };
+    Ok(WorkingStatus {
+        branch,
+        head,
+        unstaged,
+        staged,
+        sync,
+    })
 }
 
 async fn untracked_file(checkout: &Path, path: &str) -> ChangedFile {

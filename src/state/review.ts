@@ -21,7 +21,7 @@ import type {
   Comparison,
   FilePair,
   FileStatus,
-  NewCommit,
+  FormatCheck,
   NewThreadPlace,
   PrChange,
   PrThread,
@@ -136,10 +136,13 @@ interface State {
    * explorer, shown whole.
    */
   workSide: WorkingSide | null;
-  /** Commit mode: the commit is being made. */
-  committing: boolean;
-  /** Commit mode: the commit just made, while asking what to do next. */
-  committed: NewCommit | null;
+  /** Commit mode: a commit or push is under way; what is happening, or null. */
+  committing: string | null;
+  /**
+   * Commit mode: Fantomas would reformat the code base (or could not check
+   * it: `failure`), while asking whether to commit anyway.
+   */
+  unformatted: (FormatCheck & { failure?: string }) | null;
   /** A short message in the status bar (Commit mode: what a key did or why not). */
   notice: string | null;
   /** Files folded away in the all-files view. */
@@ -192,8 +195,8 @@ export const [state, setState] = createStore<State>({
   checkout: null,
   work: null,
   workSide: null,
-  committing: false,
-  committed: null,
+  committing: null,
+  unformatted: null,
   notice: null,
 });
 

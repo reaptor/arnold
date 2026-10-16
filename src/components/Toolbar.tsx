@@ -15,6 +15,7 @@ import {
 import { prs } from "../state/pullRequests";
 import { setCheckout } from "../state/commitMode";
 import { isMac, platform } from "../platform";
+import { BranchActions } from "./BranchActions";
 import { BranchPicker } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
 import { CreatePullRequestButton } from "./CreatePullRequest";
@@ -67,7 +68,7 @@ export function Toolbar() {
               <button
                 classList={{ on: state.source === "commit" }}
                 onClick={() => void setSource("commit")}
-                title="Commit: stage, edit and commit the uncommitted changes of a checkout, the first step with an agent's work"
+                title="Commit: stage, edit and commit the uncommitted changes of a checkout, the first step with an agent's work; then push the branch, review it or create its pull request"
               >
                 <CommitIcon />
                 <span>Commit</span>
@@ -75,7 +76,7 @@ export function Toolbar() {
               <button
                 classList={{ on: state.source === "branches" }}
                 onClick={() => void setSource("branches")}
-                title="Compare a branch against a base branch"
+                title="Compare a branch against a base branch, then create its pull request"
               >
                 <BranchIcon />
                 <span>Branches</span>
@@ -84,7 +85,7 @@ export function Toolbar() {
                 <button
                   classList={{ on: state.source === "pullRequest" }}
                   onClick={() => void setSource("pullRequest")}
-                  title="Review an active pull request from Azure DevOps"
+                  title="Review an active pull request from Azure DevOps: discussions, comments, votes and completing"
                 >
                   <PullRequestIcon />
                   <span>Pull request</span>
@@ -137,6 +138,10 @@ export function Toolbar() {
       <span class="toolbar-space" />
       <Show when={state.repo && state.source === "pullRequest" && state.pullRequest}>
         <PullRequestActions />
+        <span class="toolbar-separator" />
+      </Show>
+      <Show when={state.repo && state.source === "commit" && state.work}>
+        <BranchActions />
         <span class="toolbar-separator" />
       </Show>
       <Show when={state.repo && state.source === "branches" && prs.remotes.length > 0}>

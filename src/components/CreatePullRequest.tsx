@@ -1,11 +1,19 @@
-import { createEffect, createResource, createSignal, Match, onMount, Show, Switch } from "solid-js";
+import { createEffect, createResource, createSignal, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import * as ipc from "../ipc/commands";
-import type { NewPullRequestPlan, PrRemote } from "../ipc/commands";
-import { currentRemote, loadPullRequests, openTokenDialog, prErrorText } from "../state/pullRequests";
+import type { NewPullRequestPlan, PrRemote, WorkItemLookup } from "../ipc/commands";
+import {
+  currentRemote,
+  loadPullRequests,
+  loadPullRequestsOnce,
+  openTokenDialog,
+  prErrorText,
+  pullRequestFrom,
+} from "../state/pullRequests";
 import {
   defaultDescription,
   defaultTitle,
   DESCRIPTION_LIMIT,
+  parseWorkItem,
   rememberDraft,
   rememberedDraft,
 } from "../state/newPullRequest";
@@ -17,11 +25,24 @@ import { Markdown, MARKDOWN_GUIDE } from "./Markdown";
 
 /**
  * "Create pull request", for the toolbar while two branches are compared:
- * once the branch is reviewed, colleagues review it on Azure DevOps.
+ * once the branch is reviewed, colleagues review it on Azure DevOps. When
+ * the branch has an active pull request already, "View pull request" opens
+ * it in Pull request instead.
  */
 export function CreatePullRequestButton() {
   const [open, setOpen] = createSignal(false);
   const ready = () => (state.comparison?.commits.length ?? 0) > 0;
+  const existing = () => pullRequestFrom(state.head, state.base);
+  const title = () => {
+    const pullRequest = existing();
+    if (pullRequest) {
+      return `Review pull request !${pullRequest.id}: ${pullRequest.title}\n${pullRequest.sourceBranch} into ${pullRequest.targetBranch}, open already`;
+    }
+    return ready()
+      ? `Open a pull request from ${state.head} into ${state.base} on Azure DevOps`
+      : `${state.head} has no commits that ${state.base} lacks`;
+  };
+  onMount(loadPullRequestsOnce);
   // Asked for from Commit mode, after committing: opens once the branch is compared.
   createEffect(() => {
     if (!createRequested() || !state.comparison) return;
@@ -35,16 +56,16 @@ export function CreatePullRequestButton() {
           <button
             class="create-pr-button"
             data-tauri-drag-region="false"
-            onClick={() => setOpen(true)}
-            disabled={!ready()}
-            title={
-              ready()
-                ? `Open a pull request from ${state.head} into ${state.base} on Azure DevOps`
-                : `${state.head} has no commits that ${state.base} lacks`
-            }
+            onClick={() => {
+              const pullRequest = existing();
+              if (pullRequest) void openPullRequest(remote().remote, pullRequest.id);
+              else setOpen(true);
+            }}
+            disabled={existing() ? state.openingPullRequest !== null : !ready()}
+            title={title()}
           >
             <PullRequestIcon />
-            <span class="action-label">Create pull request</span>
+            <span class="action-label">{existing() ? "View pull request" : "Create pull request"}</span>
           </button>
           <Show when={open() && state.comparison}>
             {(comparison) => (
@@ -95,6 +116,26 @@ function CreateDialog(props: DialogProps) {
   const [draft, setDraft] = createSignal(rememberedDraft());
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [workItemText, setWorkItemText] = createSignal("");
+  const workItemId = () => parseWorkItem(workItemText());
+  // Looked up once typing pauses.
+  const [lookupId, setLookupId] = createSignal<number | null>(null);
+  createEffect(
+    on(workItemId, (id) => {
+      const timer = window.setTimeout(() => setLookupId(typeof id === "number" ? id : null), 300);
+      onCleanup(() => window.clearTimeout(timer));
+    }),
+  );
+  const [workItem] = createResource(lookupId, (id) => ipc.workItem(root(), props.remote.remote, id));
+  /** The work item to link, once it is known not to be missing; undefined while that is not known. */
+  const linked = (): number | null | undefined => {
+    const id = workItemId();
+    if (id === null) return null;
+    if (id === "invalid" || id !== lookupId() || workItem.loading) return undefined;
+    // A failed lookup (network, say) does not stop linking by number.
+    if (workItem.state === "errored") return id;
+    return workItem()?.kind === "notFound" ? undefined : id;
+  };
   let titleInput: HTMLInputElement | undefined;
 
   onMount(() => titleInput?.select());
@@ -111,7 +152,8 @@ function CreateDialog(props: DialogProps) {
 
   const submit = async (event: Event) => {
     event.preventDefault();
-    if (!usable() || !title().trim() || tooLong() || busy()) return;
+    const work = linked();
+    if (!usable() || !title().trim() || tooLong() || busy() || work === undefined) return;
     rememberDraft(draft());
     setBusy(true);
     setError(null);
@@ -123,6 +165,7 @@ function CreateDialog(props: DialogProps) {
         title: title().trim(),
         description: description(),
         draft: draft(),
+        workItem: work,
       });
       setBusy(false);
       props.onClose();
@@ -260,6 +303,25 @@ function CreateDialog(props: DialogProps) {
               />
             </label>
 
+            <label class="complete-message">
+              <span>
+                Work item <small class="create-optional">optional</small>
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={workItemText()}
+                placeholder="Number, such as 1234, to link the pull request to"
+                onInput={(event) => setWorkItemText(event.currentTarget.value)}
+              />
+              <WorkItemStatus
+                id={workItemId()}
+                pending={typeof workItemId() === "number" && (workItemId() !== lookupId() || workItem.loading)}
+                lookup={workItem.state === "ready" ? workItem() : undefined}
+                failure={workItem.state === "errored" ? prErrorText(workItem.error) : undefined}
+              />
+            </label>
+
             <div class="complete-message">
               <div class="composer-bar">
                 <span>Description</span>
@@ -336,7 +398,11 @@ function CreateDialog(props: DialogProps) {
               {known()?.existing ? "Close" : "Cancel"}
             </button>
             <Show when={!known()?.existing}>
-              <button type="submit" class="primary" disabled={busy() || !usable() || !title().trim() || tooLong()}>
+              <button
+                type="submit"
+                class="primary"
+                disabled={busy() || !usable() || !title().trim() || tooLong() || linked() === undefined}
+              >
                 {busy()
                   ? pushes()
                     ? "Pushing and creating…"
@@ -348,5 +414,54 @@ function CreateDialog(props: DialogProps) {
         </form>
       </Show>
     </div>
+  );
+}
+
+/** Under the work item field: which work item the number is, or why it cannot be linked. */
+function WorkItemStatus(props: {
+  id: number | null | "invalid";
+  pending: boolean;
+  lookup: WorkItemLookup | undefined;
+  failure: string | undefined;
+}) {
+  return (
+    <Switch>
+      <Match when={props.id === "invalid"}>
+        <small class="create-limit">Type the work item's number, such as 1234.</small>
+      </Match>
+      <Match when={props.id === null}>{null}</Match>
+      <Match when={props.pending}>
+        <small class="work-item-status">Looking up work item {props.id}…</small>
+      </Match>
+      <Match when={props.failure}>
+        <small class="work-item-status">
+          Could not look work item {props.id} up ({props.failure}); it is linked by its number.
+        </small>
+      </Match>
+      <Match when={props.lookup?.kind === "notFound"}>
+        <small class="create-limit">There is no work item {props.id}, or you have no access to it.</small>
+      </Match>
+      <Match when={props.lookup?.kind === "noAccess"}>
+        <small class="work-item-status">
+          Linked by its number. To show which work item it is, the token needs Work Items → Read as well.
+        </small>
+      </Match>
+      <Match when={props.lookup?.kind === "found" && props.lookup.item}>
+        {(item) => (
+          <small class="work-item-status work-item-found">
+            <a
+              href={item().url}
+              onClick={(event) => {
+                event.preventDefault();
+                openInBrowser(item().url);
+              }}
+            >
+              {item().kind} {item().id}
+            </a>
+            : {item().title} <span class="work-item-state">{item().state}</span>
+          </small>
+        )}
+      </Match>
+    </Switch>
   );
 }

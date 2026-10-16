@@ -8,6 +8,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, State};
 
 use crate::commands::{file_pair, text_error, AppState, FilePair};
+use crate::pull_requests::PrState;
 use crate::watcher;
 
 /// Which diff of a file with uncommitted changes.
@@ -129,4 +130,17 @@ pub async fn save_worktree_file(checkout: String, path: String, text: String, st
 pub async fn commit_staged(checkout: String, message: String, state: State<'_, AppState>) -> Result<NewCommit, String> {
     let checkout = state.checked_root(&checkout)?;
     arnold_git::commit(&checkout, &message).await.map_err(text_error)
+}
+
+
+/// Pushes the branch checked out in `checkout` to its upstream, or to
+/// `origin` as a new branch that becomes its upstream. Never forced.
+#[tauri::command]
+pub async fn push_checkout_branch(checkout: String, state: State<'_, AppState>, prs: State<'_, PrState>) -> Result<(), String> {
+    let checkout = state.checked_root(&checkout)?;
+    let status = arnold_git::working_status(&checkout).await.map_err(text_error)?;
+    let branch = status.branch.ok_or("The checkout is not on a branch, so there is no branch to push.")?;
+    let sync = status.sync.ok_or("The repository has no remote to push to.")?;
+    let header = prs.push_header(&checkout, &sync.remote).await;
+    arnold_git::push_branch(&checkout, &branch, &sync, header.as_deref()).await.map_err(text_error)
 }

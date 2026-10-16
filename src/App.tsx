@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { AllFilesView } from "./components/AllFilesView";
-import { CommitBox, CommittedDialog } from "./components/CommitPanel";
+import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
@@ -182,8 +182,8 @@ export function App() {
       <Show when={prs.tokenDialog}>
         <TokenDialog />
       </Show>
-      <Show when={state.committed}>
-        <CommittedDialog />
+      <Show when={state.unformatted}>
+        <UnformattedDialog />
       </Show>
       <Show when={state.menu}>
         {(menu) => (

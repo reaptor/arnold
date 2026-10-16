@@ -41,6 +41,22 @@ export const [prs, setPrs] = createStore<PrState>({
 /** The remote whose pull requests are listed. */
 export const currentRemote = (): PrRemote | null => prs.remotes.find((remote) => remote.remote === prs.remote) ?? null;
 
+/**
+ * The active pull request from `head` (a local branch, or a remote-tracking
+ * one of the current remote), preferring one into `base`; null when there is
+ * none or the list has not been read.
+ */
+export function pullRequestFrom(head: string, base?: string): PullRequest | null {
+  const onHost = (branch: string) => (prs.remote && branch.startsWith(`${prs.remote}/`) ? branch.slice(prs.remote.length + 1) : branch);
+  const from = (prs.list ?? []).filter((pullRequest) => pullRequest.sourceBranch === onHost(head));
+  return from.find((pullRequest) => base !== undefined && pullRequest.targetBranch === onHost(base)) ?? from[0] ?? null;
+}
+
+/** Reads the active pull requests once, when a token is set up and they have not been read yet. */
+export function loadPullRequestsOnce() {
+  if (prs.list === null && !prs.loading && !prs.error && currentRemote()?.token) void loadPullRequests();
+}
+
 /** No token, or the one there is was turned down: the user has to set one up. */
 export const needsToken = () => {
   const remote = currentRemote();

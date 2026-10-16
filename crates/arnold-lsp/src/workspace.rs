@@ -222,6 +222,36 @@ pub async fn run_dotnet(
     args: &[&str],
     on_line: &(dyn Fn(String) + Send + Sync),
 ) -> Result<(), String> {
+    let mut child = dotnet_command(dotnet, dir, args)
+        .spawn()
+        .map_err(|e| format!("could not run {}: {e}", dotnet.path.display()))?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    tokio::join!(forward_lines(stdout, on_line), forward_lines(stderr, on_line));
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "dotnet {} failed ({status})",
+            args.first().copied().unwrap_or_default()
+        ))
+    }
+}
+
+/// Runs `dotnet` with `args` in `dir` to the end: its exit code and all it
+/// printed, stdout then stderr.
+pub async fn dotnet_output(dotnet: &Dotnet, dir: &Path, args: &[&str]) -> Result<(Option<i32>, String), String> {
+    let output = dotnet_command(dotnet, dir, args)
+        .output()
+        .await
+        .map_err(|e| format!("could not run {}: {e}", dotnet.path.display()))?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok((output.status.code(), text))
+}
+
+fn dotnet_command(dotnet: &Dotnet, dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(&dotnet.path);
     command
         .args(args)
@@ -241,22 +271,7 @@ pub async fn run_dotnet(
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("could not run {}: {e}", dotnet.path.display()))?;
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    tokio::join!(forward_lines(stdout, on_line), forward_lines(stderr, on_line));
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "dotnet {} failed ({status})",
-            args.first().copied().unwrap_or_default()
-        ))
-    }
+    command
 }
 
 async fn forward_lines(stream: Option<impl AsyncRead + Unpin>, on_line: &(dyn Fn(String) + Send + Sync)) {

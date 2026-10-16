@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote};
+use arnold_pr::{NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote, WorkItemLookup};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -115,6 +115,14 @@ impl PrState {
             }
         }
         pull_request
+    }
+
+    /// The credentials header for pushing to `remote` when it is an Azure
+    /// DevOps remote with a token set up; else git's own credentials do.
+    pub(crate) async fn push_header(&self, root: &Path, remote: &str) -> Option<String> {
+        let (_, repo) = azure_remotes(root).await.ok()?.into_iter().find(|(name, _)| name == remote)?;
+        let (token, _) = self.token(&repo).await.ok()??;
+        Some(format!("Authorization: {}", azure::authorization(&token)))
     }
 
     fn forget(&self, key: &str) {
@@ -491,6 +499,9 @@ pub struct CreateRequest {
     title: String,
     description: String,
     draft: bool,
+    /// A work item to link the pull request to.
+    #[serde(default)]
+    work_item: Option<u64>,
 }
 
 /// Opens a pull request from `head` into `base` on `remote`'s Azure DevOps,
@@ -544,12 +555,28 @@ pub async fn create_pull_request(
         title,
         description: request.description,
         draft: request.draft,
+        work_items: request.work_item.into_iter().collect(),
     };
     let pull_request = {
         let (repo, token) = (repo.clone(), token.clone());
         blocking(move || azure::create_pull_request(&repo, &token, &new)).await??
     };
     Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+/// Work item `id` of `remote`'s organization, to show what a new pull
+/// request will be linked to.
+#[tauri::command]
+pub async fn work_item(
+    root: String,
+    remote: String,
+    id: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<WorkItemLookup, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::work_item(&repo, &token, id)).await?
 }
 
 fn conflict_text(plan: &NewPullRequestPlan) -> String {

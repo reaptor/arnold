@@ -89,8 +89,8 @@ export function DevOpsSetup(props: Props) {
             </li>
             <li>
               Under <strong>Scopes</strong>, choose <strong>Custom defined</strong>, then tick{" "}
-              <strong>Code → Read &amp; write</strong> (<strong>Read</strong> is enough if you will not comment, vote or complete). Nothing
-              else is needed.
+              <strong>Code → Read &amp; write</strong> (<strong>Read</strong> is enough if you will not comment, vote or complete).
+              Optionally also <strong>Work Items → Read</strong>, to see which work item a new pull request is linked to.
             </li>
             <li>
               Select <strong>Create</strong> and copy the token. Azure DevOps shows it only once.

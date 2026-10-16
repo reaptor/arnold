@@ -2,7 +2,7 @@
 name = "arnold"
 version.workspace = true
 edition.workspace = true
-description = "Review git branches as a PR-style diff"
+description = "Commit, review and open pull requests for what AI agents wrote: git branches as a PR-style diff"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

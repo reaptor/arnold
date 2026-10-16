@@ -1,17 +1,8 @@
-import { onMount, Show } from "solid-js";
+import { For, onMount, Show } from "solid-js";
 import { isMac } from "../platform";
-import {
-  canCommit,
-  commit,
-  createPullRequestFromCommitted,
-  message,
-  reviewBase,
-  reviewCommitted,
-  setCommitMessage,
-} from "../state/commitMode";
-import { currentRemote } from "../state/pullRequests";
-import { setState, state } from "../state/review";
-import { BranchIcon, CheckIcon, CommitIcon, PullRequestIcon } from "./icons";
+import { answerFormatCheck, canCommit, commit, message, setCommitMessage } from "../state/commitMode";
+import { state } from "../state/review";
+import { CloseIcon, CommitIcon, FormatIcon } from "./icons";
 
 const COMMIT_KEY = isMac ? "⌘Enter" : "Ctrl+Enter";
 
@@ -21,7 +12,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 export function CommitBox() {
   const staged = () => state.work?.staged.length ?? 0;
   const hint = () => {
-    if (state.committing) return "Committing…";
+    if (state.committing) return state.committing;
     if (staged() === 0) return "Stage files or lines to commit them.";
     if (!message().trim()) return `Write a message to commit ${plural(staged(), "staged file")}.`;
     return `${plural(staged(), "staged file")} on ${state.work?.branch ?? "detached HEAD"}`;
@@ -52,89 +43,84 @@ export function CommitBox() {
         <span class="commit-hint">{hint()}</span>
         <button type="submit" class="primary" disabled={!canCommit()} title={`Commit the staged changes (${COMMIT_KEY})`}>
           <CommitIcon />
-          <span>{state.committing ? "Committing…" : "Commit"}</span>
+          <span>Commit</span>
         </button>
       </div>
     </form>
   );
 }
 
+/** Most files listed in the Not formatted dialog. */
+const LISTED_FILES = 12;
+
 /**
- * After a commit: on to reviewing the branch against the base branch, or
- * to creating a pull request from it; or stay to commit more.
+ * Before a commit, when the repository uses Fantomas and the code base is
+ * not formatted: format and commit, commit as it is, or stop.
  */
-export function CommittedDialog() {
+export function UnformattedDialog() {
   let first: HTMLButtonElement | undefined;
   onMount(() => first?.focus());
-  const made = () => state.committed!;
-  const base = () => reviewBase();
-  const branch = () => made().branch;
-  /** Reviewing compares two branches; a commit on the base branch itself has nothing to compare. */
-  const reviewable = () => !!branch() && !!base() && branch() !== base();
-  const left = () => (state.work?.unstaged.length ?? 0) + (state.work?.staged.length ?? 0);
-  const stay = () => setState("committed", null);
+  const check = () => state.unformatted!;
+  const files = () => check().unformatted;
+  const cancel = () => answerFormatCheck("cancel");
   return (
     <div
       class="modal-backdrop"
       data-tauri-drag-region="false"
-      onPointerDown={(event) => event.target === event.currentTarget && stay()}
-      onKeyDown={(event) => event.key === "Escape" && stay()}
+      onPointerDown={(event) => event.target === event.currentTarget && cancel()}
+      onKeyDown={(event) => event.key === "Escape" && cancel()}
     >
-      <div class="modal complete-dialog committed-dialog" role="dialog" aria-label="Committed">
-        <h2>
-          <CheckIcon />
-          Committed
-        </h2>
-        <p>
-          <code>{made().sha.slice(0, 8)}</code> {made().subject}
-          <br />
-          <span class="pr-subtitle">
-            on {branch() ?? "a detached HEAD"}
-            {left() > 0 ? ` · ${plural(left(), "uncommitted file")} left` : ""}
-          </span>
-        </p>
-        <Show when={!reviewable()}>
-          <p class="complete-warning">
-            {branch()
-              ? `This commit is on ${branch()}, the base branch, so there is no branch to review against it.`
-              : "The checkout is not on a branch, so there is no branch to review or create a pull request from."}
-          </p>
+      <div class="modal complete-dialog unformatted-dialog" role="dialog" aria-label="Not formatted">
+        <h2>{check().failure ? "Formatting not checked" : "The code base is not formatted"}</h2>
+        <Show
+          when={!check().failure}
+          fallback={
+            <>
+              <p>This repository uses Fantomas, but checking the formatting failed:</p>
+              <pre class="unformatted-output">{check().failure}</pre>
+            </>
+          }
+        >
+          <Show when={files().length > 0}>
+            <p>Fantomas would reformat {plural(files().length, "file")}:</p>
+            <ul class="unformatted-files">
+              <For each={files().slice(0, LISTED_FILES)}>{(path) => <li>{path}</li>}</For>
+              <Show when={files().length > LISTED_FILES}>
+                <li class="pr-subtitle">and {files().length - LISTED_FILES} more</li>
+              </Show>
+            </ul>
+          </Show>
+          <Show when={check().errors.length > 0}>
+            <p class="complete-warning">Fantomas could not format {plural(check().errors.length, "file")}:</p>
+            <pre class="unformatted-output">{check().errors.join("\n")}</pre>
+          </Show>
         </Show>
         <div class="committed-choices">
-          <button
-            ref={(button) => reviewable() && (first = button)}
-            class="committed-choice primary"
-            disabled={!reviewable()}
-            onClick={() => void reviewCommitted()}
-          >
-            <BranchIcon />
-            <span>
-              Review the branch
-              <small>
-                {branch() ?? "—"} against {base() ?? "—"}, in Branches
-              </small>
-            </span>
-          </button>
-          <Show when={currentRemote()}>
-            <button
-              class="committed-choice"
-              disabled={!reviewable()}
-              onClick={() => void createPullRequestFromCommitted()}
-            >
-              <PullRequestIcon />
+          <Show when={files().length > 0}>
+            <button ref={first} class="committed-choice primary" onClick={() => answerFormatCheck("format")}>
+              <FormatIcon />
               <span>
-                Create a pull request
-                <small>
-                  from {branch() ?? "—"} into {base() ?? "—"} on Azure DevOps, then review it in Pull request
-                </small>
+                Run Fantomas and commit
+                <small>Format {plural(files().length, "file")} and stage only their formatting, then commit</small>
               </span>
             </button>
           </Show>
-          <button ref={(button) => !reviewable() && (first = button)} class="committed-choice" onClick={stay}>
+          <button
+            ref={(button) => files().length === 0 && (first = button)}
+            class="committed-choice"
+            onClick={() => answerFormatCheck("commit")}
+          >
             <CommitIcon />
             <span>
-              Keep committing
-              <small>{left() > 0 ? "Stay in Commit mode for the changes left" : "Stay in Commit mode"}</small>
+              Commit without formatting
+              <small>Commit the staged changes as they are</small>
+            </span>
+          </button>
+          <button class="committed-choice" onClick={cancel}>
+            <CloseIcon />
+            <span>
+              Cancel
+              <small>Nothing is formatted or committed</small>
             </span>
           </button>
         </div>

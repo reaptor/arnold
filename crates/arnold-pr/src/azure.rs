@@ -9,7 +9,10 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
-use crate::{Comment, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote};
+use crate::{
+    Comment, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote, WorkItem,
+    WorkItemLookup,
+};
 
 /// A repository hosted on Azure DevOps.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -264,13 +267,46 @@ pub fn create_pull_request(repo: &AzureRepo, token: &str, new: &NewPullRequest) 
 }
 
 fn create_body(new: &NewPullRequest) -> Value {
-    json!({
+    let mut body = json!({
         "sourceRefName": format!("refs/heads/{}", new.source_branch),
         "targetRefName": format!("refs/heads/{}", new.target_branch),
         "title": new.title,
         "description": new.description,
         "isDraft": new.draft,
-    })
+    });
+    if !new.work_items.is_empty() {
+        body["workItemRefs"] = new.work_items.iter().map(|id| json!({ "id": id.to_string() })).collect();
+    }
+    body
+}
+
+/// Work item `id`, for showing what a new pull request will be linked to.
+/// Reading it takes the Work Items → Read scope, which linking does not.
+pub fn work_item(repo: &AzureRepo, token: &str, id: u64) -> Result<WorkItemLookup, PrError> {
+    // Organization-wide: the work item may belong to another project.
+    let url = format!(
+        "{}/_apis/wit/workitems/{id}?fields=System.Title,System.WorkItemType,System.State&api-version={API_VERSION}",
+        repo.collection_url
+    );
+    match get(&url, token) {
+        Ok(body) => Ok(WorkItemLookup::Found {
+            item: parse_work_item(&body, repo, id),
+        }),
+        Err(PrError::NotFound(_)) => Ok(WorkItemLookup::NotFound),
+        Err(PrError::TokenRejected(_)) => Ok(WorkItemLookup::NoAccess),
+        Err(error) => Err(error),
+    }
+}
+
+fn parse_work_item(body: &Value, repo: &AzureRepo, id: u64) -> WorkItem {
+    let field = |name: &str| body["fields"][name].as_str().unwrap_or_default().to_string();
+    WorkItem {
+        id: body["id"].as_u64().unwrap_or(id),
+        title: field("System.Title"),
+        kind: field("System.WorkItemType"),
+        state: field("System.State"),
+        url: format!("{}/{}/_workitems/edit/{id}", repo.collection_url, repo.project),
+    }
 }
 
 /// Percent-encodes a query parameter's value; `/` is left as it is.
@@ -898,6 +934,7 @@ mod tests {
             title: "Add loyalty discount".into(),
             description: "- one\n- two".into(),
             draft: true,
+            work_items: vec![],
         };
         assert_eq!(
             create_body(&new),
@@ -908,6 +945,22 @@ mod tests {
                 "description": "- one\n- two",
                 "isDraft": true,
             })
+        );
+        let linked = NewPullRequest { work_items: vec![1234], ..new };
+        assert_eq!(create_body(&linked)["workItemRefs"], json!([{ "id": "1234" }]));
+
+        let repo = parse_remote_url("https://dev.azure.com/contoso/Shop/_git/shop-api").unwrap();
+        let body = json!({ "id": 1234, "fields": {
+            "System.Title": "Loyalty discount", "System.WorkItemType": "User Story", "System.State": "Active" } });
+        assert_eq!(
+            parse_work_item(&body, &repo, 1234),
+            WorkItem {
+                id: 1234,
+                title: "Loyalty discount".into(),
+                kind: "User Story".into(),
+                state: "Active".into(),
+                url: "https://dev.azure.com/contoso/Shop/_workitems/edit/1234".into(),
+            }
         );
     }
 

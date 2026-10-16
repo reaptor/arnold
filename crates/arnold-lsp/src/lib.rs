@@ -3,6 +3,7 @@
 //! LSP client and the server process.
 
 pub mod dotnet;
+pub mod fantomas;
 mod framing;
 pub mod fsautocomplete;
 mod msbuild;

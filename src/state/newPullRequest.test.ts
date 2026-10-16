@@ -1,20 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { Commit } from "../ipc/commands";
-import { defaultDescription, defaultTitle } from "./newPullRequest";
+import { parseWorkItem } from "./newPullRequest";
 
-const commit = (subject: string): Commit => ({ sha: subject, shortSha: subject, subject, author: "Agent", date: "" });
-
-describe("a new pull request", () => {
-  it("is titled after its only commit", () => {
-    expect(defaultTitle("agent/fix-totals", [commit("Round totals")])).toBe("Round totals");
-    expect(defaultDescription([commit("Round totals")])).toBe("");
+describe("parseWorkItem", () => {
+  it("reads a number, a #number or the work item's address", () => {
+    expect(parseWorkItem(" 1234 ")).toBe(1234);
+    expect(parseWorkItem("#1234")).toBe(1234);
+    expect(parseWorkItem("https://dev.azure.com/contoso/Shop/_workitems/edit/1234")).toBe(1234);
+    expect(parseWorkItem("https://dev.azure.com/contoso/Shop/_workitems/edit/1234/?view=full")).toBe(1234);
   });
 
-  it("is titled after the branch and lists several commits, oldest first", () => {
-    const commits = [commit("Third"), commit("Second"), commit("First")];
-    expect(defaultTitle("claude/add-loyalty_discount", commits)).toBe("Add loyalty discount");
-    expect(defaultTitle("feature", commits)).toBe("Feature");
-    expect(defaultTitle("x/--", commits)).toBe("x/--");
-    expect(defaultDescription(commits)).toBe("- First\n- Second\n- Third");
+  it("is null when empty and invalid otherwise", () => {
+    expect(parseWorkItem("  ")).toBeNull();
+    expect(parseWorkItem("0")).toBe("invalid");
+    expect(parseWorkItem("12a")).toBe("invalid");
+    expect(parseWorkItem("AB#1234")).toBe("invalid");
+    expect(parseWorkItem("99999999999999999999")).toBe("invalid");
   });
 });
