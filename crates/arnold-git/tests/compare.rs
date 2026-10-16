@@ -293,12 +293,21 @@ async fn checked_out_branch_is_compared_with_its_files_on_disk() {
             ("a.txt", FileStatus::Modified, Some(2), true),
             ("b.txt", FileStatus::Deleted, Some(0), false),
             ("main-only.txt", FileStatus::Added, Some(1), true),
+            // Added by the branch and deleted on disk: no diff, but an edit.
+            ("new.txt", FileStatus::Deleted, Some(0), true),
             ("old.txt", FileStatus::Deleted, Some(0), false),
             ("sub/untracked.txt", FileStatus::Added, Some(2), true),
         ]
     );
     // a.txt, main-only.txt, new.txt (deleted on disk) and the untracked file.
     assert_eq!(comparison.uncommitted, 4);
+
+    // An edit back to the merge-base's text is still an edit, listed with no lines changed.
+    write(root, "a.txt", "one\ntwo\nthree\n");
+    let undone = compare(root, "main", "feature", None, Some(root)).await.unwrap();
+    let a = undone.files.iter().find(|f| f.path == "a.txt").unwrap();
+    assert_eq!((a.status, a.additions, a.deletions, a.uncommitted), (FileStatus::Modified, Some(0), Some(0), true));
+    write(root, "a.txt", "one\nTWO\nthree\nuncommitted\n");
 
     // A run of commits is never read from disk.
     let first = comparison.commits[0].sha.clone();
@@ -333,4 +342,41 @@ async fn switches_to_a_branch_only_in_a_clean_folder() {
     assert_eq!(switch_branch(root, "origin/remote-only").await.unwrap(), "remote-only");
     let upstream = git_output(root, &["rev-parse", "--abbrev-ref", "remote-only@{upstream}"]);
     assert_eq!(String::from_utf8(upstream).unwrap().trim(), "origin/remote-only");
+}
+
+#[tokio::test]
+async fn keeps_a_detached_worktree_of_its_own() {
+    use arnold_git::{detached_worktree, find_worktree};
+    let dir = fixture();
+    let root = dir.path();
+    let status_before = git_output(root, &["status", "--porcelain"]);
+    let main_tip = String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim().to_string();
+    let feature_tip = String::from_utf8(git_output(root, &["rev-parse", "feature"])).unwrap().trim().to_string();
+    assert_eq!(find_worktree(root, "pr-7").await.unwrap(), None);
+
+    let made = detached_worktree(root, "pr-7", &main_tip, false).await.unwrap();
+    assert_eq!(made.head, main_tip);
+    assert!(!made.edited);
+    assert!(made.path.ends_with(".arnold/worktrees/pr-7"));
+    assert!(made.path.join("main-only.txt").exists());
+    assert_eq!(git_output(root, &["status", "--porcelain"]), status_before, "the opened folder is untouched");
+    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
+
+    // Clean: it moves to a new commit. Edited: it stays.
+    let moved = detached_worktree(root, "pr-7", &feature_tip, false).await.unwrap();
+    assert_eq!(moved.head, feature_tip);
+    write(&made.path, "a.txt", "edited\n");
+    write(&made.path, "new.fs", "untracked\n");
+    let kept = detached_worktree(root, "pr-7", &main_tip, false).await.unwrap();
+    assert_eq!(kept.head, feature_tip);
+    assert!(kept.edited);
+    assert_eq!(find_worktree(root, "pr-7").await.unwrap(), Some(kept));
+
+    // Discarding the edits lets it move.
+    let fresh = detached_worktree(root, "pr-7", &main_tip, true).await.unwrap();
+    assert_eq!(fresh.head, main_tip);
+    assert!(!fresh.edited);
+    assert!(!made.path.join("new.fs").exists());
+
+    assert!(detached_worktree(root, "../escape", &main_tip, false).await.is_err());
 }

@@ -214,6 +214,11 @@ pub struct Comment {
     /// The comment this one answers; 0 for none.
     pub parent_id: u64,
     pub author: String,
+    /// The host's id of the author, for telling the token's owner's comments apart.
+    #[serde(skip)]
+    pub author_id: String,
+    /// Written by the token's owner, who may delete it.
+    pub you: bool,
     /// Markdown.
     pub content: String,
     /// ISO 8601.

@@ -2000,6 +2000,22 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
 }
 
+/* On your own comments; shows when the comment is pointed at. */
+.thread-delete {
+  margin-left: auto;
+  padding: 0 4px;
+  border-color: transparent;
+  background: none;
+  color: var(--removed);
+  font-size: 11px;
+  opacity: 0;
+}
+
+.thread-comment:hover .thread-delete,
+.thread-delete:focus-visible {
+  opacity: 1;
+}
+
 .thread-text {
   overflow-wrap: anywhere;
 }
@@ -2212,10 +2228,10 @@ button.primary:hover:not(:disabled) {
   color: var(--accent);
 }
 
-/* ```suggestion blocks of Azure DevOps comments. */
+/* ```suggestion blocks of Azure DevOps comments: the suggested code, framed in amber like edits. */
 .markdown [data-suggestion] {
   margin: 0 0 4px;
-  border: 1px solid var(--added);
+  border: 1px solid var(--edited);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -2224,13 +2240,39 @@ button.primary:hover:not(:disabled) {
   padding: 2px 6px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--added);
-  background: color-mix(in srgb, var(--added) 12%, transparent);
+  color: var(--edited);
+  background: color-mix(in srgb, var(--edited) 12%, transparent);
 }
 
 .markdown [data-suggestion] pre {
   margin: 0;
   border-radius: 0;
+  font-variant-ligatures: none;
+}
+
+/* The lines an open suggestion would replace (threads.ts): an amber frame, as around edits. */
+.cm-editor .cm-line.cm-suggested-line {
+  box-shadow:
+    inset 1px 0 var(--edited),
+    inset -1px 0 var(--edited);
+}
+
+.cm-editor .cm-line.cm-suggested-first {
+  box-shadow:
+    inset 1px 0 var(--edited),
+    inset -1px 0 var(--edited),
+    inset 0 1px var(--edited);
+}
+
+.cm-editor .cm-line.cm-suggested-last {
+  box-shadow:
+    inset 1px 0 var(--edited),
+    inset -1px 0 var(--edited),
+    inset 0 -1px var(--edited);
+}
+
+.cm-editor .cm-line.cm-suggested-first.cm-suggested-last {
+  box-shadow: inset 0 0 0 1px var(--edited);
 }
 
 .markdown li:has(> input[type="checkbox"]) {
@@ -2847,6 +2889,34 @@ button.primary:hover:not(:disabled) {
   border-radius: 3px;
 }
 
+/* A framed change's Suggest button (a pull request's files), on a row under it. */
+.cm-suggestRow {
+  /* Stays in sight when long lines are scrolled sideways, as the discussion cards do. */
+  position: sticky;
+  left: 0;
+  /* Over the line numbers, like the cards. */
+  z-index: 201;
+  width: fit-content;
+  padding: 3px 0 5px 4px;
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+}
+
+.cm-suggestButton {
+  padding: 1px 10px;
+  border: 1px solid var(--edited);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--edited) 18%, var(--bg));
+  color: var(--edited);
+  font: 600 11px/1.6 "Inter Variable", Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+/* Beats the general button:hover:not(:disabled). */
+.cm-editor .cm-suggestButton:hover:not(:disabled) {
+  background: var(--edited);
+  color: var(--bg);
+}
+
 .cm-editFrame-removed {
   border: none;
   border-radius: 1px;
@@ -2855,10 +2925,11 @@ button.primary:hover:not(:disabled) {
 
 .edit-status-root {
   display: flex;
-  min-width: 0;
+  flex: none;
 }
 
 .edit-status {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2901,4 +2972,106 @@ button.primary:hover:not(:disabled) {
 .edit-popup-actions {
   display: flex;
   gap: 8px;
+}
+
+/* ------------------------------------------------------ suggesting changes */
+
+.suggest-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.suggestions {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--edited) 55%, transparent);
+  border-radius: 6px;
+}
+
+.suggestion.skipped {
+  border-color: var(--border);
+  opacity: 0.6;
+}
+
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.suggestion-path {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-lines {
+  flex: none;
+  color: var(--muted);
+}
+
+.suggestion-diff {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  /* As in the editor: code as typed. */
+  font-variant-ligatures: none;
+}
+
+.suggestion-diff span {
+  display: block;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.suggestion-old {
+  background: var(--diff-old-line);
+}
+
+.suggestion-old::before {
+  content: "− ";
+  color: var(--removed);
+}
+
+.suggestion-new {
+  background: var(--diff-new-line);
+}
+
+.suggestion-new::before {
+  content: "+ ";
+  color: var(--added);
+}
+
+.suggestion-message {
+  font: inherit;
+  color: inherit;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.suggestion-message:focus {
+  border-color: var(--accent);
+  outline: none;
 }

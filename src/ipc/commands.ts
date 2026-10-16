@@ -106,9 +106,35 @@ export const startupPath = () => invoke<string | null>("startup_path");
 
 export const openRepo = (path: string) => invoke<RepoInfo>("open_repo", { path });
 
-/** All of the changes of `head`, or with `range` only what those commits of it changed. */
-export const compareBranches = (root: string, base: string, head: string, range: CommitRange | null) =>
-  invoke<Comparison>("compare_branches", { root, base, head, range });
+/**
+ * All of the changes of `head`, or with `range` only what those commits of
+ * it changed. `checkout`: where `head` is checked out, when not as a branch
+ * (a pull request's worktree); its files are then compared.
+ */
+export const compareBranches = (
+  root: string,
+  base: string,
+  head: string,
+  range: CommitRange | null,
+  checkout: string | null = null,
+) => invoke<Comparison>("compare_branches", { root, base, head, range, checkout });
+
+/** A worktree of Arnold's own in `.arnold/worktrees`, detached at a commit. */
+export interface Worktree {
+  path: string;
+  /** The commit checked out there. */
+  head: string;
+  /** It has uncommitted changes. */
+  edited: boolean;
+}
+
+/**
+ * The worktree pull request `id` is edited in, moved to `commit` when it has
+ * no edits (or with `discard`, after throwing them away). `create` makes it
+ * when there is none; otherwise that resolves to null.
+ */
+export const pullRequestWorktree = (root: string, id: number, commit: string, create: boolean, discard = false) =>
+  invoke<Worktree | null>("pull_request_worktree", { root, id, commit, create, discard });
 
 /** Every file of the compared commit, or of the checkout the comparison reads. */
 export const listFiles = (root: string, comparison: Comparison) =>
@@ -324,6 +350,8 @@ export interface PrComment {
   /** ISO 8601. */
   published: string;
   edited: boolean;
+  /** Written by the token's owner, who may delete it. */
+  you: boolean;
 }
 
 /** Where a new thread goes: a file, and lines of it unless it is about the whole file. */
@@ -453,6 +481,10 @@ export const replyToPullRequestThread = (
   parent: number,
   content: string,
 ) => invoke<null>("reply_to_pull_request_thread", { root, remote, id, thread, parent, content });
+
+/** Deletes comment `comment` of thread `thread`: one the token's owner wrote. */
+export const deletePullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number) =>
+  invoke<null>("delete_pull_request_comment", { root, remote, id, thread, comment });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());

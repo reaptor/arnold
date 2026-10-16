@@ -8,6 +8,9 @@
 //! is `push_commit`, when a pull request is created from a reviewed branch
 //! that is not on the server yet; it never forces.
 //!
+//! `detached_worktree` makes a registered worktree in `.arnold/worktrees`
+//! for editing a pull request without touching the opened folder.
+//!
 //! A comparison whose branch is checked out reads that checkout's files, so
 //! they can be edited (saved through `working`); `switch_branch` checks a
 //! branch out in the opened folder for that, when asked and only when the
@@ -28,6 +31,7 @@ mod push;
 mod remotes;
 mod switch;
 mod working;
+mod worktree;
 
 pub use cli::GitError;
 pub use compare::{compare, read_blob, ChangedFile, Commit, CommitRange, Comparison, FileStatus};
@@ -38,6 +42,7 @@ pub use publish::{branch_sync, push_branch, BranchSync};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 pub use switch::switch_branch;
+pub use worktree::{detached_worktree, find_worktree, Worktree};
 pub use working::{
     commit, discard, encode_like, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage,
     working_status, worktree_files, write_worktree, NewCommit, WorkingStatus,

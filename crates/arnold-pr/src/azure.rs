@@ -469,6 +469,26 @@ pub fn reply(repo: &AzureRepo, token: &str, id: u64, thread: u64, parent: u64, c
     Ok(())
 }
 
+/// Deletes comment `comment` of thread `thread` of pull request `id`; only its
+/// author may. A thread whose comments are all deleted is gone.
+pub fn delete_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comment: u64) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/threads/{thread}/comments/{comment}?api-version={API_VERSION}"));
+    let mut response = agent()
+        .delete(&url)
+        .header("Authorization", authorization(token))
+        .header("Accept", "application/json")
+        .header("X-TFS-FedAuthRedirect", "Suppress")
+        .call()
+        .map_err(|e| PrError::Network(network_error(&url, &e)))?;
+    let status = response.status().as_u16();
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    // Answered with no body when done.
+    if matches!(status, 200 | 204) && !text.trim_start().starts_with('<') {
+        return Ok(());
+    }
+    classify(status, &text).map(|_| ())
+}
+
 /// The host's id for `path` in the changes of iteration `iteration`; a
 /// thread without it still shows, so failing here is not an error.
 fn change_tracking_id(repo: &AzureRepo, token: &str, id: u64, iteration: u64, path: &str) -> Option<u64> {
@@ -640,6 +660,8 @@ fn parse_thread(value: &Value) -> Option<Thread> {
                 id: comment["id"].as_u64()?,
                 parent_id: comment["parentCommentId"].as_u64().unwrap_or(0),
                 author: text(&comment["author"]["displayName"]),
+                author_id: text(&comment["author"]["id"]),
+                you: false,
                 content,
                 edited: !updated.is_empty() && updated != published,
                 published,

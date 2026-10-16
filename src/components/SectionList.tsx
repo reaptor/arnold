@@ -2,7 +2,7 @@ import { createMemo, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type { ChangedFile } from "../ipc/commands";
 import { state } from "../state/review";
 import { Chevron } from "./Chevron";
-import { Counts, EditedMark, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
+import { Counts, EditedMark, showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Files this close to the screen are loaded into an editor... */
 const LOAD_MARGIN = "1500px 0px";
@@ -269,7 +269,7 @@ function FileSection(props: {
 
   const collapsed = () => props.source.collapsed(key);
   const title = () =>
-    `${STATUS_NAME[file().status]}${file().uncommitted ? ", with uncommitted edits" : ""}: ${file().oldPath ? `${file().oldPath} → ` : ""}${path}`;
+    `${STATUS_NAME[file().status]}${showsEdited(file()) ? ", with uncommitted edits" : ""}: ${file().oldPath ? `${file().oldPath} → ` : ""}${path}`;
 
   return (
     <section
@@ -289,7 +289,7 @@ function FileSection(props: {
           <span class="section-directory">{parts.directory}</span>
           <span class="section-name">{parts.name}</span>
         </span>
-        <Show when={file().uncommitted}>
+        <Show when={showsEdited(file())}>
           <EditedMark />
         </Show>
         <Show when={state.problems[path]?.errors}>

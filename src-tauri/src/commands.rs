@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{Branch, CommitRange, Comparison, RepoInfo};
+use arnold_git::{Branch, CommitRange, Comparison, RepoInfo, Worktree};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -95,23 +95,29 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
 /// show up. When `head` is checked out (in the opened folder or a linked
 /// worktree) all of its changes are read from that checkout's files, which
 /// are then watched too, so edits made there or in Arnold show up.
+/// `checkout`: where `head` (a commit) is checked out otherwise, such as a
+/// pull request's worktree.
 #[tauri::command]
 pub async fn compare_branches(
     root: String,
     base: String,
     head: String,
     range: Option<CommitRange>,
+    checkout: Option<String>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Comparison, String> {
     let root = state.checked_root(&root)?;
     let branches = arnold_git::list_branches(&root).await.map_err(text_error)?;
     state.allow_checkouts(&branches);
-    let checkout = branches
-        .iter()
-        .find(|branch| !branch.is_remote && branch.name == head)
-        .and_then(|branch| branch.worktree_path.as_deref())
-        .and_then(|path| state.checked_root(&path.to_string_lossy()).ok());
+    let checkout = match checkout {
+        Some(checkout) => Some(state.checked_root(&checkout)?),
+        None => branches
+            .iter()
+            .find(|branch| !branch.is_remote && branch.name == head)
+            .and_then(|branch| branch.worktree_path.as_deref())
+            .and_then(|path| state.checked_root(&path.to_string_lossy()).ok()),
+    };
     let comparison = arnold_git::compare(&root, &base, &head, range.as_ref(), checkout.as_deref())
         .await
         .map_err(text_error)?;
@@ -124,6 +130,33 @@ pub async fn compare_branches(
         None => *state.checkout_watch.lock().unwrap() = None,
     }
     Ok(comparison)
+}
+
+/// The worktree pull request `id` is edited in (`.arnold/worktrees/pr-<id>`),
+/// moved to `commit` when it has no edits (or with `discard`, after throwing
+/// them away). With `create` it is made if need be; without, `None` when
+/// there is none yet.
+#[tauri::command]
+pub async fn pull_request_worktree(
+    root: String,
+    id: u64,
+    commit: String,
+    create: bool,
+    discard: bool,
+    state: State<'_, AppState>,
+) -> Result<Option<Worktree>, String> {
+    let root = state.checked_root(&root)?;
+    if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("not a commit id: {commit}"));
+    }
+    let name = format!("pr-{id}");
+    let found = arnold_git::find_worktree(&root, &name).await.map_err(text_error)?;
+    if found.is_none() && !create {
+        return Ok(None);
+    }
+    let worktree = arnold_git::detached_worktree(&root, &name, &commit, discard).await.map_err(text_error)?;
+    state.allow_root(&worktree.path);
+    Ok(Some(worktree))
 }
 
 /// Checks `branch` out in the opened folder so it can be edited, when the

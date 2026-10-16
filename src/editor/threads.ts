@@ -6,7 +6,7 @@
 import { uncollapseUnchanged } from "@codemirror/merge";
 import { type EditorState, type Range, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
-import type { NewThreadPlace, PrThread } from "../ipc/commands";
+import type { NewThreadPlace, PrComment, PrThread } from "../ipc/commands";
 import { ago } from "../components/CommitPicker";
 import { openInBrowser } from "../components/DevOpsSetup";
 import { MARKDOWN_GUIDE, openClickedLink, renderMarkdown } from "../components/Markdown";
@@ -33,6 +33,8 @@ export interface ThreadActions {
   reply(thread: PrThread, text: string): Promise<void>;
   createThread(place: NewThreadPlace | null, text: string): Promise<void>;
   cancelDraft(place: NewThreadPlace): void;
+  /** Deletes a comment of the token's owner (asking first). */
+  deleteComment(thread: PrThread, comment: PrComment): Promise<void>;
 }
 
 let actions: ThreadActions | null = null;
@@ -209,6 +211,16 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
     when.title = comment.published ? new Date(comment.published).toLocaleString() : "";
     meta.append(element("strong", "", comment.author), when);
     if (comment.edited) meta.append(element("span", "", "(edited)"));
+    if (comment.you && actions) {
+      const suggestion = comment === first && isSuggestion(thread);
+      const remove = element("button", "thread-delete", suggestion ? "Delete suggestion" : "Delete");
+      remove.title = suggestion ? "Delete this suggestion from the pull request" : "Delete this comment from the pull request";
+      remove.onclick = (event) => {
+        event.stopPropagation();
+        void actions!.deleteComment(thread, comment);
+      };
+      meta.append(remove);
+    }
     const content = element("div", "markdown thread-text");
     content.innerHTML = renderMarkdown(withoutMentionIds(comment.content));
     item.append(meta, content);
@@ -377,6 +389,18 @@ export const setThreadMarks = StateEffect.define<ThreadMark[]>();
 
 const commentedLine = Decoration.line({ class: "cm-thread-line" });
 
+/** Whether `thread` suggests a change: its first comment holds a ```suggestion block. */
+export const isSuggestion = (thread: PrThread) => /^\s*(`{3,}|~{3,})\s*suggestion\b/m.test(thread.comments[0]?.content ?? "");
+
+/**
+ * The lines an open suggestion would replace: framed in amber like edits,
+ * the card under them showing the suggested code in the same frame.
+ */
+const suggestedLine = (first: boolean, last: boolean) =>
+  Decoration.line({
+    class: `cm-suggested-line${first ? " cm-suggested-first" : ""}${last ? " cm-suggested-last" : ""}`,
+  });
+
 function widgetOf(mark: ThreadMark): WidgetType {
   switch (mark.kind) {
     case "spacer":
@@ -404,8 +428,10 @@ function decorate(state: EditorState, marks: ThreadMark[]): DecorationSet {
         : Decoration.widget({ widget, block: true, side: 1 }).range(doc.line(clamp(mark.line)).to),
     );
     if (mark.kind !== "spacer" && mark.lines) {
-      for (let line = clamp(mark.lines.from); line <= clamp(mark.lines.to); line++) {
-        ranges.push(commentedLine.range(doc.line(line).from));
+      const [from, to] = [clamp(mark.lines.from), clamp(mark.lines.to)];
+      const suggested = mark.kind === "thread" && isSuggestion(mark.thread) && isOpen(mark.thread);
+      for (let line = from; line <= to; line++) {
+        ranges.push((suggested ? suggestedLine(line === from, line === to) : commentedLine).range(doc.line(line).from));
       }
     }
   }

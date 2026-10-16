@@ -24,6 +24,7 @@ import type {
   FormatCheck,
   NewThreadPlace,
   PrChange,
+  PrComment,
   PrThread,
   PullRequest,
   RepoInfo,
@@ -31,11 +32,14 @@ import type {
   Vote,
   WorkingSide,
   WorkingStatus,
+  Worktree,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
-import { placeName, setThreadActions } from "../editor/threads";
+import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
+import type { LineBlock } from "../editor/lineDiff";
+import { isSuggestion, placeName, setThreadActions } from "../editor/threads";
 import { azureHostLinks, setHostLinks } from "../components/Markdown";
 import * as pullRequests from "./pullRequests";
 import * as commitMode from "./commitMode";
@@ -100,6 +104,11 @@ interface State {
   head: string;
   /** Reviewed when `source` is "pullRequest"; null until one is picked. */
   pullRequest: ReviewedPullRequest | null;
+  /**
+   * The worktree of Arnold's own the pull request under review is edited in
+   * (`.arnold/worktrees/pr-<id>`), once made; edits there become suggestions.
+   */
+  prWorktree: (Worktree & { pullRequest: number }) | null;
   /** The pull request being opened (read, its commits fetched), by id. */
   openingPullRequest: number | null;
   /** What is being sent to the host about the pull request under review: a vote or a change. */
@@ -182,6 +191,7 @@ export const [state, setState] = createStore<State>({
   base: "",
   head: "",
   pullRequest: null,
+  prWorktree: null,
   openingPullRequest: null,
   updatingPullRequest: null,
   range: null,
@@ -342,6 +352,7 @@ function documentOf(
     editable,
     // Frames the uncommitted edits; a file the last commit lacks is all edits, framed by nothing.
     committed: editable ? ((texts.committed === undefined ? session.pair.committed : texts.committed) ?? null) : null,
+    suggest: editable && state.source === "pullRequest",
     threads: fileThreads(file.path),
     draft: drafts.get(file.path) ?? null,
   };
@@ -416,6 +427,10 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       activate();
       if (state.source === "commit") void commitMode.moveChunk(direction, lines);
     },
+    onSuggest(block) {
+      const path = pathOf();
+      if (path !== null) void suggestChange(path, block);
+    },
     onBlockedEdit() {
       // Said once: typing on afterwards is just ignored.
       if (editBlocked() && !editInfoShown) {
@@ -428,7 +443,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected));
-  setThreadActions({ reply, createThread, cancelDraft });
+  setThreadActions({ reply, createThread, cancelDraft, deleteComment });
   lsp.onDisplayFile(displayUri);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
   lsp.onServerEvent(onServerEvent);
@@ -455,7 +470,7 @@ export async function openRepoAt(path: string) {
     const head = current ?? (has(remembered.head) && remembered.head !== base ? remembered.head : defaultHead(repo, base));
     if (state.source === "commit") commitMode.leave();
     resetSessions();
-    setState({ repo, base, head, source: "branches", pullRequest: null, range: null, comparison: null, selected: null });
+    setState({ repo, base, head, source: "branches", pullRequest: null, prWorktree: null, range: null, comparison: null, selected: null });
     // The store's copy: a later repository replaces it.
     const opened = state.repo;
     await pullRequests.loadRemotes(repo.root);
@@ -526,9 +541,10 @@ export async function openPullRequest(remote: string, id: number) {
     if (state.source === "commit") commitMode.leave();
     resetSessions();
     drafts.clear();
-    setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, range: null, selected: null });
+    setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, prWorktree: null, range: null, selected: null });
     setHostLinks(azureHostLinks(pullRequest.url));
-      void loadThreads();
+    void loadThreads();
+    await loadPrWorktree(false);
     await setView("all");
     await refresh();
   } catch (error) {
@@ -541,7 +557,7 @@ export async function openPullRequest(remote: string, id: number) {
 /** Leaves the pull request, back to the list of them. */
 export function closePullRequest() {
   resetSessions();
-  setState({ pullRequest: null, range: null, selected: null });
+  setState({ pullRequest: null, prWorktree: null, range: null, selected: null });
 }
 
 /** The two commits or branches compared, or null when nothing is picked yet. */
@@ -608,7 +624,7 @@ export async function refresh() {
   if (!repo || !revs) return;
   try {
     const range = state.range;
-    const comparison = await ipc.compareBranches(repo.root, revs.base, revs.head, range);
+    const comparison = await ipc.compareBranches(repo.root, revs.base, revs.head, range, range ? null : prCheckout());
     const now = compared();
     if (repo !== state.repo || range !== state.range || now?.base !== revs.base || now.head !== revs.head) return;
     // Commits no longer on the branch (rebased away): all of the changes are shown instead.
@@ -805,7 +821,7 @@ function reopen(target: DiffEditor, document: DiffDocument) {
  */
 function edited(path: string, text: string) {
   const checkout = state.comparison?.checkout;
-  if (state.source !== "branches" || !checkout) return;
+  if (state.source === "commit" || !checkout) return;
   queueSave(checkout, path, text, (error) => fail(`Saving ${path}: ${String(error)}`));
   const file = fileAt(path);
   const target = editorFor(path);
@@ -825,9 +841,11 @@ const [editInfoOpen, setEditInfoOpen] = createSignal(false);
 export { editInfoOpen, setEditInfoOpen };
 let editInfoShown = false;
 
-/** Whether `path` may have uncommitted edits to undo: a file of the checked-out branch being compared. */
+/** Whether `path` may have uncommitted edits to undo: a file of the checked-out branch or pull request being compared. */
 const editsUndoable = (path: string) =>
-  state.source === "branches" && !!state.comparison?.checkout && fileAt(path)?.status !== "deleted";
+  state.source !== "commit" &&
+  !!state.comparison?.checkout &&
+  (fileAt(path)?.status !== "deleted" || !!fileAt(path)?.uncommitted);
 
 /** "Undo edits in selected lines": the right-clicked editor's selection goes back to the last commit. */
 export function undoLineEdits() {
@@ -847,7 +865,7 @@ export async function undoFileEdits(path: string) {
   const target = editorFor(path);
   if (target?.undoEdits(true)) return target.focus();
   const checkout = state.comparison?.checkout;
-  const branch = state.comparison?.head;
+  const branch = state.source === "pullRequest" ? `pull request !${state.pullRequest?.id}` : state.comparison?.head;
   if (!checkout || !branch) return;
   const sure = await confirm(
     `Undo every uncommitted edit to ${path}? It goes back to the last commit of ${branch}; a file no commit has is deleted. This cannot be undone.`,
@@ -863,21 +881,95 @@ export async function undoFileEdits(path: string) {
   }
 }
 
-/** Why the diff cannot be edited; null when it can (or edits do not apply). */
-export function editBlocked(): { reason: string; checkOut: string | null } | null {
+/**
+ * What makes the diff editable: checking the branch out in the opened
+ * folder, checking the pull request out in a worktree of its own, or
+ * throwing away edits made to an earlier push of the pull request.
+ */
+export type EditAction = { kind: "checkOut"; branch: string } | { kind: "worktree" } | { kind: "discard" };
+
+/** Why the diff cannot be edited, and what would make it editable; null when it can (or edits do not apply). */
+export function editBlocked(): { reason: string; action: EditAction | null } | null {
   const repo = state.repo;
   const comparison = state.comparison;
-  if (state.source !== "branches" || !repo || !comparison || comparison.checkout) return null;
-  if (headCheckout(repo, comparison)) {
-    return { reason: "Only some commits are shown. Pick All changes in the commit picker to edit.", checkOut: null };
+  if (state.source === "commit" || !repo || !comparison || comparison.checkout) return null;
+  if (state.range !== null) {
+    return { reason: "Only some commits are shown. Pick All changes in the commit picker to edit.", action: null };
+  }
+  if (state.source === "pullRequest") {
+    const pullRequest = state.pullRequest;
+    if (!pullRequest) return null;
+    const worktree = prWorktreeOf(pullRequest);
+    if (worktree?.edited && worktree.head !== pullRequest.sourceCommit) {
+      return {
+        reason: `Your edits in ${worktree.path} were made to an earlier push of this pull request (${worktree.head.slice(0, 8)}), so their lines no longer match it. Throw them away to edit the latest push.`,
+        action: { kind: "discard" },
+      };
+    }
+    return {
+      reason: `To edit, Arnold checks the pull request out in a git worktree of its own (.arnold/worktrees/pr-${pullRequest.id}); your folder is not touched. Your edits there become suggestions on the pull request.`,
+      action: { kind: "worktree" },
+    };
   }
   const head = comparison.head;
   const local = repo.branches.find((branch) => !branch.isRemote && remoteFree(repo, head) === branch.name);
   if (local?.worktreePath) {
-    return { reason: `${local.name} is checked out in ${local.worktreePath}. Compare that branch to edit it.`, checkOut: null };
+    return { reason: `${local.name} is checked out in ${local.worktreePath}. Compare that branch to edit it.`, action: null };
   }
   const where = repo.currentBranch ? `The folder is on ${repo.currentBranch}` : "The folder has no branch checked out";
-  return { reason: `${head} is not checked out. ${where}; check ${head} out to edit it.`, checkOut: head };
+  return { reason: `${head} is not checked out. ${where}; check ${head} out to edit it.`, action: { kind: "checkOut", branch: head } };
+}
+
+/** The worktree of `pullRequest`, if it has one. */
+const prWorktreeOf = (pullRequest: ReviewedPullRequest) =>
+  state.prWorktree?.pullRequest === pullRequest.id ? state.prWorktree : null;
+
+/** The pull request's worktree, when it is at the commit reviewed (so its files can be compared and edited). */
+function prCheckout(): string | null {
+  const pullRequest = state.pullRequest;
+  if (state.source !== "pullRequest" || !pullRequest) return null;
+  const worktree = prWorktreeOf(pullRequest);
+  return worktree?.head === pullRequest.sourceCommit ? worktree.path : null;
+}
+
+/**
+ * Reads (with `create`, makes) the worktree of the pull request under
+ * review; one without edits moves to the pull request's latest push, and
+ * with `discard` one with edits does too, throwing them away.
+ */
+async function loadPrWorktree(create: boolean, discard = false) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest?.sourceCommit) return;
+  try {
+    const worktree = await ipc.pullRequestWorktree(repo.root, pullRequest.id, pullRequest.sourceCommit, create, discard);
+    if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id) return;
+    setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
+  } catch (error) {
+    fail(`The pull request's worktree: ${String(error)}`);
+  }
+}
+
+/** Makes the diff editable as `editBlocked` says. */
+export async function makeEditable() {
+  const action = editBlocked()?.action;
+  if (!action) return;
+  if (action.kind === "checkOut") return checkOutToEdit(action.branch);
+  if (action.kind === "discard") {
+    const sure = await confirm(
+      "Throw away your edits to the earlier push of this pull request and edit the latest one? This cannot be undone.",
+      { title: "Discard edits", kind: "warning", okLabel: "Discard edits" },
+    );
+    if (!sure) return;
+  }
+  setState({ busy: true, error: null });
+  try {
+    await loadPrWorktree(true, action.kind === "discard");
+    resetSessions();
+    await refresh();
+  } finally {
+    setState("busy", false);
+  }
 }
 
 /** `origin/x` → `x` for a remote branch of the repository; other names as they are. */
@@ -907,13 +999,12 @@ export async function folderHasChanges(): Promise<boolean | null> {
 }
 
 /** Checks the compared branch out in the opened folder, so its files can be edited. */
-export async function checkOutToEdit() {
+async function checkOutToEdit(name: string) {
   const repo = state.repo;
-  const blocked = editBlocked();
-  if (!repo || !blocked?.checkOut) return;
+  if (!repo) return;
   setState({ busy: true, error: null });
   try {
-    const branch = await ipc.checkoutBranch(repo.root, blocked.checkOut);
+    const branch = await ipc.checkoutBranch(repo.root, name);
     if (state.repo !== repo) return;
     const branches = await ipc.listBranches(repo.root);
     setState("repo", { branches, currentBranch: branch });
@@ -932,6 +1023,93 @@ export async function commitEdits() {
   await flushSave();
   await setSource("commit");
   await commitMode.setCheckout(checkout);
+}
+
+// --------------------------------------------------------------- suggestions
+
+/** A file edited in a pull request's worktree, and its edits as suggestions. */
+export interface SuggestionFile {
+  path: string;
+  /** The file in the pull request's latest push, and as edited. */
+  committed: string;
+  working: string;
+  suggestions: Suggestion[];
+}
+
+/** What the Suggest change dialog offers to post. */
+export interface SuggestionPlan {
+  files: SuggestionFile[];
+}
+
+const [suggestionPlan, setSuggestionPlan] = createSignal<SuggestionPlan | null>(null);
+export { suggestionPlan, setSuggestionPlan };
+
+/**
+ * A framed change's Suggest button: the change, as the suggestion the dialog
+ * posts. `block` is the change as the editor frames it (its lines in the
+ * working text); the editor's own text is used, edits not saved yet included.
+ */
+export async function suggestChange(path: string, block: LineBlock) {
+  const target = editorFor(path);
+  const committed = target?.committedText();
+  const working = target?.texts()?.working;
+  if (state.source !== "pullRequest" || !state.comparison?.checkout || committed == null || working === undefined) return;
+  await flushSave();
+  const suggestion = suggestionsFor(path, committed, working).find((candidate) =>
+    candidate.block.toB > candidate.block.fromB
+      ? block.fromB < candidate.block.toB && Math.max(block.toB, block.fromB + 1) > candidate.block.fromB
+      : candidate.block.fromB === block.fromB,
+  );
+  if (!suggestion) {
+    fail(`That change to ${path} cannot be suggested: the file is empty in the pull request.`);
+    return;
+  }
+  setSuggestionPlan({ files: [{ path, committed, working, suggestions: [suggestion] }] });
+}
+
+/**
+ * Posts `picked` (with their messages) as suggestion comments on the pull
+ * request, one each, then puts the posted edits back in the worktree: they
+ * now live on the pull request. Edits not posted stay. Resolves to an error
+ * text when nothing could be posted.
+ */
+export async function postSuggestions(picked: { file: SuggestionFile; suggestion: Suggestion; message: string }[]): Promise<string | null> {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  const checkout = state.comparison?.checkout;
+  if (!repo || !pullRequest || !checkout) return "No pull request is being edited.";
+  if (state.comparison?.tipCommit !== pullRequest.sourceCommit) return "The pull request has a new push. Look at it before suggesting.";
+  const posted = new Map<SuggestionFile, Suggestion[]>();
+  let failure: string | null = null;
+  for (const { file, suggestion, message } of picked) {
+    try {
+      const place = { path: file.path, lines: suggestionPlace(suggestion) };
+      await ipc.createPullRequestThread(repo.root, pullRequest.remote, pullRequest.id, place, suggestionComment(suggestion, message));
+      posted.set(file, [...(posted.get(file) ?? []), suggestion]);
+    } catch (error) {
+      failure = writeErrorText(error, "the suggestion");
+      break;
+    }
+  }
+  for (const [file, suggestions] of posted) {
+    const text = withoutBlocks(file.committed, file.working, suggestions.map((suggestion) => suggestion.block));
+    const target = editorFor(file.path);
+    try {
+      if (target && target.texts()?.working === file.working) target.replaceWorkingText(text);
+      else await ipc.saveWorktreeFile(checkout, file.path, text);
+    } catch (error) {
+      failure ??= `Posted, but could not undo the edits to ${file.path}: ${String(error)}`;
+    }
+  }
+  await flushSave();
+  await loadThreads();
+  if (!failure) return null;
+  const count = [...posted.values()].reduce((sum, list) => sum + list.length, 0);
+  if (count === 0) return failure;
+  // Not offered again: what is left shows with its own Suggest buttons.
+  setSuggestionPlan(null);
+  fail(`${count === 1 ? "1 suggestion" : `${count} suggestions`} posted, then: ${failure}`);
+  return null;
 }
 
 // ----------------------------------------------------------- all-files view
@@ -1113,6 +1291,11 @@ const inPlaceKey = (root: string, branch: string) => `${root}\n${branch}\nin pla
  * `.arnold/worktrees`.
  */
 function headCheckout(repo: RepoInfo, comparison: Comparison): string | null {
+  if (state.source === "pullRequest") {
+    // Whatever commits are picked, while the worktree has the reviewed push.
+    const worktree = state.pullRequest && prWorktreeOf(state.pullRequest);
+    return worktree?.head === comparison.tipCommit ? worktree.path : null;
+  }
   if (state.source !== "branches") return null;
   const branch = repo.branches.find((candidate) => candidate.name === comparison.head && !candidate.isRemote);
   return branch?.worktreePath ?? null;
@@ -1495,7 +1678,9 @@ function canComment(path: string): boolean {
     pullRequest !== null &&
     state.range === null &&
     isChanged(path) &&
-    state.comparison?.headCommit === pullRequest.sourceCommit
+    state.comparison?.headCommit === pullRequest.sourceCommit &&
+    // Its lines are no longer the pull request's.
+    !fileAt(path)?.uncommitted
   );
 }
 
@@ -1569,6 +1754,30 @@ async function reply(thread: PrThread, text: string) {
     await ipc.replyToPullRequestThread(repo.root, pullRequest.remote, pullRequest.id, thread.id, thread.comments[0].id, text);
   } catch (error) {
     throw writeErrorText(error);
+  }
+  await loadThreads();
+}
+
+/**
+ * Deletes a comment of the token's owner from the pull request, after
+ * asking. Deleting the first comment of a suggestion removes the suggestion.
+ */
+async function deleteComment(thread: PrThread, comment: PrComment) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) return;
+  const suggestion = comment === thread.comments[0] && isSuggestion(thread);
+  const what = suggestion ? "suggestion" : "comment";
+  const replies = comment === thread.comments[0] ? thread.comments.length - 1 : 0;
+  const sure = await confirm(
+    `Delete this ${what} from pull request !${pullRequest.id}?${replies > 0 ? ` The ${replies === 1 ? "reply" : `${replies} replies`} to it stay.` : ""} This cannot be undone.`,
+    { title: `Delete ${what}`, kind: "warning", okLabel: "Delete" },
+  );
+  if (!sure) return;
+  try {
+    await ipc.deletePullRequestComment(repo.root, pullRequest.remote, pullRequest.id, thread.id, comment.id);
+  } catch (error) {
+    fail(writeErrorText(error, `the deletion of the ${what}`));
   }
   await loadThreads();
 }
@@ -1674,7 +1883,7 @@ export async function startWatching() {
   // The files of the checked-out branch being compared: edits made in
   // Arnold, an editor or an agent show up in the diff.
   await ipc.onCheckoutChanged(() => {
-    if (state.source !== "branches" || !state.comparison?.checkout) return;
+    if (state.source === "commit" || !state.comparison?.checkout) return;
     window.clearTimeout(checkoutTimer);
     checkoutTimer = window.setTimeout(() => void refresh(), 150);
   });
@@ -1721,7 +1930,11 @@ export async function checkPullRequest() {
     if (state.repo !== repo || pullRequestKey(state.pullRequest) !== pullRequestKey(pullRequest)) return;
     const moved = fresh.sourceCommit !== pullRequest.sourceCommit || fresh.targetCommit !== pullRequest.targetCommit;
     setState("pullRequest", { ...fresh, remote: pullRequest.remote });
-    if (moved) await refresh();
+    if (moved) {
+      // A worktree without edits follows the new push.
+      await loadPrWorktree(false);
+      await refresh();
+    }
     await loadThreads();
   } catch (error) {
     // Asked again on the next round; opening the list shows a lasting problem.

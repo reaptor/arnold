@@ -1,10 +1,10 @@
 import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js";
 import {
-  checkOutToEdit,
   commitEdits,
   editBlocked,
   editInfoOpen,
   folderHasChanges,
+  makeEditable,
   setEditInfoOpen,
   setSource,
   state,
@@ -27,17 +27,20 @@ function closeOnOutside(root: () => HTMLElement, close: () => void) {
 }
 
 /**
- * Branches: whether the diff can be edited. With the branch checked out,
- * how many files have uncommitted edits and a way to commit them; without,
- * a "Read-only" pill saying why, and offering to check the branch out.
+ * Branches and pull requests: whether the diff can be edited. With the
+ * branch checked out, how many files have uncommitted edits and a way to
+ * commit them (a pull request's edits are suggested from the Suggest button
+ * on each change instead). Without, a "Read-only" pill saying why, and
+ * offering what would make the diff editable.
  */
 export function EditStatus() {
   return (
     <Show when={state.comparison?.checkout} fallback={<ReadOnlyPill />}>
-      <Show when={state.comparison!.uncommitted > 0}>
+      <Show when={state.source === "branches" && state.comparison!.uncommitted > 0}>
         <button
           class="edit-status edited"
           title={`Files of ${state.comparison!.checkout} that differ from the last commit of ${state.comparison!.head}. Commit them in Commit mode.`}
+          disabled={state.busy}
           onClick={() => void commitEdits()}
         >
           <span class="edited-dot" aria-hidden="true">
@@ -60,9 +63,13 @@ function ReadOnlyPill() {
     if (editInfoOpen()) setAsked((count) => count + 1);
   });
   const [dirty] = createResource(
-    () => (editInfoOpen() && editBlocked()?.checkOut ? asked() : false),
+    () => (editInfoOpen() && editBlocked()?.action?.kind === "checkOut" ? asked() : false),
     () => folderHasChanges(),
   );
+  const act = () => {
+    setEditInfoOpen(false);
+    void makeEditable();
+  };
 
   return (
     <Show when={editBlocked()}>
@@ -80,8 +87,22 @@ function ReadOnlyPill() {
             <div class="language-popup edit-popup" role="dialog" aria-label="Editing">
               <h3>Read-only</h3>
               <p>{blocked().reason}</p>
-              <Show when={blocked().checkOut}>
-                {(branch) => (
+              <Show when={blocked().action?.kind === "worktree"}>
+                <div class="edit-popup-actions">
+                  <button class="primary" disabled={state.busy} onClick={act}>
+                    Edit in a worktree
+                  </button>
+                </div>
+              </Show>
+              <Show when={blocked().action?.kind === "discard"}>
+                <div class="edit-popup-actions">
+                  <button disabled={state.busy} onClick={act}>
+                    Discard edits and edit the latest push…
+                  </button>
+                </div>
+              </Show>
+              <Show when={blocked().action?.kind === "checkOut" && blocked().action}>
+                {(action) => (
                   <Show
                     when={!dirty.loading}
                     fallback={<p class="edit-popup-note">Checking the folder for uncommitted changes…</p>}
@@ -92,7 +113,7 @@ function ReadOnlyPill() {
                         <>
                           <p class="edit-popup-note">
                             The folder has uncommitted changes on {state.repo?.currentBranch ?? "its checkout"}. Commit
-                            them or put them back before checking out {branch()}.
+                            them or put them back before checking out {(action() as { branch: string }).branch}.
                           </p>
                           <div class="edit-popup-actions">
                             <button
@@ -109,15 +130,8 @@ function ReadOnlyPill() {
                       }
                     >
                       <div class="edit-popup-actions">
-                        <button
-                          class="primary"
-                          disabled={state.busy}
-                          onClick={() => {
-                            setEditInfoOpen(false);
-                            void checkOutToEdit();
-                          }}
-                        >
-                          Check out {branch()}
+                        <button class="primary" disabled={state.busy} onClick={act}>
+                          Check out {(action() as { branch: string }).branch}
                         </button>
                       </div>
                     </Show>

@@ -126,7 +126,7 @@ export function Toolbar() {
               <CommitPicker
                 commits={state.comparison?.commits ?? []}
                 value={state.range}
-                edits={state.comparison?.uncommitted ?? 0}
+                edits={state.source === "branches" ? (state.comparison?.uncommitted ?? 0) : 0}
                 onChange={(range) => void setRange(range)}
               />
             </Show>

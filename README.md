@@ -200,11 +200,19 @@ The one you pick is compared the way Azure DevOps does it: the merge-base of its
 
 Discussions show as cards under the lines they are about, with resolved ones folded and the unchanged lines around them unfolded. Discussions about a whole file sit at the top of its diff. The comment button in the toolbar lists every discussion, including those about the pull request as a whole, and jumps to the others.
 
-To comment, right-click a line or a selection and choose *Add comment*, or right-click a file under *Changes* to comment on the whole file. Every discussion has *Reply*, and the toolbar list takes comments on the pull request as a whole. Comments are Azure DevOps Markdown, with a preview: emoji shortcodes, `#123` work items, `!123` pull requests, suggestion blocks and task lists. `Ctrl+Enter` (`⌘+Enter`) sends.
+To comment, right-click a line or a selection and choose *Add comment*, or right-click a file under *Changes* to comment on the whole file. Every discussion has *Reply*, and the toolbar list takes comments on the pull request as a whole. Your own comments and suggestions have *Delete* when you point at them (after asking). Comments are Azure DevOps Markdown, with a preview: emoji shortcodes, `#123` work items, `!123` pull requests, suggestion blocks and task lists. `Ctrl+Enter` (`⌘+Enter`) sends.
 
 ![A new comment being written under a changed line, next to an existing discussion](docs/screenshots/comment.png)
 
 Discussions show with all changes only: a commit picked in the commit picker has other line numbers.
+
+### Suggesting changes
+
+Rather than describing a fix, make it. Type into the diff and choose *Edit in a worktree* in the popup (or under *Read-only* in the status bar): Arnold checks the pull request out in a git worktree of its own, `.arnold/worktrees/pr-<id>`, detached at its latest push. Your folder, its branch and its uncommitted changes are not touched, and F# language features run in the worktree, so they see your edits.
+
+Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
+
+A worktree without edits follows new pushes by itself. If the pull request gets a new push while you have edits, the worktree keeps them on the earlier push (their lines no longer match it) and the diff turns read-only; *Read-only* in the status bar offers to throw them away and edit the latest push. Arnold does not remove worktrees.
 
 ### Voting and completing
 
@@ -272,7 +280,8 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - when the reviewed branch is checked out in the folder: the output of `dotnet restore` (and of building referenced non-F# projects, when needed) in its `obj` and `bin` folders, as building it yourself would;
 - while running *Run Fantomas and commit* on a file that also has unstaged changes: a short-lived copy of its staged text beside it (`<name>.arnold-staged.fs`), deleted as soon as Fantomas has formatted it;
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
-- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments, votes, and completing, abandoning, drafting or publishing a pull request.
+- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
+- when you edit a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
 
 ## Status
 
@@ -345,7 +354,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 
 | Option | What it does |
 |---|---|
-| `devops` | An Azure DevOps remote with a saved token and four pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty` |
+| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus) |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is compared read-only until it is checked out; `dirtyfolder` also gives `main` uncommitted changes, so it cannot be |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |

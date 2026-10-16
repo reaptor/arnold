@@ -318,6 +318,8 @@ function fakeHover(lines: string[], word: string) {
 // them: the oldest takes every file the others do not name.
 const MERGE_BASE = "b481a92f122e44c0d840c722ded1ab11d334c7dd";
 const TIP = "7d3e9a1f0c5b2e8d4a6f1b3c9e7d5a2f8b4c6e1d";
+/** The latest push of !1291, the pull request with a diff of its own. */
+const DISCOUNTS_TIP = "3f6a9c1e5b7d2f4a8c0e6b1d9f3a5c7e2b4d6f80";
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
 const commits: (Commit & { paths: string[] | null })[] = [
   { sha: TIP, subject: "Filter open orders to the last 30 days", author: "Agent Smith", date: hoursAgo(1), paths: ["db/Orders.sql"] },
@@ -325,16 +327,19 @@ const commits: (Commit & { paths: string[] | null })[] = [
   { sha: "e91f4d2a6b8c3e7f0a5d1b9c2e4f6a8d3b7c5e10", subject: "Validate unknown orders in the API and add an audit log", author: "Kristofer", date: hoursAgo(30), paths: null },
 ].map((commit) => ({ ...commit, shortSha: commit.sha.slice(0, 7) }));
 
-const inCommits = (path: string, picked: readonly Commit[]) =>
+type MockCommit = Commit & { paths: string[] | null };
+
+const inCommits = (path: string, picked: readonly Commit[], list: readonly MockCommit[]) =>
   picked.some((commit) =>
-    commits.find((candidate) => candidate.sha === commit.sha)?.paths?.includes(path) ??
-    !commits.some((other) => other.paths?.includes(path)),
+    list.find((candidate) => candidate.sha === commit.sha)?.paths?.includes(path) ??
+    !list.some((other) => other.paths?.includes(path)),
   );
 
-function changedFiles(picked: readonly Commit[]): ChangedFile[] {
+/** The files `picked` (of `list`, the commits of `set`'s branch) change. */
+function changedFiles(picked: readonly Commit[], set = files, list: readonly MockCommit[] = commits): ChangedFile[] {
   const result: ChangedFile[] = [];
-  for (const [path, file] of files) {
-    if (file.base === file.working || !inCommits(path, picked)) continue;
+  for (const [path, file] of set) {
+    if (file.base === file.working || !inCommits(path, picked, list)) continue;
     const status =
       file.base === null ? "added" : file.working === null ? "deleted" : "modified";
     // Rough counts are enough for the mock.
@@ -390,17 +395,60 @@ function checkoutBranch(branch: string): string {
  * checkout (the opened folder or the linked worktree share its files), read
  * from its files on disk, with what differs from the tip marked.
  */
-function comparedOnDisk(head: string): Pick<Comparison, "checkout" | "uncommitted" | "files"> | null {
+function comparedOnDisk(head: string, checkout: string | null): Pick<Comparison, "checkout" | "uncommitted" | "files"> | null {
   const branch = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === head);
-  if (!branch?.worktreePath) return null;
+  const path = checkout ?? branch?.worktreePath;
+  if (!path) return null;
   checkoutState();
-  const base = new Map([...files].flatMap(([path, file]) => (file.base === null ? [] : [[path, file.base] as const])));
-  const edited = new Set([...diffOf(headMap(), worktree)].map((file) => file.path));
+  const tree = treeOf(path);
+  const set = ownDiffOf(head)?.files ?? files;
+  const base = new Map([...set].flatMap(([path, file]) => (file.base === null ? [] : [[path, file.base] as const])));
+  const edited = new Set([...diffOf(tipFor(path), tree)].map((file) => file.path));
+  const changed = diffOf(base, tree);
+  // Edits back to the merge-base's text: listed with nothing changed.
+  for (const path of edited) {
+    if (!changed.some((file) => file.path === path)) {
+      changed.push({ path, oldPath: null, status: tree.has(path) ? "modified" : "deleted", additions: 0, deletions: 0, binary: false });
+    }
+  }
   return {
-    checkout: branch.worktreePath,
+    checkout: path,
     uncommitted: edited.size,
-    files: diffOf(base, worktree).map((file) => ({ ...file, uncommitted: edited.has(file.path) })),
+    files: changed.map((file) => ({ ...file, uncommitted: edited.has(file.path) })),
   };
+}
+
+/**
+ * Pull requests' worktrees (`.arnold/worktrees/pr-<id>`), each with its own
+ * files, the commit checked out and that commit's files.
+ */
+const prTrees = new Map<string, { tree: Map<string, string>; head: string; tip: Map<string, string> }>();
+
+/** The files of a checkout: a pull request's worktree, or the one checkout the rest share. */
+const treeOf = (checkout: string | undefined | null) => (checkout && prTrees.get(checkout)?.tree) || worktree;
+
+/** The files of the commit checked out there. */
+const tipFor = (checkout: string | undefined | null) => (checkout && prTrees.get(checkout)?.tip) || headMap();
+
+/** Files at `commit`: of the pull request with its own diff, or of the branch the rest show. */
+function filesAt(commit: string) {
+  const own = ownDiffOf(commit);
+  return own ? tipOf(own) : new Map(headMap());
+}
+
+function pullRequestWorktree(root: string, id: number, commit: string, create: boolean, discard: boolean) {
+  checkoutState();
+  const path = `${root}/.arnold/worktrees/pr-${id}`;
+  let entry = prTrees.get(path);
+  if (!entry && !create) return null;
+  const edited = () => !!entry && diffOf(entry.tip, entry.tree).length > 0;
+  // As git: made, or moved to the commit when it has no edits (or they are thrown away).
+  if (!entry || (entry.head !== commit && (!edited() || discard)) || discard) {
+    const tip = filesAt(commit);
+    entry = { tree: new Map(tip), head: commit, tip };
+    prTrees.set(path, entry);
+  }
+  return { path, head: entry.head, edited: edited() };
 }
 
 // ------------------------------------------------------------- Fantomas
@@ -573,6 +621,23 @@ const mockPullRequests: PullRequest[] =
     ? []
     : [
         {
+          id: 1291,
+          title: "Add seasonal and staff discounts",
+          description:
+            "Adds `Shop.Discounts` and uses the best discount in order totals.\n\n- Seasonal: 5 %\n- Staff: 20 %\n\nTry editing it in Arnold and suggesting changes. `arnoldMock.newPush()` in the browser console gives it a new push.",
+          author: "Grace Hopper",
+          created: hoursAgo(2),
+          draft: false,
+          status: "active",
+          sourceBranch: "feature/discounts",
+          targetBranch: "main",
+          sourceCommit: DISCOUNTS_TIP,
+          targetCommit: MERGE_BASE,
+          url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1291",
+          reviewers: [reviewer("Cy Young", "waitingForAuthor"), reviewer("[Shop]\\Shop Team", "none", true)],
+          mergeStatus: "succeeded",
+        },
+        {
           id: 1287,
           title: "Add loyalty discount for returning customers",
           description: "Customers who come back get 10% off. Also rounds totals to two decimals.",
@@ -659,7 +724,7 @@ function findPullRequest(id: unknown): PullRequest {
   return found;
 }
 
-// Discussions of every mock pull request (they all show the same files).
+// Discussions of every mock pull request without a diff of its own (they all show the same files).
 const comment = (id: number, author: string, content: string, hours: number, parentId = 0) => ({
   id,
   parentId,
@@ -667,6 +732,8 @@ const comment = (id: number, author: string, content: string, hours: number, par
   content,
   published: hoursAgo(hours),
   edited: false,
+  // The mock's token belongs to "You".
+  you: author === "You",
 });
 const pullRequestThreads: PrThread[] = [
   {
@@ -729,6 +796,144 @@ const pullRequestThreads: PrThread[] = [
     comments: [comment(1, "Cy Young", "Please link the work item.", 30), comment(2, "Ada Lovelace", "Linked AB#4512.", 29, 1)],
   },
 ];
+
+// ------------------------------------------- a pull request with its own diff
+// !1291 changes other files than the branch every other mock pull request
+// shows: a new F# discounts module with tests, and Orders.fs using it. It
+// has commits and discussions of its own (one holds a suggestion), so
+// editing, suggesting and the rest can be tried on it. In the browser
+// console, `arnoldMock.newPush()` gives it a new push; the app sees it on
+// its next check (reload in the pull request list, or the window regaining focus).
+
+interface OwnDiff {
+  files: Map<string, FakeFile>;
+  commits: MockCommit[];
+  threads: PrThread[];
+}
+
+const DISCOUNTS = `module Shop.Discounts
+
+/// A discount: a name and the share taken off, 0.05m for 5 %.
+type Discount = { Name: string; Rate: decimal }
+
+let seasonal = { Name = "Seasonal"; Rate = 0.05m }
+let staff = { Name = "Staff"; Rate = 0.2m }
+
+/// The amount after \`discount\`, never below zero.
+let apply (discount: Discount) (amount: decimal) : decimal =
+    let reduced = amount - amount * discount.Rate
+    if reduced < 0m then 0m else reduced
+
+/// The one of \`discounts\` leaving the least to pay for \`amount\`.
+let best (discounts: Discount list) (amount: decimal) : Discount option =
+    discounts |> List.sortBy (fun discount -> apply discount amount) |> List.tryHead
+`;
+
+const DISCOUNT_TESTS = `module Shop.Tests.DiscountTests
+
+open Xunit
+open Shop.Discounts
+
+[<Fact>]
+let \`\`seasonal takes 5 percent off\`\` () =
+    Assert.Equal(95m, apply seasonal 100m)
+
+[<Fact>]
+let \`\`best picks the largest discount\`\` () =
+    Assert.Equal(Some staff, best [ seasonal; staff ] 100m)
+`;
+
+const ORDERS_WITH_DISCOUNTS =
+  ORDERS_BASE +
+  `
+/// Total after the best of \`discounts\`, including VAT.
+let discountedTotal (discounts: Discounts.Discount list) (order: Order) : decimal =
+    let net = netTotal order
+    match Discounts.best discounts net with
+    | Some discount -> Discounts.apply discount net |> Pricing.withVat |> Pricing.roundMoney
+    | None -> total order
+`;
+
+/** 1-based number of the first line of `text` holding `needle`. */
+const lineOf = (text: string, needle: string) => text.split("\n").findIndex((line) => line.includes(needle)) + 1;
+
+const ownDiffs = new Map<number, OwnDiff>([
+  [
+    1291,
+    {
+      files: new Map<string, FakeFile>([
+        ["src/Discounts.fs", { base: null, working: DISCOUNTS }],
+        ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WITH_DISCOUNTS }],
+        ["tests/DiscountTests.fs", { base: null, working: DISCOUNT_TESTS }],
+        ["Pricing.fs", { base: PRICING_BASE, working: PRICING_BASE }],
+        ["README.md", { base: "# Shop API\n", working: "# Shop API\n" }],
+      ]),
+      commits: [
+        { sha: DISCOUNTS_TIP, subject: "Use the best discount in order totals", author: "Grace Hopper", date: hoursAgo(2), paths: ["Orders.fs"] },
+        { sha: "8e2c4a6f1b3d5e7a9c0f2b4d6e8a1c3f5b7d9e02", subject: "Add a discounts module with tests", author: "Grace Hopper", date: hoursAgo(3), paths: null },
+      ].map((commit) => ({ ...commit, shortSha: commit.sha.slice(0, 7) })),
+      threads: [
+        {
+          id: 201,
+          path: "src/Discounts.fs",
+          position: { side: "head", startLine: lineOf(DISCOUNTS, "if reduced < 0m"), endLine: lineOf(DISCOUNTS, "if reduced < 0m") },
+          status: "active",
+          comments: [comment(1, "Cy Young", "Shorter, and says what it means:\n\n\`\`\`suggestion\n    max 0m reduced\n\`\`\`", 1.5)],
+        },
+        {
+          id: 202,
+          path: "Orders.fs",
+          position: { side: "head", startLine: lineOf(ORDERS_WITH_DISCOUNTS, "| None -> total order"), endLine: lineOf(ORDERS_WITH_DISCOUNTS, "| None -> total order") },
+          status: "active",
+          comments: [
+            comment(1, "Cy Young", "\`total\` works out the net total again. Use \`net\` here as well?", 1),
+            comment(2, "You", "Agreed, see my suggestion just above.", 0.4, 1),
+          ],
+        },
+        {
+          id: 204,
+          path: "Orders.fs",
+          position: { side: "head", startLine: lineOf(ORDERS_WITH_DISCOUNTS, "let net = netTotal order"), endLine: lineOf(ORDERS_WITH_DISCOUNTS, "let net = netTotal order") },
+          status: "active",
+          comments: [comment(1, "You", "Name it for what it is:\n\n\`\`\`suggestion\n    let netAmount = netTotal order\n\`\`\`", 0.5)],
+        },
+        {
+          id: 203,
+          path: null,
+          position: null,
+          status: "active",
+          comments: [comment(1, "Ada Lovelace", "Could someone try the staff discount on a large order?", 0.5)],
+        },
+      ],
+    },
+  ],
+]);
+
+/** The pull request whose own diff has `commit` (any of its commits), if one does. */
+const ownDiffOf = (commit: string | undefined) =>
+  [...ownDiffs.values()].find((own) => own.commits.some((candidate) => candidate.sha === commit));
+
+/** The discussions of pull request `id`. */
+const threadsOf = (id: unknown) => ownDiffs.get(Number(id))?.threads ?? pullRequestThreads;
+
+/** The text of every file at the tip of `own`'s branch. */
+const tipOf = (own: OwnDiff) =>
+  new Map([...own.files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
+
+/** `arnoldMock.newPush(id)`: a new commit on pull request `id` (one with its own diff). */
+function newPush(id = 1291) {
+  const own = ownDiffs.get(id);
+  const pullRequest = mockPullRequests.find((candidate) => candidate.id === id);
+  if (!own || !pullRequest) return console.warn(`devMock: !${id} has no diff of its own`);
+  const discounts = own.files.get("src/Discounts.fs")!;
+  const count = own.commits.length - 1;
+  discounts.working += `\n/// Every discount there is (push ${count}).\nlet all${count} = [ seasonal; staff ]\n`;
+  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject: `List every discount (${count})`, author: "Grace Hopper", date: new Date().toISOString(), paths: ["src/Discounts.fs"] });
+  pullRequest.sourceCommit = sha;
+  console.info(`devMock: pushed ${sha.slice(0, 7)} to !${id}; reload the pull request list or refocus the window`);
+}
+(window as unknown as { arnoldMock: unknown }).arnoldMock = { newPush };
 
 // Branches on the mock Azure DevOps. feature/agent-work has !1287 open
 // already; feature/agent-work-wt is not pushed, or with `?serverbranch=behind`
@@ -807,44 +1012,51 @@ export function install() {
         case "list_branches":
           return repo.branches;
         case "compare_branches": {
+          const own = ownDiffOf(args.head);
+          const list = own?.commits ?? commits;
           const wanted = (payload as { range: CommitRange | null }).range;
-          const newest = commits.findIndex((commit) => commit.sha === wanted?.newest);
-          const oldest = commits.findIndex((commit) => commit.sha === wanted?.oldest);
-          const range = newest === -1 || oldest === -1 ? null : { newest: commits[newest].sha, oldest: commits[oldest].sha };
+          const newest = list.findIndex((commit) => commit.sha === wanted?.newest);
+          const oldest = list.findIndex((commit) => commit.sha === wanted?.oldest);
+          const range = newest === -1 || oldest === -1 ? null : { newest: list[newest].sha, oldest: list[oldest].sha };
           return {
             base: args.base,
             head: args.head,
-            mergeBase: range ? (commits[oldest + 1]?.sha ?? MERGE_BASE) : MERGE_BASE,
-            headCommit: range?.newest ?? commits[0].sha,
-            tipCommit: commits[0].sha,
+            mergeBase: range ? (list[oldest + 1]?.sha ?? MERGE_BASE) : MERGE_BASE,
+            headCommit: range?.newest ?? list[0].sha,
+            tipCommit: list[0].sha,
             range,
-            commits: commits.map(({ paths: _, ...commit }) => commit),
-            files: changedFiles(range ? commits.slice(newest, oldest + 1) : commits),
+            commits: list.map(({ paths: _, ...commit }) => commit),
+            files: changedFiles(range ? list.slice(newest, oldest + 1) : list, own?.files ?? files, list),
             checkout: null,
             uncommitted: 0,
-            ...(range ? null : comparedOnDisk(args.head)),
+            ...(range ? null : comparedOnDisk(args.head, args.checkout ?? null)),
           } satisfies Comparison;
+        }
+        case "pull_request_worktree": {
+          const { id, create, discard } = payload as { id: number; create: boolean; discard?: boolean };
+          return slowly(() => pullRequestWorktree(args.root, id, args.commit, create, !!discard), 400);
         }
         case "checkout_branch":
           return slowly(() => checkoutBranch(args.branch), 300);
         case "list_files": {
           if (args.checkout) {
             checkoutState();
-            return [...worktree.keys()].sort();
+            return [...treeOf(args.checkout).keys()].sort();
           }
           addUnchangedFiles();
-          return [...files]
+          return [...(ownDiffOf(args.commit)?.files ?? files)]
             .filter(([, file]) => file.working !== null)
             .map(([path]) => path)
             .sort();
         }
         case "read_file_pair": {
-          const file = files.get(args.path);
+          const set = ownDiffOf(args.commit)?.files ?? files;
+          const file = set.get(args.path);
           if (args.checkout) checkoutState();
           return {
-            base: files.get(args.oldPath ?? args.path)?.base ?? null,
-            working: args.checkout ? (worktree.get(args.path) ?? null) : (file?.working ?? null),
-            committed: args.checkout && worktree.has(args.path) ? (headMap().get(args.path) ?? null) : null,
+            base: set.get(args.oldPath ?? args.path)?.base ?? null,
+            working: args.checkout ? (treeOf(args.checkout).get(args.path) ?? null) : (file?.working ?? null),
+            committed: args.checkout && treeOf(args.checkout).has(args.path) ? (tipFor(args.checkout).get(args.path) ?? null) : null,
             binary: false,
             tooLarge: false,
           } satisfies FilePair;
@@ -891,19 +1103,22 @@ export function install() {
             else worktree.set(path, text);
           }
           return checkoutChanged(null);
-        case "undo_file_edits":
+        case "undo_file_edits": {
           checkoutState();
+          const tree = treeOf(args.checkout);
+          const tip = tipFor(args.checkout);
           for (const path of (payload as { paths: string[] }).paths) {
-            const text = head!.get(path);
+            const text = tip.get(path);
             if (text === undefined) {
-              index.delete(path);
-              worktree.delete(path);
+              if (tree === worktree) index.delete(path);
+              tree.delete(path);
             } else {
-              index.set(path, text);
-              worktree.set(path, text);
+              if (tree === worktree) index.set(path, text);
+              tree.set(path, text);
             }
           }
           return checkoutChanged(null);
+        }
         case "reset_files_to_head":
           checkoutState();
           for (const path of (payload as { paths: string[] }).paths) {
@@ -922,7 +1137,7 @@ export function install() {
           return checkoutChanged(null);
         case "save_worktree_file":
           checkoutState();
-          worktree.set(args.path, args.text);
+          treeOf(args.checkout).set(args.path, args.text);
           return checkoutChanged(null);
         case "commit_staged":
           return slowly(() => commitStaged(args.message), 500);
@@ -1056,7 +1271,7 @@ export function install() {
               status: "active",
               comments: [comment(1, "You", content, 0)],
             };
-            pullRequestThreads.push(thread);
+            threadsOf(args.id).push(thread);
             return thread;
           }, 600);
         case "reply_to_pull_request_thread":
@@ -1064,16 +1279,31 @@ export function install() {
             checkToken();
             checkWrite();
             const { thread, parent, content } = payload as { thread: number; parent: number; content: string };
-            const found = pullRequestThreads.find((candidate) => candidate.id === thread);
+            const found = threadsOf(args.id).find((candidate) => candidate.id === thread);
             if (!found) throw { kind: "notFound", message: `Thread ${thread} does not exist.` };
             found.comments.push(comment(found.comments.length + 1, "You", content, 0, parent));
             return null;
           }, 600);
+        case "delete_pull_request_comment":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { thread, comment: id } = payload as { thread: number; comment: number };
+            const threads = threadsOf(args.id);
+            const found = threads.find((candidate) => candidate.id === thread);
+            const index = found?.comments.findIndex((candidate) => candidate.id === id) ?? -1;
+            if (!found || index < 0) throw { kind: "notFound", message: `Comment ${id} does not exist.` };
+            if (!found.comments[index].you) throw { kind: "other", message: "Only its author may delete a comment." };
+            found.comments.splice(index, 1);
+            // A thread without comments is gone.
+            if (found.comments.length === 0) threads.splice(threads.indexOf(found), 1);
+            return null;
+          }, 500);
         case "pull_request_threads":
           return slowly(() => {
             checkToken();
             // Copies, as from the real backend.
-            return structuredClone(pullRequestThreads);
+            return structuredClone(threadsOf(args.id));
           }, 400);
         case "plugin:opener|open_url":
           console.info("devMock: would open", args.url);

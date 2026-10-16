@@ -23,6 +23,13 @@ export const STATUS_NAME: Record<FileStatus, string> = {
   unchanged: "Not changed (opened by go-to-definition)",
 };
 
+/**
+ * Whether `file` is marked as having uncommitted edits: in Branches. A pull
+ * request's edits are only on their way to becoming suggestions, which
+ * their Suggest buttons and frames show.
+ */
+export const showsEdited = (file: ChangedFile) => !!file.uncommitted && state.source === "branches";
+
 /** Marks a file with uncommitted edits in the checkout a comparison reads. */
 export function EditedMark() {
   return (
@@ -87,7 +94,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
   };
 
   const title = (file: ChangedFile) =>
-    `${STATUS_NAME[file.status]}${file.uncommitted ? ", with uncommitted edits" : ""}: ${file.oldPath ? `${file.oldPath} → ` : ""}${file.path}`;
+    `${STATUS_NAME[file.status]}${showsEdited(file) ? ", with uncommitted edits" : ""}: ${file.oldPath ? `${file.oldPath} → ` : ""}${file.path}`;
 
   const toggleChanges = () => {
     setChangesOpen(!changesOpen());
@@ -185,7 +192,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
                         <span class="file-name">{parts.name}</span>
                         <span class="file-directory">{parts.directory}</span>
                       </span>
-                      <Show when={file.uncommitted}>
+                      <Show when={showsEdited(file)}>
                         <EditedMark />
                       </Show>
                       <Show when={fileThreads(file.path).length > 0}>

@@ -162,6 +162,22 @@ async fn on_disk(checkout: &Path, from: &str, tip: &str) -> Result<(Vec<ChangedF
         .collect();
     edited.extend(untracked.iter().map(|file| file.path.clone()));
     files.extend(untracked);
+    // Edits that took a file back to how `from` has it leave nothing to
+    // diff, yet are edits (a branch's change undone, a file it added deleted
+    // again): listed with no lines changed, so they can be seen and undone.
+    let listed: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
+    for path in edited.iter().filter(|path| !listed.contains(*path)) {
+        let on_disk = tokio::fs::try_exists(checkout.join(path)).await.unwrap_or(false);
+        files.push(ChangedFile {
+            path: path.clone(),
+            old_path: None,
+            status: if on_disk { FileStatus::Modified } else { FileStatus::Deleted },
+            additions: Some(0),
+            deletions: Some(0),
+            binary: false,
+            uncommitted: false,
+        });
+    }
     for file in &mut files {
         file.uncommitted = edited.contains(&file.path);
     }

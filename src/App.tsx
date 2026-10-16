@@ -3,6 +3,7 @@ import { AllFilesView } from "./components/AllFilesView";
 import { WorkingFilesView } from "./components/WorkingFilesView";
 import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
 import { EditStatus } from "./components/EditStatus";
+import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
@@ -22,6 +23,7 @@ import {
   setState,
   startWatching,
   state,
+  suggestionPlan,
   undoFileEdits,
   undoLineEdits,
 } from "./state/review";
@@ -192,6 +194,9 @@ export function App() {
       <Show when={state.unformatted}>
         <UnformattedDialog />
       </Show>
+      <Show when={suggestionPlan()} keyed>
+        {(plan) => <SuggestDialog plan={plan} />}
+      </Show>
       <Show when={state.menu}>
         {(menu) => (
           <ul
@@ -310,7 +315,7 @@ function StatusBar() {
               {comparison().files.length} files <span class="added">+{totals().added}</span>{" "}
               <span class="removed">−{totals().removed}</span>
             </span>
-            <Show when={state.source === "branches"}>
+            <Show when={state.source === "branches" || (state.source === "pullRequest" && state.pullRequest)}>
               <EditStatus />
             </Show>
             <Show when={state.source === "pullRequest" && state.pullRequest}>

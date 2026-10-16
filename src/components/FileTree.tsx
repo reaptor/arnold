@@ -4,7 +4,7 @@ import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
 import { allFiles, changedFiles, explorerSelection, openFile, openFileMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
-import { splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
+import { showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Height of one row; rows are virtualized, so it is fixed. Matches `.tree-row`. */
 const ROW_HEIGHT = 22;
@@ -100,7 +100,7 @@ export function FileTree(props: { filter: string }) {
   );
   const changedFolders = createMemo(() => new Set([...changed().keys()].flatMap(ancestors)));
   /** Files with uncommitted edits in the checkout a comparison reads. */
-  const edited = createMemo(() => new Set(changedFiles().flatMap((file) => (file.uncommitted ? [file.path] : []))));
+  const edited = createMemo(() => new Set(changedFiles().flatMap((file) => (showsEdited(file) ? [file.path] : []))));
 
   const rows = createMemo<Row[]>(() => {
     const needle = props.filter.toLowerCase();

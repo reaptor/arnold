@@ -315,7 +315,35 @@ pub async fn pull_request_threads(
 ) -> Result<Vec<Thread>, PrError> {
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
-    blocking(move || azure::threads(&repo, &token, id)).await?
+    let mut threads = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::threads(&repo, &token, id)).await??
+    };
+    // Who may delete what; without knowing, nobody's comments are marked.
+    if let Ok(user) = prs.user(&repo, &token).await {
+        for comment in threads.iter_mut().flat_map(|thread| thread.comments.iter_mut()) {
+            comment.you = !comment.author_id.is_empty() && comment.author_id.eq_ignore_ascii_case(&user);
+        }
+    }
+    Ok(threads)
+}
+
+/// Deletes comment `comment` of thread `thread` of pull request `id`: one the
+/// token's owner wrote (the host refuses others).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri passes each argument and state separately.
+pub async fn delete_pull_request_comment(
+    root: String,
+    remote: String,
+    id: u64,
+    thread: u64,
+    comment: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<(), PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::delete_comment(&repo, &token, id, thread, comment)).await?
 }
 
 /// Starts a discussion on pull request `id`, about `place` in a file or, without

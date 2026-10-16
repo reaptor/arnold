@@ -7,9 +7,12 @@
 // The frames are a layer above the text, measured from the drawn lines like
 // lineTints, so they follow folding, widgets and wrapping. styles.css gives
 // them their color (--edited, as the "edited" marks of the dock).
+//
+// With `onSuggest` (a pull request's files) each framed change also gets a
+// Suggest button on a row of its own under it, there from the first keystroke.
 
-import { StateEffect, StateField, type Extension } from "@codemirror/state";
-import { layer, type EditorView, type LayerMarker } from "@codemirror/view";
+import { type EditorState, type Extension, type Range, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, layer, type LayerMarker, WidgetType } from "@codemirror/view";
 import { type LineBlock, lineBlocks } from "./lineDiff";
 
 /** Replaces the committed text the working text is compared with; null removes the frames. */
@@ -77,6 +80,57 @@ class Frame implements LayerMarker {
   }
 }
 
+/** A Suggest button on a row of its own under a framed change. */
+class SuggestWidget extends WidgetType {
+  constructor(
+    readonly block: LineBlock,
+    readonly onSuggest: (block: LineBlock) => void,
+  ) {
+    super();
+  }
+
+  eq(other: SuggestWidget) {
+    const [a, b] = [this.block, other.block];
+    return a.fromA === b.fromA && a.toA === b.toA && a.fromB === b.fromB && a.toB === b.toB;
+  }
+
+  toDOM() {
+    const row = document.createElement("div");
+    row.className = "cm-suggestRow";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cm-suggestButton";
+    button.textContent = "Suggest";
+    button.title = "Suggest this change on the pull request";
+    // The editor would take the press as placing the cursor.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => this.onSuggest(this.block));
+    row.append(button);
+    return row;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** A Suggest row under the last line of each change (for removed lines, where they were). */
+function suggestRows(state: EditorState, field: StateField<Edits>, onSuggest: (block: LineBlock) => void): DecorationSet {
+  const doc = state.doc;
+  const rows: Range<Decoration>[] = [];
+  for (const block of state.field(field).blocks) {
+    const widget = new SuggestWidget(block, onSuggest);
+    // Under the last changed line, or the line before removed ones (above the first line at the top).
+    const after = block.toB > block.fromB ? block.toB : block.fromB;
+    if (after === 0) {
+      rows.push(Decoration.widget({ widget, block: true, side: -1 }).range(0));
+    } else if (after <= doc.lines) {
+      rows.push(Decoration.widget({ widget, block: true, side: 1 }).range(doc.line(after).to));
+    }
+  }
+  return Decoration.set(rows, true);
+}
+
 /** How tall the bar for removed lines is, centered on the line boundary. */
 const REMOVED_BAR = 2;
 
@@ -122,19 +176,19 @@ function frames(view: EditorView, field: StateField<Edits>): Frame[] {
   return result;
 }
 
+const layerUpdate = (update: { transactions: readonly unknown[]; viewportChanged: boolean; geometryChanged: boolean }) =>
+  update.transactions.length > 0 || update.viewportChanged || update.geometryChanged;
+
 /**
  * Frames the lines of the working text that differ from `committed` (the
- * file at the branch's last commit); none when it is null.
+ * file at the branch's last commit); none when it is null. With `onSuggest`
+ * each framed change has a Suggest button, which calls it with the change.
  */
-export function editFrames(committed: string | null): Extension {
+export function editFrames(committed: string | null, onSuggest?: (block: LineBlock) => void): Extension {
   const field = editsField(committed);
   return [
     field,
-    layer({
-      above: true,
-      class: "cm-editFrameLayer",
-      markers: (view) => frames(view, field),
-      update: (update) => update.transactions.length > 0 || update.viewportChanged || update.geometryChanged,
-    }),
+    layer({ above: true, class: "cm-editFrameLayer", markers: (view) => frames(view, field), update: layerUpdate }),
+    onSuggest ? EditorView.decorations.compute([field], (state) => suggestRows(state, field, onSuggest)) : [],
   ];
 }

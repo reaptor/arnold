@@ -74,7 +74,7 @@ export function LanguageStatus() {
       default:
         return `${
           state.languageSetup?.inPlace
-            ? "The reviewed branch is checked out in the opened folder, so FsAutoComplete runs there. Arnold"
+            ? "The reviewed code is checked out (in the opened folder or a worktree), so FsAutoComplete runs there and sees your edits. Arnold"
             : "Arnold copies the reviewed commit to .arnold/worktrees in the repository folder (git does not see it) and"
         } does only what FsAutoComplete needs there: restoring packages, and building projects in other languages that F# code uses. Keep reviewing meanwhile; hover, go to definition and error markers appear once this is done.`;
     }

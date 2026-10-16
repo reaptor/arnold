@@ -32,7 +32,7 @@ import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor } from "./languages";
 import { editFrames, setCommitted } from "./editFrames";
-import { lineFirstDiffConfig } from "./lineDiff";
+import { type LineBlock, lineFirstDiffConfig } from "./lineDiff";
 import { lineTints } from "./lineTints";
 import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
@@ -74,6 +74,8 @@ export interface DiffDocument {
    * framed. Null or absent: no frames.
    */
   committed?: string | null;
+  /** The framed changes have a Suggest button (a pull request's files). */
+  suggest?: boolean;
   /** What the selected lines can have done to them (Commit mode); none when reviewing. */
   lineActions?: readonly LineAction[];
   /** Fold long runs of unchanged lines away (the default); false shows the whole file. */
@@ -114,6 +116,8 @@ export interface DiffEditorCallbacks {
   onMoveChunk?(direction: MoveDirection, selection: LineSelection): void;
   /** Typing or pasting into a read-only side, which does nothing. */
   onBlockedEdit?(): void;
+  /** A framed change's Suggest button: `block` is the change, in lines of the committed and the working text. */
+  onSuggest?(block: LineBlock): void;
 }
 
 /** Whether a key pressed in an editor would change its text. */
@@ -365,6 +369,14 @@ export class DiffEditor {
     view.dispatch({ effects: setCommitted.of(committed) });
   }
 
+  /** Makes the working text `text`, as an edit of its own that can be undone. */
+  replaceWorkingText(text: string) {
+    const view = this.working;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (current !== text) this.applyWorkingEdits([replacement(current, text)]);
+  }
+
   /** Changes the working text as an edit of its own, which can be undone. */
   applyWorkingEdits(edits: TextEdit[]) {
     this.working?.dispatch({ changes: edits, userEvent: "input.reset", scrollIntoView: true });
@@ -399,6 +411,11 @@ export class DiffEditor {
     if (all) return working === committed ? [] : [replacement(working, committed)];
     const selection = this.selectedLines();
     return selection?.side === "b" ? resetEdits(committed, working, selection) : [];
+  }
+
+  /** The text the uncommitted edits are framed against; null when there is none. */
+  committedText(): string | null {
+    return this.document?.committed ?? null;
   }
 
   /** Whether uncommitted edits can be undone here: in the selected lines, and in the whole file. */
@@ -539,7 +556,7 @@ export class DiffEditor {
       // Tab indents where text can be typed; elsewhere it moves the focus.
       document.editable ? tabIndentation(Text.of(doc.split("\n"))) : [],
       this.supportSlot.of(this.support),
-      editFrames(document.committed ?? null),
+      editFrames(document.committed ?? null, document.suggest ? (block) => this.callbacks.onSuggest?.(block) : undefined),
       keymap.of([
         {
           key: "F7",
