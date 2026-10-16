@@ -3,6 +3,8 @@
 //! language server leaves the opened folder when another branch is checked
 //! out there. Reviewing only ever shows commits; files on disk are watched
 //! only for the checkout whose uncommitted changes are listed (`watch_checkout`).
+//! The repository's config is watched too, so a remote added or removed while
+//! Arnold is open changes which hosts it offers pull requests from.
 
 use std::any::Any;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,7 @@ use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use tauri::{AppHandle, Emitter};
 
 pub const EVENT: &str = "refs-changed";
+pub const CONFIG_EVENT: &str = "config-changed";
 const DEBOUNCE: Duration = Duration::from_millis(400);
 
 /// Keeps the watch alive; dropping it stops watching.
@@ -23,12 +26,15 @@ pub fn watch(app: AppHandle, git_dir: PathBuf) -> Result<WatchHandle, String> {
     let root = git_dir.clone();
     let mut debouncer = new_debouncer(DEBOUNCE, None, move |result: DebounceEventResult| {
         let Ok(events) = result else { return };
-        let moved = events
+        let paths: Vec<&PathBuf> = events
             .iter()
             .filter(|event| !event.kind.is_access())
             .flat_map(|event| &event.paths)
-            .any(|path| is_ref(&root, path));
-        if moved {
+            .collect();
+        if paths.iter().any(|path| is_config(&root, path)) {
+            let _ = app.emit(CONFIG_EVENT, ());
+        }
+        if paths.iter().any(|path| is_ref(&root, path)) {
             let _ = app.emit(EVENT, ());
         }
     })
@@ -83,6 +89,11 @@ fn counts_for_checkout(checkout: &Path, git_dir: &Path, path: &Path) -> bool {
     !matches!(first, Some(name) if name == ".git" || name == ".arnold")
 }
 
+/// The repository's config (remotes, upstreams); not its lock file.
+fn is_config(git_dir: &Path, path: &Path) -> bool {
+    path.strip_prefix(git_dir).is_ok_and(|relative| relative == Path::new("config"))
+}
+
 /// A branch or remote-tracking branch, loose or packed, or what a checkout
 /// (the main one or a linked worktree) has checked out; not their lock files.
 fn is_ref(git_dir: &Path, path: &Path) -> bool {
@@ -114,6 +125,17 @@ mod tests {
         assert!(!counts("/elsewhere/a.fs"));
         // A linked worktree's index.
         assert!(counts_for_checkout(checkout, Path::new("/main/.git/worktrees/wt"), Path::new("/main/.git/worktrees/wt/index")));
+    }
+
+    #[test]
+    fn only_the_config_itself_counts_as_config() {
+        let git_dir = Path::new("/repo/.git");
+        let is_config = |relative: &str| is_config(git_dir, &git_dir.join(relative));
+        assert!(is_config("config"));
+        assert!(!is_config("config.lock"));
+        assert!(!is_config("worktrees/wt/config.worktree"));
+        assert!(!is_config("refs/heads/config"));
+        assert!(!is_config("/elsewhere/config"));
     }
 
     #[test]

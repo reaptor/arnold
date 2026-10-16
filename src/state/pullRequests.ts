@@ -95,6 +95,34 @@ export async function loadRemotes(root: string) {
   setPrs({ remotes, remote: remote?.remote ?? null });
 }
 
+/**
+ * Reads the remotes again after the repository's config changed (a remote
+ * added, removed or pointed elsewhere), keeping the list when the remote it
+ * came from is still there.
+ */
+export async function refreshRemotes(root: string) {
+  let remotes: PrRemote[];
+  try {
+    remotes = await ipc.pullRequestRemotes(root);
+  } catch (error) {
+    ipc.devTrace(`pull request remotes: ${prErrorText(error)}`);
+    return;
+  }
+  if (prs.root !== root) return;
+  const kept = remotes.find((candidate) => candidate.remote === prs.remote);
+  const same = kept && JSON.stringify(kept) === JSON.stringify(currentRemote());
+  if (same) {
+    setPrs("remotes", remotes);
+    return;
+  }
+  const remembered = localStorage.getItem(`arnold.prRemote.${root}`);
+  const remote =
+    remotes.find((candidate) => candidate.remote === remembered) ??
+    remotes.find((candidate) => candidate.remote === "origin") ??
+    remotes[0];
+  setPrs({ remotes, remote: remote?.remote ?? null, list: null, error: null, tokenError: null });
+}
+
 /** (Re-)reads the active pull requests of the current remote. */
 export async function loadPullRequests() {
   const { root, remote } = prs;

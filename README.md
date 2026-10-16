@@ -62,7 +62,7 @@ Without a folder they open the current one. Terminals that were open during the 
 2. **Pick a mode** in the toolbar:
    - *Commit*: the uncommitted changes of a checkout, to go through and commit (see [Committing](#committing)).
    - *Branches*: a branch against the base branch it goes into (see [Comparing branches](#comparing-branches)).
-   - *Pull request*: shown when a remote of the repository is on Azure DevOps; one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
+   - *Pull request*: shown when a remote of the repository is on Azure DevOps (also one added while Arnold is open); one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
 3. **Go through the changes:** pick files in the dock or scroll the all-files list, and step from change to change with `F7`.
 
 A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
@@ -354,7 +354,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 
 | Option | What it does |
 |---|---|
-| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus) |
+| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is compared read-only until it is checked out; `dirtyfolder` also gives `main` uncommitted changes, so it cannot be |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |

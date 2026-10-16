@@ -76,7 +76,7 @@ pub fn startup_path() -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoInfo, String> {
+pub async fn open_repo(path: String, app: AppHandle, state: State<'_, AppState>) -> Result<RepoInfo, String> {
     let info = arnold_git::open(Path::new(&path)).await.map_err(text_error)?;
     let mut roots = HashSet::new();
     for checkout in std::iter::once(&info.root).chain(&info.worktrees) {
@@ -85,14 +85,21 @@ pub async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoI
         }
     }
     *state.roots.lock().unwrap() = roots;
-    *state.watch.lock().unwrap() = None;
     *state.checkout_watch.lock().unwrap() = None;
+    // Branches, checkouts and remotes are followed in every mode, from the start.
+    *state.watch.lock().unwrap() = None;
+    let git_dir = arnold_git::common_dir(&info.root).await.map_err(text_error)?;
+    // Events arrive with resolved paths (`/private/var` for `/var` on macOS).
+    let git_dir = git_dir.canonicalize().unwrap_or(git_dir);
+    match watcher::watch(app, git_dir) {
+        Ok(handle) => *state.watch.lock().unwrap() = Some(handle),
+        Err(error) => eprintln!("[arnold] cannot watch {}: {error}", info.root.display()),
+    }
     Ok(info)
 }
 
 /// Compares `head` against its merge-base with `base` (or shows a run of its
-/// commits) and starts watching the repository's branches, so new commits
-/// show up. When `head` is checked out (in the opened folder or a linked
+/// commits). When `head` is checked out (in the opened folder or a linked
 /// worktree) all of its changes are read from that checkout's files, which
 /// are then watched too, so edits made there or in Arnold show up.
 /// `checkout`: where `head` (a commit) is checked out otherwise, such as a
@@ -122,9 +129,6 @@ pub async fn compare_branches(
         .await
         .map_err(text_error)?;
 
-    let git_dir = arnold_git::common_dir(&root).await.map_err(text_error)?;
-    let handle = watcher::watch(app.clone(), git_dir).ok();
-    *state.watch.lock().unwrap() = handle;
     match &comparison.checkout {
         Some(checkout) => crate::working::watch_checkout(app, &state, checkout.clone()).await?,
         None => *state.checkout_watch.lock().unwrap() = None,

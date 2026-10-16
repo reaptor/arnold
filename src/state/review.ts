@@ -1873,6 +1873,7 @@ const PULL_REQUEST_POLL = 60_000;
 const PULL_REQUEST_ON_FOCUS = 15_000;
 
 let refreshTimer: number | undefined;
+let configTimer: number | undefined;
 let pullRequestCheckedAt = 0;
 let checkingPullRequest = false;
 
@@ -1893,6 +1894,13 @@ export async function startWatching() {
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => void refsChanged(), 150);
   });
+  // A remote added or removed (`git remote add`) changes whether pull
+  // requests are offered; a push that sets an upstream changes Commit mode's
+  // push target.
+  await ipc.onConfigChanged(() => {
+    window.clearTimeout(configTimer);
+    configTimer = window.setTimeout(() => void configChanged(), 150);
+  });
   // Pushes to a pull request are only known to the host, so it is asked.
   window.setInterval(() => {
     if (document.visibilityState === "visible") void checkPullRequest();
@@ -1900,6 +1908,19 @@ export async function startWatching() {
   window.addEventListener("focus", () => {
     if (Date.now() - pullRequestCheckedAt > PULL_REQUEST_ON_FOCUS) void checkPullRequest();
   });
+}
+
+async function configChanged() {
+  const repo = state.repo;
+  if (!repo) return;
+  await pullRequests.refreshRemotes(repo.root);
+  if (state.repo !== repo) return;
+  ipc.devTrace(`config changed: pull requests from ${pullRequests.prs.remotes.map((remote) => remote.remote).join(", ") || "no remote"}`);
+  if (state.source === "pullRequest" && !state.pullRequest) {
+    if (pullRequests.prs.remotes.length === 0) await setSource("branches");
+    else if (pullRequests.prs.list === null) void pullRequests.loadPullRequests();
+  }
+  if (state.source === "commit") await commitMode.refreshWork();
 }
 
 async function refsChanged() {

@@ -591,6 +591,7 @@ function commitStaged(message: string) {
 // `?devops=empty`: no active pull requests. `?devops=rejected`: the saved token no longer works.
 
 const devops = searchParams.get("devops");
+let hasDevOpsRemote = devops !== null;
 let mockToken: PrRemote["token"] = devops === "nopat" ? null : "keychain";
 let tokenWorks = devops !== "rejected";
 
@@ -933,7 +934,13 @@ function newPush(id = 1291) {
   pullRequest.sourceCommit = sha;
   console.info(`devMock: pushed ${sha.slice(0, 7)} to !${id}; reload the pull request list or refocus the window`);
 }
-(window as unknown as { arnoldMock: unknown }).arnoldMock = { newPush };
+/** `arnoldMock.devopsRemote(false)` removes origin's Azure DevOps remote, `(true)` adds it, as `git remote` would. */
+function devopsRemote(on = true) {
+  hasDevOpsRemote = on;
+  setTimeout(() => void emit("config-changed"), 50);
+}
+
+(window as unknown as { arnoldMock: unknown }).arnoldMock = { newPush, devopsRemote };
 
 // Branches on the mock Azure DevOps. feature/agent-work has !1287 open
 // already; feature/agent-work-wt is not pushed, or with `?serverbranch=behind`
@@ -1151,7 +1158,7 @@ export function install() {
             return { staged: args.paths, failed: [] };
           }, 800);
         case "pull_request_remotes":
-          return devops === null ? [] : [prRemote()];
+          return hasDevOpsRemote ? [prRemote()] : [];
         case "list_pull_requests":
           return slowly(() => {
             checkToken();

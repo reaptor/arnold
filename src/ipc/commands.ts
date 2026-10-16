@@ -489,6 +489,9 @@ export const deletePullRequestComment = (root: string, remote: string, id: numbe
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
 
+/** The repository's config changed: a remote was added, removed or changed, or an upstream set. */
+export const onConfigChanged = (handler: () => void): Promise<UnlistenFn> => listen("config-changed", () => handler());
+
 // ------------------------------------------------------------ language servers
 
 /** Progress of `prepareWorkspace`. */
