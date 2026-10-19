@@ -1,6 +1,7 @@
 // Application state and the actions that change it. Components read `state`
 // and call these functions; the CodeMirror editor is driven from here.
 
+import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createSignal } from "solid-js";
@@ -46,6 +47,7 @@ import * as pullRequests from "./pullRequests";
 import * as commitMode from "./commitMode";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
+import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
  * What is shown: the uncommitted changes of a checkout, to commit them (the
@@ -444,6 +446,10 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       const path = pathOf();
       if (path !== null) void suggestChange(path, block);
     },
+    onPlaceChange() {
+      // Sections of the all-files view: the list keeps the place there.
+      if (state.view === "file" && pathOf() === state.selected) noteFilePlace();
+    },
     onBlockedEdit(edit) {
       if (!editBlocked()) return;
       const path = pathOf();
@@ -488,6 +494,7 @@ export async function openRepoAt(path: string) {
     // The branch checked out in the folder, which needs no copy for the
     // language server; another only when that one is the base (or detached).
     const current = repo.currentBranch && repo.currentBranch !== base ? repo.currentBranch : null;
+    const last = rememberedReview(repo.root);
     const head = current ?? (has(remembered.head) && remembered.head !== base ? remembered.head : defaultHead(repo, base));
     if (state.source === "commit") commitMode.leave();
     resetSessions();
@@ -497,11 +504,18 @@ export async function openRepoAt(path: string) {
     await pullRequests.loadRemotes(repo.root);
     if (opened !== state.repo) return;
     // Uncommitted changes come first: they are committed before they are reviewed.
-    if (await commitMode.hasUncommitted(repo.root)) {
-      if (opened === state.repo) await setSource("commit");
+    // The mode the app was closed in. Uncommitted changes open Commit mode
+    // instead of a pull request (or nothing remembered), as only Branches
+    // shows them too; the pull request opens when Pull request mode is picked.
+    if (last.source === "commit" || (last.source !== "branches" && (await commitMode.hasUncommitted(repo.root)))) {
+      if (opened === state.repo) await setSource("commit", false);
       return;
     }
     if (opened !== state.repo) return;
+    if (last.source === "pullRequest" && rememberedPullRequest(repo.root)) {
+      await setSource("pullRequest", false);
+      return;
+    }
     await setView("all");
     await refresh();
   } catch (error) {
@@ -521,6 +535,7 @@ export async function setBranches(change: { base?: string; head?: string }) {
   if (!state.repo) return;
   if (state.source === "commit") commitMode.leave();
   setState({ ...change, source: "branches", range: null });
+  rememberReview(state.repo.root, { source: "branches" });
   localStorage.setItem(
     `arnold.branches.${state.repo.root}`,
     JSON.stringify({ base: state.base, head: state.head }),
@@ -533,12 +548,55 @@ export async function setBranches(change: { base?: string; head?: string }) {
 
 // ------------------------------------------------------------- pull requests
 
+// ------------------------------------------------- kept between app starts
+
+/** What a repository was last reviewed as (null: nothing kept yet), and the pull request last opened in it (until closed). */
+interface RememberedReview {
+  source: Source | null;
+  pullRequest: { remote: string; id: number } | null;
+}
+
+const reviewKey = (root: string) => `arnold.review.${root}`;
+
+function rememberedReview(root: string): RememberedReview {
+  try {
+    const saved = JSON.parse(localStorage.getItem(reviewKey(root)) ?? "{}");
+    const pullRequest =
+      typeof saved.pullRequest?.remote === "string" && typeof saved.pullRequest?.id === "number"
+        ? { remote: saved.pullRequest.remote, id: saved.pullRequest.id }
+        : null;
+    return { source: ["commit", "branches", "pullRequest"].includes(saved.source) ? saved.source : null, pullRequest };
+  } catch {
+    return { source: null, pullRequest: null };
+  }
+}
+
+function rememberReview(root: string, change: Partial<RememberedReview>) {
+  localStorage.setItem(reviewKey(root), JSON.stringify({ ...rememberedReview(root), ...change }));
+}
+
+/** The pull request last opened in the repository, when its remote still has pull requests. */
+function rememberedPullRequest(root: string): RememberedReview["pullRequest"] {
+  const pullRequest = rememberedReview(root).pullRequest;
+  return pullRequest && pullRequests.prs.remotes.some((remote) => remote.remote === pullRequest.remote) ? pullRequest : null;
+}
+
 /**
  * Switches between reviewing two branches and reviewing a pull request.
- * Each keeps what was picked in it, so switching back shows that again.
+ * Each keeps what was picked in it, so switching back shows that again;
+ * Pull request mode with none picked opens the one last opened, from an
+ * earlier start. `remember` false: the app's own switch, not kept for the
+ * next start.
  */
-export async function setSource(source: Source) {
+export async function setSource(source: Source, remember = true) {
   if (!state.repo || source === state.source) return;
+  if (remember) rememberReview(state.repo.root, { source });
+  const reopen = source === "pullRequest" && !state.pullRequest ? rememberedPullRequest(state.repo.root) : null;
+  if (reopen) {
+    await openPullRequest(reopen.remote, reopen.id);
+    // It could not be opened (gone, or no token): the list, with why.
+    if (state.pullRequest) return;
+  }
   if (state.source === "commit") commitMode.leave();
   resetSessions();
   setState({ source, range: null, selected: null });
@@ -563,6 +621,7 @@ export async function openPullRequest(remote: string, id: number) {
     resetSessions();
     drafts.clear();
     setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, prWorktree: null, range: null, selected: null });
+    rememberReview(repo.root, { source: "pullRequest", pullRequest: { remote, id } });
     setHostLinks(azureHostLinks(pullRequest.url));
     void loadThreads();
     await loadPrWorktree(false);
@@ -577,6 +636,7 @@ export async function openPullRequest(remote: string, id: number) {
 
 /** Leaves the pull request, back to the list of them. */
 export function closePullRequest() {
+  if (state.repo) rememberReview(state.repo.root, { pullRequest: null });
   resetSessions();
   setState({ pullRequest: null, prWorktree: null, range: null, selected: null });
 }
@@ -624,6 +684,9 @@ export async function setRange(range: CommitRange | null) {
 export function resetSessions() {
   // An edit waiting to be saved still goes to the checkout it was made in.
   void flushSave();
+  // Another review: where the user was in it is restored by the next refresh.
+  holdPlaces();
+  placePending = true;
   editInfoShown = false;
   sessions.clear();
   backgroundSent.clear();
@@ -672,6 +735,19 @@ export async function refresh() {
     setState("error", null);
     if (setupKey(repo, comparison) !== preparedKey) void setUpLanguageFeatures(repo, comparison);
 
+    // A review just opened: where the user was in it last time.
+    const place = placePending ? takePlace(repo.root) : undefined;
+    const listed = (path: string | undefined) => path !== undefined && comparison.files.some((file) => file.path === path);
+    // Nothing is shown yet, so the view can just be set.
+    // (The file on its own only while that file is still in the diff.)
+    if (place?.view === "all" || (place?.view === "file" && listed(place.file?.key))) setState("view", place.view);
+    if (state.view === "file" && place?.file && listed(place.file.key)) {
+      restoring = { path: place.file.key, snapshot: snapshotOf(place.file) };
+      setState("selected", place.file.key);
+    } else if (state.view === "all" && place?.list && listed(place.list.key)) {
+      setState("selected", place.list.key);
+    }
+
     const selected = fileAt(state.selected);
     if (state.view === "all") {
       if (!selected) setState("selected", comparison.files[0]?.path ?? null);
@@ -686,6 +762,7 @@ export async function refresh() {
     } else {
       await selectFile(comparison.files[0]?.path ?? null);
     }
+    if (place !== undefined) restoreListPlace(place, listed);
     void checkChangedFiles();
   } catch (error) {
     fail(error);
@@ -780,6 +857,8 @@ async function showFile(file: ChangedFile) {
       return;
     }
     const session = sessionFor(file, pair);
+    if (restoring?.path === file.path) session.snapshot = restoring.snapshot;
+    restoring = null;
     setState("placeholder", null);
     editor?.open(documentOf(file, session), state.mode, session.snapshot ?? undefined);
     if (editor) void attachLanguageServer(file, editor);
@@ -1174,11 +1253,82 @@ export async function postSuggestions(picked: { file: SuggestionFile; suggestion
 
 // ----------------------------------------------------------- all-files view
 
-let revealSection: (path: string) => void = () => {};
+let revealSection: (path: string, offset?: number) => void = () => {};
 
-/** How the all-files view scrolls a file into view. */
-export function onRevealSection(handler: (path: string) => void) {
+/** How the all-files view scrolls a file into view (with `offset`, that far into it). */
+export function onRevealSection(handler: (path: string, offset?: number) => void) {
   revealSection = handler;
+}
+
+// ----------------------------------------------------------------- places
+
+/** A review was opened (or left): its place is restored once its files are read. */
+let placePending = true;
+/** The place restored into the file shown on its own, applied when it is read. */
+let restoring: { path: string; snapshot: Snapshot } | null = null;
+
+/** The review shown, as places keeps them apart; null while there is none. */
+export function placeReview(): string | null {
+  if (state.source === "commit") return state.checkout ? `commit:${state.checkout}` : null;
+  if (state.source === "pullRequest") return state.pullRequest ? `pr:${state.pullRequest.remote}!${state.pullRequest.id}` : null;
+  return state.base && state.head ? `branches:${state.base}...${state.head}` : null;
+}
+
+/**
+ * The place kept for the review shown, taken once: later refreshes leave the
+ * views alone. Its view only for the first review since the app started.
+ */
+export function takePlace(root: string): Place | null {
+  placePending = false;
+  const review = placeReview();
+  const place = review ? placeIn(root, review) : null;
+  if (!firstReview() && place) delete place.view;
+  return place;
+}
+
+/** The view changed: noted for next time. */
+export function noteView() {
+  const root = state.repo?.root;
+  const review = placeReview();
+  if (root && review) notePlace(root, review, { view: state.view });
+}
+
+export const snapshotOf = (place: { anchor: number; head: number; scrollTop: number }): Snapshot => ({
+  selection: EditorSelection.single(place.anchor, place.head),
+  scrollTop: place.scrollTop,
+});
+
+/**
+ * All-files view: scrolls back to where the list was, once its sections are
+ * drawn, then lets moving save again. `listed` tells whether a key is still
+ * in the list.
+ */
+export function restoreListPlace(place: Place | null, listed: (key: string | undefined) => boolean, reveal = revealSection) {
+  const list = place?.list;
+  if (state.view !== "all" || !list || !listed(list.key)) return placesReady();
+  requestAnimationFrame(() => {
+    reveal(list.key, list.offset);
+    placesReady();
+  });
+}
+
+/** The file shown on its own moved (or another was shown): noted for next time. */
+function noteFilePlace() {
+  const root = state.repo?.root;
+  const review = placeReview();
+  const snapshot = editor?.snapshot();
+  const key =
+    state.selected === null ? null : state.source === "commit" ? `${state.workSide ?? "file"}:${state.selected}` : state.selected;
+  if (!root || !review || !snapshot || key === null) return;
+  const { anchor, head } = snapshot.selection.main;
+  notePlace(root, review, { view: "file", file: { key, anchor, head, scrollTop: snapshot.scrollTop } });
+}
+
+/** The all-files view was scrolled: noted for next time. */
+export function noteListPlace(key: string, offset: number) {
+  const root = state.repo?.root;
+  const review = placeReview();
+  if (root && review && state.view === "all") notePlace(root, review, { view: "all", list: { key, offset: Math.round(offset) } });
 }
 
 export async function setView(view: ViewMode) {
@@ -1198,6 +1348,7 @@ export async function setView(view: ViewMode) {
     setState({ view, menu: null });
     await selectFile(path);
   }
+  noteView();
 }
 
 /** All-files view: `host` is where the file at `path` is shown once it is near the screen. */
@@ -2059,7 +2210,7 @@ async function configChanged() {
   if (state.repo !== repo) return;
   ipc.devTrace(`config changed: pull requests from ${pullRequests.prs.remotes.map((remote) => remote.remote).join(", ") || "no remote"}`);
   if (state.source === "pullRequest" && !state.pullRequest) {
-    if (pullRequests.prs.remotes.length === 0) await setSource("branches");
+    if (pullRequests.prs.remotes.length === 0) await setSource("branches", false);
     else if (pullRequests.prs.list === null) void pullRequests.loadPullRequests();
   }
   if (state.source === "commit") await commitMode.refreshWork();

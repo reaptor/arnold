@@ -21,13 +21,18 @@ import {
   editorCallbacks,
   fileEditor,
   openPullRequest,
+  restoreListPlace,
   setAllFiles,
   setBranches,
   setState,
   setUpLanguageFeaturesIn,
+  noteView,
+  snapshotOf,
   state,
+  takePlace,
   type ViewMode,
 } from "./review";
+import { holdPlaces } from "./places";
 
 /** How long a notice stays in the status bar. */
 const NOTICE_TIME = 5000;
@@ -102,6 +107,9 @@ export async function setCheckout(path: string) {
 
 async function openCheckout(path: string) {
   await flushSave();
+  // Where the user was in this checkout is restored once its lists are read.
+  holdPlaces();
+  placePending = true;
   snapshots.clear();
   shownKey = null;
   shownAlone = null;
@@ -171,7 +179,26 @@ async function readWork() {
     setState("work", reconcile(work, { key: "path" }));
     setAllFiles(files);
     if (work.head) setUpLanguageFeaturesIn(checkout, work.branch ?? "HEAD", work.head);
+    const place = placePending ? (placePending = false, takePlace(repo.root)) : undefined;
+    const known = (key: string | undefined) => {
+      if (key === undefined) return false;
+      const path = pathOfKey(key);
+      return key.startsWith("file:") ? files.includes(path) : !!entryOf(sideOfKey(key), path);
+    };
+    // Only the lists are in the all-files view.
+    const listed = (key: string | undefined) => key !== undefined && !key.startsWith("file:") && known(key);
+    // Nothing is shown yet, so the view can just be set.
+    // (The file on its own only while that file is still there.)
+    if (place?.view === "all" || (place?.view === "file" && known(place.file?.key))) setState("view", place.view);
+    if (state.view === "file" && place?.file && known(place.file.key)) {
+      const key = place.file.key;
+      snapshots.set(key, snapshotOf(place.file));
+      setState({ selected: pathOfKey(key), workSide: key.startsWith("file:") ? null : sideOfKey(key) });
+    } else if (state.view === "all" && place?.list && listed(place.list.key)) {
+      setState({ selected: pathOfKey(place.list.key), workSide: sideOfKey(place.list.key) });
+    }
     await keepSelection(index);
+    if (place !== undefined) restoreListPlace(place, listed, (key, offset) => revealSection?.(key, offset));
   } catch (error) {
     fail("Reading the uncommitted changes")(error);
   }
@@ -559,7 +586,9 @@ const sectionEditors = new Map<string, DiffEditor>();
 const sectionLoads = new Map<string, number>();
 /** The section with keyboard focus: it is not unloaded while scrolled away. */
 let focusedKey: string | null = null;
-let revealSection: ((key: string) => void) | null = null;
+let revealSection: ((key: string, offset?: number) => void) | null = null;
+/** A checkout was opened: where the user was in it is restored once its lists are read. */
+let placePending = false;
 
 const sideOfKey = (key: string): WorkingSide => (key.startsWith("unstaged:") ? "unstaged" : "staged");
 const pathOfKey = (key: string) => key.slice(key.indexOf(":") + 1);
@@ -592,6 +621,7 @@ export async function setView(view: ViewMode, remember = true) {
     setState({ view, menu: null });
     await show();
   }
+  noteView();
 }
 
 /** The files of the all-files view: Unstaged, then Staged. */
@@ -613,7 +643,7 @@ export function focusSection(side: WorkingSide, path: string) {
   if (state.workSide !== side || state.selected !== path) setState({ selected: path, workSide: side });
 }
 
-export function onRevealSection(handler: ((key: string) => void) | null) {
+export function onRevealSection(handler: ((key: string, offset?: number) => void) | null) {
   revealSection = handler;
 }
 

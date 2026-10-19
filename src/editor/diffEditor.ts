@@ -137,6 +137,8 @@ export interface DiffEditorCallbacks {
   onBlockedEdit?(edit: BlockedEdit): void;
   /** A framed change's Suggest button: `block` is the change, in lines of the committed and the working text. */
   onSuggest?(block: LineBlock): void;
+  /** A file was shown, or its cursor or scroll moved. */
+  onPlaceChange?(): void;
 }
 
 /** Whether a key pressed in an editor would change its text. */
@@ -627,6 +629,7 @@ export class DiffEditor {
         }
         const edited = update.transactions.some((tr) => tr.docChanged && !tr.annotation(fromOutside));
         if (edited && this.document?.editable) this.callbacks.onChange?.(update.state.doc.toString());
+        if (update.selectionSet) this.callbacks.onPlaceChange?.();
       }),
     ];
 
@@ -692,6 +695,8 @@ export class DiffEditor {
     }
     this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
+    this.scroller()?.addEventListener("scroll", () => this.callbacks.onPlaceChange?.(), { passive: true });
+    this.callbacks.onPlaceChange?.();
   }
 
   /**

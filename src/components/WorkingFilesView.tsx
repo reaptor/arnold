@@ -11,7 +11,7 @@ import {
   showSection,
   unregisterSection,
 } from "../state/commitMode";
-import { state } from "../state/review";
+import { noteListPlace, state } from "../state/review";
 import { SectionList, type SectionSource } from "./SectionList";
 
 const sideOf = (key: string): WorkingSide => (key.startsWith("unstaged:") ? "unstaged" : "staged");
@@ -28,6 +28,7 @@ const workingSource: SectionSource = {
   show: showSection,
   hide: hideSection,
   onReveal: onRevealSection,
+  onPlace: noteListPlace,
   placeholder: () =>
     state.work ? "No uncommitted changes. Review the branch, push it or create its pull request from the toolbar." : "Reading the uncommitted changes…",
   actions: (entry) => {

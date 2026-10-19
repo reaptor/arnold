@@ -49,8 +49,13 @@ export interface SectionSource {
   show(key: string): Promise<unknown>;
   /** Unloads the file's editor; `keepFocused` leaves the one with keyboard focus. Returns whether one was removed. */
   hide(key: string, keepFocused: boolean): boolean;
-  /** How the list is asked to scroll a file into view; null when the list goes away. */
-  onReveal(handler: ((key: string) => void) | null): void;
+  /**
+   * How the list is asked to scroll a file into view (with `offset`, that
+   * far into the file); null when the list goes away.
+   */
+  onReveal(handler: ((key: string, offset?: number) => void) | null): void;
+  /** The list was scrolled: the file at its top, and how far into it. */
+  onPlace?(key: string, offset: number): void;
   /** Shown when there are no files. */
   placeholder(): string;
   /** Buttons at the end of a file's header. */
@@ -119,15 +124,23 @@ export function SectionList(props: { source: SectionSource }) {
         if (top + before <= scroller.scrollTop) shift += height - before;
         moved += height - before;
       }
-      if (shift !== 0) scroller.scrollTop += shift;
-      // Files growing or shrinking is not scrolling: the selection stays.
-      spied = fileAtReadingLine();
+      if (anchor && (Date.now() > anchor.until || !anchor.section.isConnected)) anchor = null;
+      if (anchor) {
+        // Still scrolling to a place: the dock follows the file read, as when scrolling.
+        scroller.scrollTop = anchor.section.offsetTop + anchor.offset;
+        follow();
+      } else {
+        if (shift !== 0) scroller.scrollTop += shift;
+        // Files growing or shrinking is not scrolling: the selection stays.
+        spied = fileAtReadingLine();
+      }
     });
     source.onReveal(reveal);
-    // The sections register in their own onMount, after this one.
+    // The sections register in their own onMount, after this one. A place
+    // restored meanwhile (the review opening) wins.
     requestAnimationFrame(() => {
       const selected = source.selected();
-      if (selected) reveal(selected);
+      if (selected && !revealed) reveal(selected);
     });
   });
 
@@ -139,9 +152,14 @@ export function SectionList(props: { source: SectionSource }) {
     source.onReveal(null);
   });
 
-  function reveal(key: string) {
+  let revealed = false;
+
+  function reveal(key: string, offset?: number) {
     const section = sections.get(key);
     if (!section) return;
+    revealed = true;
+    if (offset !== undefined && offset > 0 && !source.collapsed(key)) return revealInside(section, offset);
+    anchor = null;
     // Scrolls to the header only: a collapsed file (a deleted one starts so) stays collapsed.
     // The first file of a group brings its heading along.
     const heading = section.previousElementSibling;
@@ -151,6 +169,32 @@ export function SectionList(props: { source: SectionSource }) {
     spied = fileAtReadingLine();
     load(section);
   }
+
+  /**
+   * A file scrolled `offset` into: kept there while it and the files around
+   * it load and change height, until the user scrolls or a moment has passed.
+   */
+  let anchor: { section: HTMLElement; offset: number; until: number } | null = null;
+  const ANCHOR_TIME = 2000;
+  const dropAnchor = () => (anchor = null);
+
+  /** Scrolls `offset` into a file, which stays put while editors load (see `anchor`). */
+  function revealInside(section: HTMLElement, offset: number) {
+    anchor = { section, offset, until: Date.now() + ANCHOR_TIME };
+    scroller.scrollTop = section.offsetTop + offset;
+    follow();
+    load(section);
+  }
+
+  /** The file at the top of the list (whose bottom is below the top edge), and how far the list is into it. */
+  const topPlace = (): { key: string; offset: number } | null => {
+    const top = scroller.scrollTop;
+    for (const key of keys()) {
+      const section = sections.get(key);
+      if (section && section.offsetTop + section.offsetHeight > top) return { key, offset: Math.max(0, top - section.offsetTop) };
+    }
+    return null;
+  };
 
   const observe = (key: string, section: HTMLElement) => {
     sections.set(key, section);
@@ -211,15 +255,29 @@ export function SectionList(props: { source: SectionSource }) {
     if (spyFrame) return;
     spyFrame = requestAnimationFrame(() => {
       spyFrame = 0;
-      const key = fileAtReadingLine();
-      if (key === spied) return;
-      spied = key;
-      if (key && key !== source.selected()) source.select(key);
+      const place = topPlace();
+      if (place) source.onPlace?.(place.key, place.offset);
+      follow();
     });
   };
 
+  /** Selects the file under the reading line, when that is another one than last time. */
+  function follow() {
+    const key = fileAtReadingLine();
+    if (key === spied) return;
+    spied = key;
+    if (key && key !== source.selected()) source.select(key);
+  }
+
   return (
-    <div class="all-files" ref={scroller} onScroll={onScroll}>
+    <div
+      class="all-files"
+      ref={scroller}
+      onScroll={onScroll}
+      onWheel={dropAnchor}
+      onPointerDown={dropAnchor}
+      onKeyDown={dropAnchor}
+    >
       <For each={keys()} fallback={<div class="placeholder">{source.placeholder()}</div>}>
         {(key) => (
           <Show when={entryOf(key)}>
