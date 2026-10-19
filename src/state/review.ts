@@ -737,6 +737,7 @@ export function resetSessions() {
 
 /** Re-reads the changed-file list and brings the open file up to date. */
 export async function refresh() {
+  void commitMode.countUncommitted();
   const repo = state.repo;
   if (repo && state.source === "branches" && !(await checkOutHead(repo))) return;
   const revs = compared();
@@ -1195,6 +1196,44 @@ async function makeEditableAs(action: EditAction | null | undefined) {
     await refresh();
   } finally {
     setState("busy", false);
+  }
+}
+
+// --------------------------------------------------------------- pushing
+
+const [pushingHead, setPushingHead] = createSignal(false);
+/** Set while the compared branch is being pushed from Branches. */
+export { pushingHead };
+
+/** The compared branch in Branches, when it is a local one. */
+export function headBranch() {
+  return state.repo?.branches.find((branch) => !branch.isRemote && branch.name === state.head) ?? null;
+}
+
+/** Why the compared branch cannot be pushed from Branches; else null. */
+export function whyNoPushHead(): string | null {
+  const branch = headBranch();
+  if (!branch) return `${state.head || "The branch"} is not a local branch.`;
+  if (!branch.worktreePath) return `${branch.name} is not checked out.`;
+  return commitMode.whyNotPushable(branch.name, branch.sync);
+}
+
+/** Pushes the compared branch from its checkout, as Commit mode does: to its upstream, else as a new branch. */
+export async function pushHead() {
+  const repo = state.repo;
+  const branch = headBranch();
+  if (!repo || !branch?.worktreePath || !branch.sync || whyNoPushHead() || pushingHead()) return;
+  const { remote, remoteBranch } = branch.sync;
+  setPushingHead(true);
+  try {
+    await ipc.pushCheckoutBranch(branch.worktreePath);
+    commitMode.notify(`Pushed ${branch.name} to ${remote}/${remoteBranch}.`);
+    const branches = await ipc.listBranches(repo.root);
+    if (state.repo === repo) setState("repo", "branches", reconcile(branches, { key: "name" }));
+  } catch (error) {
+    setState("error", `Pushing ${branch.name} failed: ${String(error)}`);
+  } finally {
+    setPushingHead(false);
   }
 }
 

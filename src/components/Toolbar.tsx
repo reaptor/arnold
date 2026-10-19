@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createSignal, onCleanup, Show } from "solid-js";
 import {
   goBack,
+  headBranch,
   nextChange,
   previousChange,
   setBranches,
@@ -13,10 +14,10 @@ import {
   state,
 } from "../state/review";
 import { prs } from "../state/pullRequests";
-import { setCheckout } from "../state/commitMode";
+import { setCheckout, uncommittedCount } from "../state/commitMode";
 import { isMac, platform } from "../platform";
-import { BranchActions } from "./BranchActions";
-import { BranchPicker } from "./BranchPicker";
+import { BranchActions, PushHeadButton } from "./BranchActions";
+import { BranchPicker, unpushedMark } from "./BranchPicker";
 import { CommitPicker } from "./CommitPicker";
 import { CreatePullRequestButton } from "./CreatePullRequest";
 import { DiscussionPicker } from "./DiscussionPicker";
@@ -68,10 +69,17 @@ export function Toolbar() {
               <button
                 classList={{ on: state.source === "commit" }}
                 onClick={() => void setSource("commit")}
-                title="Commit: stage, edit and commit the uncommitted changes of a checkout, the first step with an agent's work; then push the branch, review it or create its pull request"
+                title={`Commit: stage, edit and commit the uncommitted changes of a checkout, the first step with an agent's work; then push the branch, review it or create its pull request${
+                  uncommittedCount() > 0 ? `\n${uncommittedCount()} file${uncommittedCount() === 1 ? "" : "s"} with uncommitted changes` : ""
+                }`}
               >
                 <CommitIcon />
                 <span>Commit</span>
+                <Show when={uncommittedCount() > 0}>
+                  <span class="mode-count" aria-label={`${uncommittedCount()} uncommitted`}>
+                    {uncommittedCount()}
+                  </span>
+                </Show>
               </button>
               <button
                 classList={{ on: state.source === "branches" }}
@@ -119,6 +127,7 @@ export function Toolbar() {
                 value={state.base}
                 branches={repo().branches}
                 onChange={(base) => setBranches({ base })}
+                mark={unpushedMark(repo().branches, state.base)}
               />
             </Show>
             <Show when={state.source === "branches" || (state.source === "pullRequest" && state.pullRequest)}>
@@ -144,6 +153,12 @@ export function Toolbar() {
       <Show when={state.repo && state.source === "commit" && state.work}>
         <BranchActions />
         <span class="toolbar-separator" />
+      </Show>
+      <Show when={state.repo && state.source === "branches" && headBranch()?.sync}>
+        <PushHeadButton />
+        <Show when={prs.remotes.length === 0}>
+          <span class="toolbar-separator" />
+        </Show>
       </Show>
       <Show when={state.repo && state.source === "branches" && prs.remotes.length > 0}>
         <CreatePullRequestButton />

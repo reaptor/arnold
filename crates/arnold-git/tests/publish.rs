@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{branch_sync, push_branch, working_status};
+use arnold_git::{branch_sync, list_branches, push_branch, working_status, BranchSync};
 
 fn git(cwd: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -67,4 +67,60 @@ async fn pushes_the_branch_and_tracks_it() {
     assert_eq!((sync.ahead, sync.behind), (1, 1));
     let error = push_branch(local, "agent/task", &sync, None).await.unwrap_err().to_string();
     assert!(error.contains("Pull them first"), "{error}");
+}
+
+#[tokio::test]
+async fn the_branch_list_tells_what_is_not_pushed() {
+    let server = tempfile::tempdir().unwrap();
+    git(server.path(), &["init", "--quiet", "--bare", "--initial-branch=main"]);
+    let url = format!("file://{}", server.path().display());
+    let local = tempfile::tempdir().unwrap();
+    let local = local.path();
+    git(local, &["init", "--quiet", "--initial-branch=main"]);
+    commit(local, "a.txt");
+    let syncs = || async {
+        list_branches(local)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|branch| (branch.name, branch.sync))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(syncs().await["main"], None, "no remote");
+
+    git(local, &["remote", "add", "origin", &url]);
+    git(local, &["push", "--quiet", "--set-upstream", "origin", "main"]);
+    let sync = |remote_branch: &str, published, ahead, behind| {
+        Some(BranchSync {
+            remote: "origin".into(),
+            remote_branch: remote_branch.into(),
+            published,
+            ahead,
+            behind,
+        })
+    };
+    // Never pushed, no upstream: counted against everything origin has.
+    git(local, &["branch", "agent/new"]);
+    git(local, &["checkout", "--quiet", "-b", "agent/work"]);
+    commit(local, "b.txt");
+    commit(local, "c.txt");
+    // Pushed under its own name but without an upstream.
+    git(local, &["checkout", "--quiet", "-b", "agent/loose", "main"]);
+    git(local, &["push", "--quiet", "origin", "agent/loose"]);
+    commit(local, "d.txt");
+    commit(local, "e.txt");
+    commit(local, "f.txt");
+    // An upstream whose branch was deleted on the remote.
+    git(local, &["checkout", "--quiet", "-b", "agent/gone", "main"]);
+    commit(local, "g.txt");
+    git(local, &["push", "--quiet", "--set-upstream", "origin", "agent/gone"]);
+    git(local, &["push", "--quiet", "origin", "--delete", "agent/gone"]);
+
+    let all = syncs().await;
+    assert_eq!(all["main"], sync("main", true, 0, 0));
+    assert_eq!(all["agent/new"], sync("agent/new", false, 0, 0));
+    assert_eq!(all["agent/work"], sync("agent/work", false, 2, 0));
+    assert_eq!(all["agent/loose"], sync("agent/loose", true, 3, 0));
+    assert_eq!(all["agent/gone"], sync("agent/gone", false, 1, 0));
+    assert_eq!(all["origin/main"], None, "remote-tracking branches have none");
 }

@@ -13,7 +13,7 @@ import type { SectionEntry } from "../components/SectionList";
 import { type DiffDocument, type DiffMode, DiffEditor, type LineAction, type MoveDirection, type Snapshot } from "../editor/diffEditor";
 import { carryOver, dropSelectedLines, type LineSelection, resetEdits, takeSelectedLines } from "../editor/resetLines";
 import * as ipc from "../ipc/commands";
-import type { ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
+import type { BranchSync, ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
 import { comparePaths } from "./pathOrder";
 import {
@@ -87,14 +87,48 @@ export async function hasUncommitted(root: string): Promise<boolean> {
   return false;
 }
 
+/** The checkout Commit mode opens: the one used last, else the opened folder. */
+function commitCheckout(repo: NonNullable<typeof state.repo>): string {
+  const remembered = localStorage.getItem(checkoutKey(repo.root));
+  const known = (path: string) =>
+    samePath(path, repo.root) || repo.branches.some((branch) => branch.worktreePath && samePath(branch.worktreePath, path));
+  return remembered && known(remembered) ? remembered : repo.root;
+}
+
 /** Switches to Commit mode, in the checkout used last (else the opened folder). */
 export async function enter() {
   const repo = state.repo;
   if (!repo) return;
-  const remembered = localStorage.getItem(checkoutKey(repo.root));
-  const known = (path: string) =>
-    samePath(path, repo.root) || repo.branches.some((branch) => branch.worktreePath && samePath(branch.worktreePath, path));
-  await openCheckout(remembered && known(remembered) ? remembered : repo.root);
+  await openCheckout(commitCheckout(repo));
+}
+
+// Outside Commit mode: how many files the checkout it opens has uncommitted
+// changes in, for the count on the Commit mode button.
+const [countElsewhere, setCountElsewhere] = createSignal<{ root: string; count: number } | null>(null);
+let countTicket = 0;
+
+/** Files with uncommitted changes, staged or not, in the checkout Commit mode works in. */
+export function uncommittedCount(): number {
+  if (state.source === "commit") {
+    const work = state.work;
+    return work ? new Set([...work.unstaged, ...work.staged].map((file) => file.path)).size : 0;
+  }
+  const counted = countElsewhere();
+  return counted && counted.root === state.repo?.root ? counted.count : 0;
+}
+
+/** Counts again outside Commit mode (which has its own lists): after a refresh, a commit, on focus. */
+export async function countUncommitted() {
+  const repo = state.repo;
+  if (!repo || state.source === "commit") return;
+  const ticket = ++countTicket;
+  try {
+    const count = await ipc.uncommittedCount(commitCheckout(repo));
+    if (ticket === countTicket) setCountElsewhere({ root: repo.root, count });
+  } catch {
+    // Not able to tell: no count rather than a wrong one.
+    if (ticket === countTicket) setCountElsewhere(null);
+  }
 }
 
 /** Lists the uncommitted changes of another checkout of the repository. */
@@ -901,10 +935,14 @@ export function whyNoReview(): string | null {
 export function whyNoPush(): string | null {
   const work = state.work;
   if (!work?.branch) return "The checkout is not on a branch.";
-  const sync = work.sync;
+  return whyNotPushable(work.branch, work.sync);
+}
+
+/** Why `branch`, standing against its remote as `sync` says, has nothing a push could send; else null. */
+export function whyNotPushable(branch: string, sync: BranchSync | null): string | null {
   if (!sync) return "The repository has no remote to push to.";
   if (sync.behind > 0) {
-    return `${sync.remote}/${sync.remoteBranch} has ${sync.behind === 1 ? "a commit" : `${sync.behind} commits`} that ${work.branch} lacks. Pull first.`;
+    return `${sync.remote}/${sync.remoteBranch} has ${sync.behind === 1 ? "a commit" : `${sync.behind} commits`} that ${branch} lacks. Pull first.`;
   }
   if (sync.published && sync.ahead === 0) return `${sync.remote}/${sync.remoteBranch} is up to date.`;
   return null;
@@ -971,4 +1009,7 @@ export async function startWatching() {
     window.clearTimeout(changeTimer);
     changeTimer = window.setTimeout(() => void refreshWork(), 100);
   });
+  // Outside Commit mode only the compared checkout is watched: an agent's
+  // edits elsewhere are counted when the window comes back.
+  window.addEventListener("focus", () => void countUncommitted());
 }

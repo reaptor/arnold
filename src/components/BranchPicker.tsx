@@ -1,12 +1,44 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Branch } from "../ipc/commands";
-import { BranchIcon, ChevronDownIcon } from "./icons";
+import { ArrowUpIcon, BranchIcon, ChevronDownIcon } from "./icons";
 
 interface Props {
   label: string;
   value: string;
   branches: Branch[];
   onChange(name: string): void;
+  /** A pill after the chosen branch on the button: what it has that is not pushed. */
+  mark?: PickerMark | null;
+}
+
+export interface PickerMark {
+  text: string;
+  title: string;
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What a local branch has that its remote lacks, as a short mark and its explanation. */
+export function unpushed(branch: Branch | undefined): { label: string; count: number; title: string } | null {
+  const sync = branch?.sync;
+  if (!sync) return null;
+  const behind = sync.behind > 0 ? `, and ${sync.remote}/${sync.remoteBranch} has ${plural(sync.behind, "commit")} it lacks` : "";
+  if (!sync.published) {
+    const only = sync.ahead > 0 ? `: ${plural(sync.ahead, "commit")} only on this computer` : "";
+    return { label: "not pushed", count: sync.ahead, title: `${branch!.name} is not on ${sync.remote}${only}` };
+  }
+  if (sync.ahead === 0) return null;
+  return {
+    label: `${sync.ahead} unpushed`,
+    count: sync.ahead,
+    title: `${plural(sync.ahead, "commit")} of ${branch!.name} not pushed to ${sync.remote}/${sync.remoteBranch}${behind}`,
+  };
+}
+
+/** The pill for local branch `name` of `branches` when it has commits to push. */
+export function unpushedMark(branches: Branch[], name: string): PickerMark | null {
+  const mark = unpushed(branches.find((branch) => !branch.isRemote && branch.name === name));
+  return mark && { text: mark.count > 0 ? String(mark.count) : mark.label, title: mark.title };
 }
 
 /** Button that opens a searchable list of branches. */
@@ -51,10 +83,22 @@ export function BranchPicker(props: Props) {
   };
 
   return (
-    <div class="picker" ref={root}>
-      <button class="picker-button" onClick={toggle} title={`${props.label}: ${props.value}`}>
+    <div class="picker branch-picker" ref={root}>
+      <button
+        class="picker-button"
+        onClick={toggle}
+        title={`${props.label}: ${props.value}${props.mark ? `\n${props.mark.title}` : ""}`}
+      >
         <BranchIcon />
         <span class="picker-value">{props.value || "—"}</span>
+        <Show when={props.mark}>
+          {(mark) => (
+            <span class="unpushed-mark">
+              <ArrowUpIcon />
+              {mark().text}
+            </span>
+          )}
+        </Show>
         <ChevronDownIcon />
       </button>
       <Show when={open()}>
@@ -86,6 +130,13 @@ export function BranchPicker(props: Props) {
                   </Show>
                   <Show when={branch.isRemote}>
                     <span class="tag">remote</span>
+                  </Show>
+                  <Show when={unpushed(branch)}>
+                    {(mark) => (
+                      <span class="tag tag-unpushed" title={mark().title}>
+                        {mark().label}
+                      </span>
+                    )}
                   </Show>
                 </li>
               )}

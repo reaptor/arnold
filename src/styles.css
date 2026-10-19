@@ -321,6 +321,20 @@ button.primary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* Only the branch name gives way in a narrow window: the icon, the unpushed
+   pill and the arrow keep their room (a grid track of minmax(0, …) adds
+   nothing to the button's smallest size). */
+.toolbar .branch-picker {
+  min-width: auto;
+}
+
+.branch-picker .picker-button {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content);
+  grid-auto-flow: column;
+  min-width: auto;
+}
+
 /* Windows title-bar buttons: 46px wide, the full toolbar height. */
 .window-controls {
   display: flex;
@@ -502,6 +516,46 @@ button.primary:hover:not(:disabled) {
   padding: 0 6px;
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* A local branch with commits its remote lacks, or that is not on it at all. */
+.tag-unpushed {
+  color: var(--edited);
+  border-color: currentColor;
+}
+
+.unpushed-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px 0 3px;
+  border-radius: 8px;
+  background: var(--edited);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+/* Files with uncommitted changes, on the Commit mode button (as VS Code's Source Control badge). */
+.mode-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--edited);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.unpushed-mark .icon {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 
 /* --------------------------------------------------------------------- dock */
@@ -2493,11 +2547,12 @@ button.primary:hover:not(:disabled) {
   font-weight: normal;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .create-pr-button .action-label,
   .pr-actions .action-label,
   .branch-actions .action-label,
-  .source-switch span {
+  .source-switch span:not(.mode-count),
+  .toolbar-word {
     display: none;
   }
 

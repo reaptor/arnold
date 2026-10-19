@@ -6,6 +6,7 @@ import type { Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
+  Branch,
   ChangedFile,
   Commit,
   CommitRange,
@@ -518,10 +519,10 @@ const notCheckedOut = searchParams.has("notcheckedout") || searchParams.has("dir
 const repo: RepoInfo = {
   root: ROOT,
   branches: [
-    { name: "feature/agent-work", isRemote: false, worktreePath: notCheckedOut ? null : ROOT },
-    { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/src/shop-api-agent-work" },
-    { name: "main", isRemote: false, worktreePath: notCheckedOut ? ROOT : null },
-    { name: "origin/main", isRemote: true, worktreePath: null },
+    { name: "feature/agent-work", isRemote: false, worktreePath: notCheckedOut ? null : ROOT, sync: null },
+    { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/src/shop-api-agent-work", sync: null },
+    { name: "main", isRemote: false, worktreePath: notCheckedOut ? ROOT : null, sync: null },
+    { name: "origin/main", isRemote: true, worktreePath: null, sync: null },
   ],
   currentBranch: notCheckedOut ? "main" : "feature/agent-work",
   defaultBranch: "main",
@@ -794,16 +795,39 @@ function workingStatus(): WorkingStatus {
     head: commits[0].sha,
     unstaged: diffOf(index, worktree).filter((file) => !isIgnored(file.path, worktree)),
     staged: diffOf(head!, index),
-    sync: { remote: "origin", remoteBranch: "feature/agent-work", published: pushedCommits > 0, ahead: commits.length - pushedCommits, behind: 0 },
+    sync: agentWorkSync(),
   };
+}
+
+const agentWorkSync = () => ({
+  remote: "origin",
+  remoteBranch: "feature/agent-work",
+  published: pushedCommits > 0,
+  ahead: commits.length - pushedCommits,
+  behind: 0,
+});
+
+/** The branches with how each local one stands against origin: the agent's branch as pushed from Commit mode, the worktree one a commit ahead. */
+function branchesWithSync(): Branch[] {
+  const syncs: Record<string, Branch["sync"]> = {
+    "feature/agent-work": agentWorkSync(),
+    "feature/agent-work-wt": { remote: "origin", remoteBranch: "feature/agent-work-wt", published: true, ahead: worktreeBranchPushed ? 0 : 1, behind: 0 },
+    main: { remote: "origin", remoteBranch: "main", published: true, ahead: 0, behind: 0 },
+  };
+  return repo.branches.map((branch) => ({ ...branch, sync: branch.isRemote ? null : (syncs[branch.name] ?? null) }));
 }
 
 // `?failpush` makes pushing fail. Pushed: how many of `commits` the remote has.
 let pushedCommits = 0;
 
-function pushBranch() {
+// Whether feature/agent-work-wt (its own checkout, a commit ahead) was pushed.
+let worktreeBranchPushed = false;
+
+function pushBranch(checkout?: string) {
   if (searchParams.has("failpush")) throw "git push failed: Authentication failed for 'https://example.com/repo.git' (dev mock)";
-  pushedCommits = commits.length;
+  if (checkout === "/src/shop-api-agent-work") worktreeBranchPushed = true;
+  else pushedCommits = commits.length;
+  setTimeout(() => void emit("refs-changed"), 50);
   return checkoutChanged(null);
 }
 
@@ -1261,9 +1285,9 @@ export function install() {
           return null;
         case "open_repo":
           // Any path opens the same files, under that path's name.
-          return { ...repo, root: args.path };
+          return { ...repo, root: args.path, branches: branchesWithSync() };
         case "list_branches":
-          return repo.branches;
+          return branchesWithSync();
         case "compare_branches": {
           const own = ownDiffOf(args.head);
           const list = own?.commits ?? commits;
@@ -1317,6 +1341,10 @@ export function install() {
         }
         case "working_status":
           return workingStatus();
+        case "uncommitted_count": {
+          const work = workingStatus();
+          return new Set([...work.unstaged, ...work.staged].map((file) => file.path)).size;
+        }
         case "stop_watching_checkout":
           return null;
         case "read_working_pair": {
@@ -1405,7 +1433,7 @@ export function install() {
         case "commit_staged":
           return slowly(() => commitStaged(args.message), 500);
         case "push_checkout_branch":
-          return slowly(pushBranch, 700);
+          return slowly(() => pushBranch(args.checkout), 700);
         case "check_formatting":
           return slowly(formatCheck, 600);
         case "format_and_stage":

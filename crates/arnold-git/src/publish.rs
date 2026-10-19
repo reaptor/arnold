@@ -35,24 +35,35 @@ pub async fn branch_sync(checkout: &Path, branch: &str) -> Result<Option<BranchS
     let Some((remote, remote_branch)) = push_target(checkout, branch).await? else {
         return Ok(None);
     };
+    sync_against(checkout, "HEAD", remote, remote_branch).await.map(Some)
+}
+
+/// How `local` (a ref, or `HEAD`) stands against `remote_branch` on `remote`,
+/// from the remote-tracking branches: as of the last fetch or push.
+pub(crate) async fn sync_against(
+    checkout: &Path,
+    local: &str,
+    remote: String,
+    remote_branch: String,
+) -> Result<BranchSync> {
     let tracking = format!("refs/remotes/{remote}/{remote_branch}");
     let published = run_raw(checkout, &["rev-parse", "--verify", "--quiet", &tracking]).await?.success;
     let (ahead, behind) = if published {
-        let range = format!("{tracking}...HEAD");
+        let range = format!("{tracking}...{local}");
         let out = run_raw(checkout, &["rev-list", "--count", "--left-right", &range, "--"]).await?;
         parse_left_right(&String::from_utf8_lossy(&out.stdout)).map_or((0, 0), |(behind, ahead)| (ahead, behind))
     } else {
         let not_on_remote = format!("--remotes={remote}");
-        let out = run_raw(checkout, &["rev-list", "--count", "HEAD", "--not", &not_on_remote, "--"]).await?;
+        let out = run_raw(checkout, &["rev-list", "--count", local, "--not", &not_on_remote, "--"]).await?;
         (String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0), 0)
     };
-    Ok(Some(BranchSync {
+    Ok(BranchSync {
         remote,
         remote_branch,
         published,
         ahead,
         behind,
-    }))
+    })
 }
 
 /// The upstream of `branch` (remote and branch name there), else `origin`

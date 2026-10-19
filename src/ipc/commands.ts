@@ -6,6 +6,8 @@ export interface Branch {
   isRemote: boolean;
   /** Where the branch is checked out, if anywhere. */
   worktreePath: string | null;
+  /** A local branch against where it is pushed; null for remote branches or without remotes. */
+  sync: BranchSync | null;
 }
 
 export interface RepoInfo {
@@ -227,6 +229,8 @@ export interface NewCommit {
 
 /** Also starts watching the checkout: `onCheckoutChanged` follows every change to its files and index. */
 export const workingStatus = (checkout: string) => invoke<WorkingStatus>("working_status", { checkout });
+/** Files with uncommitted changes in `checkout`, without watching it (outside Commit mode). */
+export const uncommittedCount = (checkout: string) => invoke<number>("uncommitted_count", { checkout });
 
 export const stopWatchingCheckout = () => invoke<void>("stop_watching_checkout");
 

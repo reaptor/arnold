@@ -9,7 +9,7 @@ import {
   whyNoReview,
 } from "../state/commitMode";
 import { currentRemote, loadPullRequestsOnce, pullRequestFrom } from "../state/pullRequests";
-import { state } from "../state/review";
+import { headBranch, pushHead, pushingHead, state, whyNoPushHead } from "../state/review";
 import { ArrowUpIcon, BranchIcon, PullRequestIcon } from "./icons";
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -83,6 +83,32 @@ export function BranchActions() {
           </button>
         )}
       </Show>
+    </div>
+  );
+}
+
+/** Push in Branches: sends the compared branch's commits to its remote. */
+export function PushHeadButton() {
+  const sync = () => headBranch()?.sync ?? null;
+  const title = () => {
+    const why = whyNoPushHead();
+    if (why) return why;
+    const current = sync()!;
+    const what = current.published
+      ? `${plural(current.ahead, "commit")} of ${state.head} to ${current.remote}/${current.remoteBranch}`
+      : `${state.head} to ${current.remote} as a new branch${current.ahead > 0 ? ` (${plural(current.ahead, "commit")})` : ""}`;
+    const edits = state.comparison?.uncommitted ?? 0;
+    return `Push ${what}${edits > 0 ? `\nUncommitted edits are not pushed: commit them first (${plural(edits, "file")}).` : ""}`;
+  };
+  return (
+    <div class="branch-actions" data-tauri-drag-region="false">
+      <button type="button" disabled={pushingHead() || !!whyNoPushHead()} onClick={() => void pushHead()} title={title()}>
+        <ArrowUpIcon />
+        <span class="action-label">{pushingHead() ? "Pushing…" : "Push"}</span>
+        <Show when={!whyNoPushHead() && sync()?.ahead}>
+          <span class="push-count">{sync()?.ahead}</span>
+        </Show>
+      </button>
     </div>
   );
 }

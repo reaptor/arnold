@@ -35,6 +35,18 @@ pub async fn working_status(checkout: String, app: AppHandle, state: State<'_, A
     Ok(status)
 }
 
+/// How many files `checkout` has uncommitted changes in, staged or not
+/// (a file in both lists counts once). Unlike `working_status` it leaves
+/// the watched checkout as it is: for showing the count outside Commit mode.
+#[tauri::command]
+pub async fn uncommitted_count(checkout: String, state: State<'_, AppState>) -> Result<usize, String> {
+    let checkout = state.checked_root(&checkout)?;
+    let status = arnold_git::working_status(&checkout).await.map_err(text_error)?;
+    let paths: std::collections::HashSet<&str> =
+        status.unstaged.iter().chain(&status.staged).map(|file| file.path.as_str()).collect();
+    Ok(paths.len())
+}
+
 /// Makes sure `checkout`'s files and index are watched (`checkout-changed`),
 /// in place of any other checkout. `checkout` has been through `checked_root`.
 pub(crate) async fn watch_checkout(app: AppHandle, state: &AppState, checkout: PathBuf) -> Result<(), String> {

@@ -65,6 +65,7 @@ fn main() {
             commands::list_files,
             commands::read_file_pair,
             working::working_status,
+            working::uncommitted_count,
             working::stop_watching_checkout,
             working::read_working_pair,
             working::read_worktree_text,
