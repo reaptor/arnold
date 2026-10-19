@@ -14,7 +14,7 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 **Commit.** An agent's uncommitted changes in Unstaged and Staged lists, editable in the diff, with `S`, `U` and `R` to stage, unstage and reset files or single lines, as in Git Extensions. Changes made by the agent, an editor or a terminal show up as they happen.
 
-**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files. When the branch is checked out, fix things right in the diff: edits are saved to it and marked until you commit them.
+**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files. A branch checked out nowhere else gets a git worktree of its own, so you can always fix things right in the diff: edits are saved to its checkout and marked until you commit them.
 
 **Push and open the pull request.** *Review against main*, *Push* and *Push & create PR* sit in the toolbar after committing. A new pull request gets a Markdown description and, if you like, a linked work item; once the branch has one, the button opens it instead.
 
@@ -22,7 +22,7 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 **F#, including Fantomas.** Errors, hover, go to definition, find references, completion and Rider's colors from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and keeps up to date itself. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
 
-**Safe by default.** Comparing and reviewing never touch the checkout; only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
+**Safe by default.** Comparing and reviewing never touch the opened folder (other branches and pull requests are checked out in worktrees of their own); only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
 
 **Looks like Rider.** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
 
@@ -121,7 +121,7 @@ The lists follow changes made anywhere: by the agent, an editor or a terminal. I
 
 Arnold compares the merge-base of the two branches with the last commit of the reviewed branch, as a pull request does. A new commit or a fetch updates the diff and the branch pickers on their own.
 
-When the reviewed branch is checked out (in the opened folder or in a linked git worktree), the diff ends at that checkout's files instead, so uncommitted edits and untracked files are part of it, and it can be edited: see [Editing while comparing](#editing-while-comparing). A branch checked out nowhere is compared commit to commit, read-only.
+The diff ends at the files of the reviewed branch's checkout instead, so uncommitted edits and untracked files are part of it, and it can be edited: see [Editing while comparing](#editing-while-comparing). That is the opened folder or a linked git worktree when the branch is checked out there; a branch checked out nowhere is checked out in a git worktree of its own, `.arnold/worktrees/<branch>`, when you pick it (a remote branch `origin/x` as the local branch `x`, made to track it if there is none). The opened folder is never switched, and its uncommitted changes are not touched.
 
 The commit picker narrows the diff to one or more consecutive commits of the branch, as in an Azure DevOps pull request. Tick commits to add them; click a row to see only that commit.
 
@@ -132,7 +132,7 @@ The commit picker narrows the diff to one or more consecutive commits of the bra
 The left side has two parts:
 
 - **Changes:** every file in the diff, with its status (A, M, D, R) and line counts.
-- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit*, and in *Branches* when the branch is checked out): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk.
+- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit* and *Branches*): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk.
 
 The filter above them applies to both. Drag the gap between them to resize, click a heading to fold a part away, and press `Ctrl+B` to hide or show the whole dock.
 
@@ -155,14 +155,15 @@ The toolbar switches between one file at a time and *All files*: every file of t
 
 ### Editing while comparing
 
-With the reviewed branch checked out and *All changes* picked, type straight into the diff (the right side, or the file shown whole). Edits are saved to that checkout as you pause typing, and edits made elsewhere (an editor, an agent) show up in the diff as they happen.
+With *All changes* picked, type straight into the diff (the right side, or the file shown whole). Edits are saved to that checkout as you pause typing, and edits made elsewhere (an editor, an agent) show up in the diff as they happen.
 
 - A file with uncommitted edits is marked **● edited** in Changes, in the explorer and in its header in the all-files view.
 - In the diff, the lines your uncommitted edits changed are framed in the same amber, so they stand apart from the branch's committed changes; removed lines leave an amber bar where they were.
 - Right-click in the diff for *Undo edits in selected lines* or *Undo all edits to file*: the lines go back to the branch's last commit, as an edit `Cmd+Z` / `Ctrl+Z` can take back. Right-click a file in Changes or the explorer for *Undo edits to file…*, which asks first when the file is not open (a file no commit has is deleted).
 - A file from the explorer shows on its own; your first edit turns it into a diff against the merge-base, and undoing the edits turns it back.
 - The status bar counts the files with uncommitted edits. Click *Commit…* to go to *Commit* mode on that checkout; its *Review against* button brings you back.
-- Otherwise the status bar shows **Read-only**, and typing into the diff says why. A picked run of commits shows commits only. For a branch that is not checked out, *Check out \<branch\>* switches the opened folder to it, but only when the folder has no uncommitted changes.
+- Otherwise the status bar shows **Read-only**, and typing into the diff says why: a picked run of commits shows commits only, or checking the branch out in a worktree failed (*Try again* there).
+- Worktrees stay where they are when you pick another branch, so going back is quick. Arnold does not remove them; `git worktree remove` does. Git checks a branch out in one place at a time, so to switch the opened folder to a branch Arnold made a worktree for, remove that worktree first.
 
 ## Azure DevOps pull requests
 
@@ -208,7 +209,7 @@ Discussions show with all changes only: a commit picked in the commit picker has
 
 ### Suggesting changes
 
-Rather than describing a fix, make it. Type into the diff and choose *Edit in a worktree* in the popup (or under *Read-only* in the status bar): Arnold checks the pull request out in a git worktree of its own, `.arnold/worktrees/pr-<id>`, detached at its latest push. Your folder, its branch and its uncommitted changes are not touched, and F# language features run in the worktree, so they see your edits.
+Rather than describing a fix, make it: type into the diff. Opening a pull request checks it out in a git worktree of its own, `.arnold/worktrees/pr-<id>`, detached at its latest push. Your folder, its branch and its uncommitted changes are not touched, and F# language features run in the worktree, so they see your edits.
 
 Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
 
@@ -234,7 +235,7 @@ In F# files the diff has errors and warnings, hover, go to definition (`F12`, `C
 
 ![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
 
-The language server needs the code on disk with its packages restored. For the branch checked out in the opened folder (and in *Commit*) it runs right there; for any other branch or a pull request Arnold prepares a copy. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
+The language server needs the code on disk with its packages restored. It runs in the reviewed branch's checkout (the opened folder, a linked worktree or the branch's own worktree), the pull request's worktree, or *Commit*'s checkout, and sees edits there. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
 
 ![The F# language features popup: restoring, building, starting FsAutoComplete and loading projects](docs/screenshots/language.png)
 
@@ -243,7 +244,7 @@ How it works:
 - Arnold uses [FsAutoComplete](https://github.com/ionide/FsAutoComplete) (Apache-2.0), which is not bundled. The first time an F# file is shown, Arnold downloads the latest release from nuget.org into its own data folder, checks it against the SHA-512 hash NuGet publishes, and starts it. Nothing is installed globally.
 - After that it starts the installed copy straight away and, at most once a day, looks for a newer release in the background; a new one is used from the next start. Old versions are removed.
 - It needs the .NET SDK (8 or newer). The SDK the repository selects (`global.json`) decides which build of the server runs.
-- The server runs in the opened folder when the reviewed branch is checked out there, else in a copy of the reviewed commit in `.arnold/worktrees/<branch>`. Checking out another branch in the folder moves it to a copy. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. A new commit updates the copy in place, so restore and build output are reused.
+- Only when no checkout of the reviewed commit can be had (a worktree could not be made, or a pull request's worktree holds edits to an earlier push) does it run in a copy of the commit instead, `.arnold/worktrees/<branch>-<hash>`, without edits. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. A new commit updates the copy in place, so restore and build output are reused.
 - The server stops when Arnold closes or you pick another branch.
 
 ### Fantomas
@@ -272,16 +273,16 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a checked-out branch are saved to that checkout, and *Check out \<branch\>* switches the opened folder to the branch (only when it has nothing uncommitted). *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
-- for the language server, when the reviewed branch is not the one checked out in the folder: a copy of the reviewed commit in `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`, and it is not a registered git worktree);
-- when the reviewed branch is checked out in the folder: the output of `dotnet restore` (and of building referenced non-F# projects, when needed) in its `obj` and `bin` folders, as building it yourself would;
+- when you compare a branch checked out nowhere: a registered git worktree of it, `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`), and for a remote branch `origin/x` without a local branch, a local branch `x` that tracks it;
+- for the language server: the output of `dotnet restore` (and of building referenced non-F# projects, when needed) in the `obj` and `bin` folders of the checkout it runs in, as building it yourself would; only when no checkout can be had, a copy of the reviewed commit in `.arnold/worktrees/<branch>-<hash>` (not a registered worktree);
 - while running *Run Fantomas and commit* on a file that also has unstaged changes: a short-lived copy of its staged text beside it (`<name>.arnold-staged.fs`), deleted as soon as Fantomas has formatted it;
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
 - to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
-- when you edit a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
+- when you open a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
 
 ## Status
 
@@ -356,7 +357,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
-| `notcheckedout` | The folder is on `main`, so `feature/agent-work` is compared read-only until it is checked out; `dirtyfolder` also gives `main` uncommitted changes, so it cannot be |
+| `notcheckedout` | The folder is on `main`, so `feature/agent-work` is checked out in a worktree of its own when compared; `dirtyfolder` also gives `main` uncommitted changes; `checkoutfail` makes the worktree fail, so the comparison is read-only |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |
 | `failpush` | Pushing the branch from *Commit* fails |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
@@ -374,7 +375,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `src/` | UI: SolidJS + CodeMirror 6 (`@codemirror/merge`) |
 | `src-tauri/` | Tauri shell: commands, file decoding, branch and checkout watchers, preparing the language server's copy |
 | `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
-| `crates/arnold-git/` | Git through the `git` CLI: reading for the review, copying a commit's files out, and staging and committing for Commit mode (`working.rs`) |
+| `crates/arnold-git/` | Git through the `git` CLI: reading for the review, worktrees for branches and pull requests (`worktree.rs`), copying a commit's files out, and staging and committing for Commit mode (`working.rs`) |
 | `crates/arnold-pr/` | Pull requests of code hosts: Azure DevOps remotes, its REST API, tokens in the system credential store |
 | `crates/arnold-lsp/` | Language servers: install/update, the minimal restore/build plan, and the proxy between editor and server; running Fantomas (`fantomas.rs`; formatting and staging before a commit is `src-tauri/src/formatting.rs`) |
 | `scripts/` | Taking the README's screenshots |

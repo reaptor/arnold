@@ -60,7 +60,7 @@ fn main() {
             commands::open_repo,
             commands::list_branches,
             commands::compare_branches,
-            commands::checkout_branch,
+            commands::branch_worktree,
             commands::pull_request_worktree,
             commands::list_files,
             commands::read_file_pair,

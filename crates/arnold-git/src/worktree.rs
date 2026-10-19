@@ -1,7 +1,10 @@
-//! A registered git worktree of the app's own, detached at a commit: where a
-//! pull request is checked out to be edited (its edits become suggestions on
-//! the pull request rather than commits). It lives in `.arnold/worktrees`, so
-//! the opened folder, its branch and its uncommitted changes stay untouched.
+//! Registered git worktrees of the app's own, in `.arnold/worktrees`, so the
+//! opened folder, its branch and its uncommitted changes stay untouched:
+//! - `branch_worktree`: a branch checked out nowhere else gets one, so it can
+//!   be edited and the language server runs on its files;
+//! - `detached_worktree`: one detached at a commit, where a pull request is
+//!   checked out (its edits become suggestions on the pull request rather
+//!   than commits).
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +12,7 @@ use serde::Serialize;
 
 use crate::cli::{run, run_raw, run_text, GitError};
 use crate::export::app_folder;
+use crate::remotes::remotes;
 use crate::Result;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -86,4 +90,99 @@ pub async fn detached_worktree(root: &Path, name: &str, commit: &str, discard: b
         return Err(GitError::Failed { command: "worktree add".into(), stderr: out.stderr });
     }
     describe(&path).await
+}
+
+/// Where a branch is checked out.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchCheckout {
+    /// The local branch checked out: the one asked for, or for a remote
+    /// branch (`origin/x`) the local branch `x`.
+    pub branch: String,
+    pub path: PathBuf,
+    /// Whether it was checked out just now, in a new worktree.
+    pub created: bool,
+}
+
+/// Where `branch` is checked out (the opened folder, a linked worktree),
+/// or, when it is checked out nowhere, a new worktree of it in
+/// `.arnold/worktrees/<branch>`. A remote branch (`origin/x`) is checked
+/// out as the local branch `x`, created to track it when there is none.
+pub async fn branch_worktree(root: &Path, branch: &str) -> Result<BranchCheckout> {
+    // Worktrees deleted by hand, whose branches git would still call checked out.
+    run(root, &["worktree", "prune"]).await?;
+    let local = local_name(root, branch).await?;
+    let exists = has_branch(root, &local).await?;
+    if exists {
+        let listed = run_text(root, &["for-each-ref", "--format=%(worktreepath)", &format!("refs/heads/{local}")]).await?;
+        if !listed.is_empty() {
+            return Ok(BranchCheckout { branch: local, path: PathBuf::from(listed), created: false });
+        }
+    }
+    let path = free_folder(root, &slug(&local)).await?;
+    let target = path.to_string_lossy().into_owned();
+    let args: Vec<&str> = if exists {
+        vec!["worktree", "add", "--quiet", &target, &local]
+    } else {
+        vec!["worktree", "add", "--quiet", "--track", "-b", &local, &target, branch]
+    };
+    let out = run_raw(root, &args).await?;
+    if !out.success {
+        return Err(GitError::Failed { command: "worktree add".into(), stderr: out.stderr });
+    }
+    Ok(BranchCheckout { branch: local, path, created: true })
+}
+
+async fn has_branch(root: &Path, name: &str) -> Result<bool> {
+    Ok(run_raw(root, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")]).await?.success)
+}
+
+/// The local branch for `branch`: itself unless it is only a remote branch.
+async fn local_name(root: &Path, branch: &str) -> Result<String> {
+    if has_branch(root, branch).await? {
+        return Ok(branch.to_string());
+    }
+    for remote in remotes(root).await? {
+        if let Some(name) = branch.strip_prefix(&format!("{}/", remote.name)) {
+            return Ok(name.to_string());
+        }
+    }
+    Ok(branch.to_string())
+}
+
+/// `<root>/.arnold/worktrees/<name>`, or `<name>-2`, `-3`… when that is taken
+/// (by a pull request's worktree, or a branch whose name has the same slug).
+async fn free_folder(root: &Path, name: &str) -> Result<PathBuf> {
+    let folder = app_folder(root).await?.join("worktrees");
+    for n in 1..100 {
+        let candidate = if n == 1 { folder.join(name) } else { folder.join(format!("{name}-{n}")) };
+        if !tokio::fs::try_exists(&candidate).await.unwrap_or(true) {
+            return Ok(candidate);
+        }
+    }
+    Err(GitError::Failed { command: "worktree add".into(), stderr: format!("no free folder for {name} in {}", folder.display()) })
+}
+
+/// A folder name safe on every platform: `feature/agent work` → `feature-agent-work`.
+fn slug(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '-' })
+        .take(60)
+        .collect();
+    // Not hidden, and never `.` or `..`.
+    let slug = slug.trim_start_matches('.');
+    if slug.is_empty() { "branch".into() } else { slug.into() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slug;
+
+    #[test]
+    fn folder_names_are_safe() {
+        assert_eq!(slug("feature/agent work"), "feature-agent-work");
+        assert_eq!(slug("../x"), "-x");
+        assert_eq!(slug(".."), "branch");
+    }
 }

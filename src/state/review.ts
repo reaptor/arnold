@@ -624,7 +624,9 @@ export async function openPullRequest(remote: string, id: number) {
     rememberReview(repo.root, { source: "pullRequest", pullRequest: { remote, id } });
     setHostLinks(azureHostLinks(pullRequest.url));
     void loadThreads();
-    await loadPrWorktree(false);
+    // Checked out from the start, so it can be edited (into suggestions) and
+    // the language server runs on its files.
+    await loadPrWorktree(true);
     await setView("all");
     await refresh();
   } catch (error) {
@@ -704,6 +706,7 @@ export function resetSessions() {
 /** Re-reads the changed-file list and brings the open file up to date. */
 export async function refresh() {
   const repo = state.repo;
+  if (repo && state.source === "branches" && !(await checkOutHead(repo))) return;
   const revs = compared();
   if (!repo || !revs) return;
   try {
@@ -1011,11 +1014,11 @@ export async function undoFileEdits(path: string) {
 }
 
 /**
- * What makes the diff editable: checking the branch out in the opened
- * folder, checking the pull request out in a worktree of its own, or
- * throwing away edits made to an earlier push of the pull request.
+ * What makes the diff editable: checking the branch or the pull request out
+ * in a worktree of its own (again, after that failed), or throwing away
+ * edits made to an earlier push of the pull request.
  */
-export type EditAction = { kind: "checkOut"; branch: string } | { kind: "worktree" } | { kind: "discard" };
+export type EditAction = { kind: "worktree" } | { kind: "discard" };
 
 /** Why the diff cannot be edited, and what would make it editable; null when it can (or edits do not apply). */
 export function editBlocked(): { reason: string; action: EditAction | null } | null {
@@ -1036,17 +1039,63 @@ export function editBlocked(): { reason: string; action: EditAction | null } | n
       };
     }
     return {
-      reason: `To edit, Arnold checks the pull request out in a git worktree of its own (.arnold/worktrees/pr-${pullRequest.id}); your folder is not touched. Your edits there become suggestions on the pull request.`,
+      reason: `Arnold could not check the pull request out in a git worktree of its own (.arnold/worktrees/pr-${pullRequest.id})${problemOf(checkoutKey(repo.root, `!${pullRequest.id}`))}`,
       action: { kind: "worktree" },
     };
   }
-  const head = comparison.head;
-  const local = repo.branches.find((branch) => !branch.isRemote && remoteFree(repo, head) === branch.name);
-  if (local?.worktreePath) {
-    return { reason: `${local.name} is checked out in ${local.worktreePath}. Compare that branch to edit it.`, action: null };
+  return {
+    reason: `Arnold could not check ${comparison.head} out in a git worktree of its own (.arnold/worktrees)${problemOf(checkoutKey(repo.root, comparison.head))}`,
+    action: { kind: "worktree" },
+  };
+}
+
+/** Why the last checkout into a worktree failed; `key` says of what (`checkoutKey`). Not tried again by itself. */
+const [checkoutProblem, setCheckoutProblem] = createSignal<{ key: string; error: string } | null>(null);
+const checkoutKey = (root: string, what: string) => `${root}\n${what}`;
+const problemOf = (key: string) => (checkoutProblem()?.key === key ? `: ${checkoutProblem()!.error}` : ".");
+
+/** The checkout into a worktree under way, which refreshes that come meanwhile wait for. */
+let checkingOut: { key: string; done: Promise<boolean> } | null = null;
+
+/**
+ * Branches: makes sure the compared branch is checked out somewhere (the
+ * opened folder, a linked worktree, or else a new worktree of its own in
+ * `.arnold/worktrees`), so its files can be edited and the language server
+ * runs on them. A remote branch is checked out as its local branch, which
+ * is compared from then on. False when the review changed meanwhile.
+ * A failure leaves the comparison read-only, with why (`editBlocked`).
+ */
+async function checkOutHead(repo: RepoInfo): Promise<boolean> {
+  const head = state.head;
+  const local = repo.branches.find((branch) => !branch.isRemote && branch.name === head);
+  if (!head || head === state.base || local?.worktreePath) return true;
+  const key = checkoutKey(repo.root, head);
+  if (checkoutProblem()?.key === key) return true;
+  if (checkingOut?.key !== key) {
+    const done = (async () => {
+      try {
+        const checkout = await ipc.branchWorktree(repo.root, head);
+        const branches = await ipc.listBranches(repo.root);
+        if (state.repo !== repo) return false;
+        setState("repo", "branches", branches);
+        if (checkout.created) commitMode.notify(`Checked ${checkout.branch} out in ${relativeTo(repo.root, checkout.path) ?? checkout.path}`);
+        if (state.head !== head) return false;
+        if (checkout.branch !== head) {
+          setState("head", checkout.branch);
+          localStorage.setItem(`arnold.branches.${repo.root}`, JSON.stringify({ base: state.base, head: state.head }));
+        }
+        return true;
+      } catch (error) {
+        setCheckoutProblem({ key, error: String(error) });
+        return state.repo === repo && state.head === head;
+      }
+    })();
+    checkingOut = { key, done };
+    void done.finally(() => {
+      if (checkingOut?.done === done) checkingOut = null;
+    });
   }
-  const where = repo.currentBranch ? `The folder is on ${repo.currentBranch}` : "The folder has no branch checked out";
-  return { reason: `${head} is not checked out. ${where}; check ${head} out to edit it.`, action: { kind: "checkOut", branch: head } };
+  return checkingOut.done;
 }
 
 /** The worktree of `pullRequest`, if it has one. */
@@ -1074,8 +1123,9 @@ async function loadPrWorktree(create: boolean, discard = false) {
     const worktree = await ipc.pullRequestWorktree(repo.root, pullRequest.id, pullRequest.sourceCommit, create, discard);
     if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id) return;
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
+    if (create) setCheckoutProblem(null);
   } catch (error) {
-    fail(`The pull request's worktree: ${String(error)}`);
+    setCheckoutProblem({ key: checkoutKey(repo.root, `!${pullRequest.id}`), error: String(error) });
   }
 }
 
@@ -1093,7 +1143,12 @@ export async function makeEditable() {
 
 async function makeEditableAs(action: EditAction | null | undefined) {
   if (!action) return;
-  if (action.kind === "checkOut") return checkOutToEdit(action.branch);
+  if (action.kind === "worktree" && state.source === "branches") {
+    // Tried again on the next refresh.
+    setCheckoutProblem(null);
+    resetSessions();
+    return refresh();
+  }
   if (action.kind === "discard") {
     const sure = await confirm(
       "Throw away your edits to the earlier push of this pull request and edit the latest one? This cannot be undone.",
@@ -1106,50 +1161,6 @@ async function makeEditableAs(action: EditAction | null | undefined) {
     await loadPrWorktree(true, action.kind === "discard");
     resetSessions();
     await refresh();
-  } finally {
-    setState("busy", false);
-  }
-}
-
-/** `origin/x` → `x` for a remote branch of the repository; other names as they are. */
-function remoteFree(repo: RepoInfo, name: string): string {
-  const remote = repo.branches.find((branch) => branch.isRemote && branch.name === name);
-  if (!remote) return name;
-  const slash = name.indexOf("/");
-  return slash < 0 ? name : name.slice(slash + 1);
-}
-
-/**
- * Whether the opened folder has uncommitted changes, which keep a branch
- * from being checked out there. Null when that cannot be told.
- */
-export async function folderHasChanges(): Promise<boolean | null> {
-  const repo = state.repo;
-  if (!repo) return null;
-  try {
-    const work = await ipc.workingStatus(repo.root);
-    return work.unstaged.length + work.staged.length > 0;
-  } catch {
-    return null;
-  } finally {
-    // Reading it starts watching it; only Commit mode and an editable comparison watch a checkout.
-    if (state.source !== "commit" && !state.comparison?.checkout) void ipc.stopWatchingCheckout();
-  }
-}
-
-/** Checks the compared branch out in the opened folder, so its files can be edited. */
-async function checkOutToEdit(name: string) {
-  const repo = state.repo;
-  if (!repo) return;
-  setState({ busy: true, error: null });
-  try {
-    const branch = await ipc.checkoutBranch(repo.root, name);
-    if (state.repo !== repo) return;
-    const branches = await ipc.listBranches(repo.root);
-    setState("repo", { branches, currentBranch: branch });
-    await setBranches({ head: branch });
-  } catch (error) {
-    fail(error);
   } finally {
     setState("busy", false);
   }

@@ -170,8 +170,21 @@ export const pathTracked = (checkout: string, path: string) => invoke<boolean>("
 /** Stops tracking `path` (a file, or a folder's files) in `checkout`, keeping it on disk; resolves to how many files. */
 export const untrackPath = (checkout: string, path: string) => invoke<number>("untrack_path", { checkout, path });
 
-/** Checks `branch` out in the opened folder (only when it has nothing uncommitted); resolves to the local branch. */
-export const checkoutBranch = (root: string, branch: string) => invoke<string>("checkout_branch", { root, branch });
+/** Where a branch is checked out. */
+export interface BranchCheckout {
+  /** The local branch checked out: the one asked for, or `x` for a remote branch `origin/x`. */
+  branch: string;
+  path: string;
+  /** Whether it was checked out just now, in a new worktree. */
+  created: boolean;
+}
+
+/**
+ * Where `branch` is checked out; checked out in a worktree of its own
+ * (`.arnold/worktrees/<branch>`) when it is checked out nowhere. The opened
+ * folder is never switched.
+ */
+export const branchWorktree = (root: string, branch: string) => invoke<BranchCheckout>("branch_worktree", { root, branch });
 
 // ------------------------------------------------------- uncommitted changes
 

@@ -71,7 +71,14 @@ pub async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
         ],
     )
     .await?;
-    Ok(out.lines().filter_map(parse_branch_line).collect())
+    let mut branches: Vec<Branch> = out.lines().filter_map(parse_branch_line).collect();
+    // A worktree deleted by hand that git has not pruned yet has nothing to read.
+    for branch in &mut branches {
+        if branch.worktree_path.as_deref().is_some_and(|path| !path.exists()) {
+            branch.worktree_path = None;
+        }
+    }
+    Ok(branches)
 }
 
 fn parse_branch_line(line: &str) -> Option<Branch> {

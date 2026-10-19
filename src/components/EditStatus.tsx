@@ -1,15 +1,5 @@
-import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js";
-import {
-  commitEdits,
-  editBlocked,
-  editInfoAnchor,
-  editInfoOpen,
-  folderHasChanges,
-  makeEditable,
-  setEditInfoOpen,
-  setSource,
-  state,
-} from "../state/review";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { commitEdits, editBlocked, editInfoAnchor, editInfoOpen, makeEditable, setEditInfoOpen, state } from "../state/review";
 
 /** Closes a status bar popup on a click outside `root` or Escape. */
 function closeOnOutside(root: () => HTMLElement, close: () => void) {
@@ -31,8 +21,9 @@ function closeOnOutside(root: () => HTMLElement, close: () => void) {
  * Branches and pull requests: whether the diff can be edited. With the
  * branch checked out, how many files have uncommitted edits and a way to
  * commit them (a pull request's edits are suggested from the Suggest button
- * on each change instead). Without, a "Read-only" pill saying why, and
- * offering what would make the diff editable.
+ * on each change instead). Without (a picked run of commits, a checkout
+ * that failed), a "Read-only" pill saying why, and offering what would make
+ * the diff editable.
  */
 export function EditStatus() {
   return (
@@ -58,15 +49,6 @@ export function EditStatus() {
 function ReadOnlyPill() {
   let root!: HTMLDivElement;
   closeOnOutside(() => root, () => setEditInfoOpen(false));
-  // Asked each time the popup opens: the folder may have changed meanwhile.
-  const [asked, setAsked] = createSignal(0);
-  createEffect(() => {
-    if (editInfoOpen()) setAsked((count) => count + 1);
-  });
-  const [dirty] = createResource(
-    () => (editInfoOpen() && editBlocked()?.action?.kind === "checkOut" ? asked() : false),
-    () => folderHasChanges(),
-  );
   const act = () => {
     // Takes what was typed before the popup closes (closing drops it).
     void makeEditable();
@@ -115,7 +97,7 @@ function ReadOnlyPill() {
               <Show when={blocked().action?.kind === "worktree"}>
                 <div class="edit-popup-actions">
                   <button class="primary" disabled={state.busy} onClick={act}>
-                    Edit in a worktree
+                    Try again
                   </button>
                 </div>
               </Show>
@@ -125,43 +107,6 @@ function ReadOnlyPill() {
                     Discard edits and edit the latest push…
                   </button>
                 </div>
-              </Show>
-              <Show when={blocked().action?.kind === "checkOut" && blocked().action}>
-                {(action) => (
-                  <Show
-                    when={!dirty.loading}
-                    fallback={<p class="edit-popup-note">Checking the folder for uncommitted changes…</p>}
-                  >
-                    <Show
-                      when={!dirty()}
-                      fallback={
-                        <>
-                          <p class="edit-popup-note">
-                            The folder has uncommitted changes on {state.repo?.currentBranch ?? "its checkout"}. Commit
-                            them or put them back before checking out {(action() as { branch: string }).branch}.
-                          </p>
-                          <div class="edit-popup-actions">
-                            <button
-                              class="secondary"
-                              onClick={() => {
-                                setEditInfoOpen(false);
-                                void setSource("commit");
-                              }}
-                            >
-                              Open Commit mode
-                            </button>
-                          </div>
-                        </>
-                      }
-                    >
-                      <div class="edit-popup-actions">
-                        <button class="primary" disabled={state.busy} onClick={act}>
-                          Check out {(action() as { branch: string }).branch}
-                        </button>
-                      </div>
-                    </Show>
-                  </Show>
-                )}
               </Show>
             </div>
           </Show>

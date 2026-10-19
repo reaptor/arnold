@@ -8,13 +8,13 @@
 //! is `push_commit`, when a pull request is created from a reviewed branch
 //! that is not on the server yet; it never forces.
 //!
-//! `detached_worktree` makes a registered worktree in `.arnold/worktrees`
-//! for editing a pull request without touching the opened folder.
+//! `branch_worktree` and `detached_worktree` make registered worktrees in
+//! `.arnold/worktrees`, so a branch or a pull request checked out nowhere
+//! else can be edited (and the language server run on its files) without
+//! touching the opened folder.
 //!
 //! A comparison whose branch is checked out reads that checkout's files, so
-//! they can be edited (saved through `working`); `switch_branch` checks a
-//! branch out in the opened folder for that, when asked and only when the
-//! folder has nothing uncommitted.
+//! they can be edited (saved through `working`).
 //!
 //! `working` is the exception: it stages, unstages, puts files back and
 //! commits in the checkout it is given, for committing an agent's changes
@@ -29,7 +29,6 @@ mod refs;
 mod publish;
 mod push;
 mod remotes;
-mod switch;
 mod working;
 mod worktree;
 
@@ -41,8 +40,7 @@ pub use refs::{common_dir, git_dir, list_branches, open, Branch, RepoInfo};
 pub use publish::{branch_sync, push_branch, BranchSync};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
-pub use switch::switch_branch;
-pub use worktree::{detached_worktree, find_worktree, Worktree};
+pub use worktree::{branch_worktree, detached_worktree, find_worktree, BranchCheckout, Worktree};
 pub use working::{
     commit, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,

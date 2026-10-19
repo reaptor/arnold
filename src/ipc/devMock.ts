@@ -424,9 +424,9 @@ function changedFiles(picked: readonly Commit[], set = files, list: readonly Moc
   return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-// `?notcheckedout`: the folder is on main, so the agent's branch is compared
-// read-only until it is checked out. `?dirtyfolder`: the same, and main has
-// uncommitted changes (those of `?uncommitted`), so it cannot be.
+// `?notcheckedout`: the folder is on main, so the agent's branch is checked
+// out in a worktree of its own when compared. `?dirtyfolder`: the same, and
+// main has uncommitted changes (those of `?uncommitted`), which stay.
 const notCheckedOut = searchParams.has("notcheckedout") || searchParams.has("dirtyfolder");
 
 const repo: RepoInfo = {
@@ -442,17 +442,16 @@ const repo: RepoInfo = {
   worktrees: [ROOT, "/src/shop-api-agent-work"],
 };
 
-function checkoutBranch(branch: string): string {
-  checkoutState();
-  if (diffOf(index, worktree).length + diffOf(head!, index).length > 0) {
-    throw "git switch failed: the folder has uncommitted changes. Commit or put them back first. (dev mock)";
-  }
-  for (const candidate of repo.branches) {
-    if (candidate.worktreePath === ROOT) candidate.worktreePath = null;
-    if (candidate.name === branch) candidate.worktreePath = ROOT;
-  }
-  repo.currentBranch = branch;
-  return branch;
+// `?checkoutfail`: checking a branch out in a worktree fails.
+function branchWorktree(branch: string) {
+  if (searchParams.has("checkoutfail")) throw "git worktree add failed: fatal: could not create work tree dir (dev mock)";
+  const local = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === branch.replace(/^origin\//, ""));
+  if (!local) throw `not a branch: ${branch} (dev mock)`;
+  if (local.worktreePath) return { branch: local.name, path: local.worktreePath, created: false };
+  // The mock's checkouts share one set of files.
+  local.worktreePath = `${ROOT}/.arnold/worktrees/${local.name.replace(/[^\w.-]/g, "-")}`;
+  repo.worktrees.push(local.worktreePath);
+  return { branch: local.name, path: local.worktreePath, created: true };
 }
 
 /**
@@ -1204,8 +1203,8 @@ export function install() {
           const { id, create, discard } = payload as { id: number; create: boolean; discard?: boolean };
           return slowly(() => pullRequestWorktree(args.root, id, args.commit, create, !!discard), 400);
         }
-        case "checkout_branch":
-          return slowly(() => checkoutBranch(args.branch), 300);
+        case "branch_worktree":
+          return slowly(() => branchWorktree(args.branch), 300);
         case "list_files": {
           if (args.checkout) {
             checkoutState();

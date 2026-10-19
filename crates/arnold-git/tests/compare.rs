@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    app_folder, compare, export_commit, list_files, open, read_blob, switch_branch, tree_files, CommitRange, FileStatus,
+    app_folder, compare, export_commit, list_files, open, read_blob, tree_files, CommitRange, FileStatus,
 };
 
 fn git(cwd: &Path, args: &[&str]) {
@@ -319,7 +319,8 @@ async fn checked_out_branch_is_compared_with_its_files_on_disk() {
 }
 
 #[tokio::test]
-async fn switches_to_a_branch_only_in_a_clean_folder() {
+async fn checks_branches_out_in_worktrees_of_their_own() {
+    use arnold_git::branch_worktree;
     let dir = fixture();
     let root = dir.path();
     git(root, &["checkout", "--quiet", "main"]);
@@ -328,20 +329,42 @@ async fn switches_to_a_branch_only_in_a_clean_folder() {
     git(root, &["remote", "add", "origin", remote.path().to_str().unwrap()]);
     git(root, &["push", "--quiet", "origin", "feature:remote-only"]);
     git(root, &["fetch", "--quiet", "origin"]);
-
+    // Uncommitted changes in the opened folder are no obstacle, and stay.
     write(root, "a.txt", "dirty\n");
-    let error = switch_branch(root, "feature").await.unwrap_err();
-    assert!(error.to_string().contains("uncommitted changes"), "{error}");
-    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("main"));
+    let status_before = git_output(root, &["status", "--porcelain"]);
 
-    git(root, &["checkout", "--quiet", "--", "a.txt"]);
-    assert_eq!(switch_branch(root, "feature").await.unwrap(), "feature");
-    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
+    // The branch the folder has needs no worktree.
+    let here = branch_worktree(root, "main").await.unwrap();
+    assert_eq!(here.path.canonicalize().unwrap(), root.canonicalize().unwrap());
+    assert!(!here.created);
+
+    let made = branch_worktree(root, "feature").await.unwrap();
+    assert_eq!((made.branch.as_str(), made.created), ("feature", true));
+    assert!(made.path.ends_with(".arnold/worktrees/feature"), "{}", made.path.display());
+    assert!(made.path.join("new.txt").exists());
+    assert_eq!(git_output(root, &["status", "--porcelain"]), status_before, "the opened folder is untouched");
+    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("main"));
+    let listed = arnold_git::list_branches(root).await.unwrap();
+    let feature = listed.iter().find(|branch| branch.name == "feature").unwrap();
+    assert_eq!(feature.worktree_path.as_deref().map(|p| p.canonicalize().unwrap()), Some(made.path.canonicalize().unwrap()));
+
+    // Asked again: the same worktree.
+    let again = branch_worktree(root, "feature").await.unwrap();
+    assert_eq!((again.path.canonicalize().unwrap(), again.created), (made.path.canonicalize().unwrap(), false));
 
     // A remote branch gets a local one that tracks it.
-    assert_eq!(switch_branch(root, "origin/remote-only").await.unwrap(), "remote-only");
+    let tracked = branch_worktree(root, "origin/remote-only").await.unwrap();
+    assert_eq!(tracked.branch, "remote-only");
+    assert!(tracked.path.ends_with(".arnold/worktrees/remote-only"));
     let upstream = git_output(root, &["rev-parse", "--abbrev-ref", "remote-only@{upstream}"]);
     assert_eq!(String::from_utf8(upstream).unwrap().trim(), "origin/remote-only");
+
+    // Deleted by hand: listed as checked out nowhere, and made again.
+    std::fs::remove_dir_all(&made.path).unwrap();
+    let listed = arnold_git::list_branches(root).await.unwrap();
+    assert_eq!(listed.iter().find(|branch| branch.name == "feature").unwrap().worktree_path, None);
+    let remade = branch_worktree(root, "feature").await.unwrap();
+    assert!(remade.created && remade.path.join("new.txt").exists());
 }
 
 #[tokio::test]

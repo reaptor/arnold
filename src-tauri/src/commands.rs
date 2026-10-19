@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{Branch, CommitRange, Comparison, RepoInfo, Worktree};
+use arnold_git::{Branch, BranchCheckout, CommitRange, Comparison, RepoInfo, Worktree};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -163,12 +163,16 @@ pub async fn pull_request_worktree(
     Ok(Some(worktree))
 }
 
-/// Checks `branch` out in the opened folder so it can be edited, when the
-/// folder has nothing uncommitted. Returns the local branch checked out.
+/// Where `branch` is checked out, checking it out in a worktree of its own
+/// (`.arnold/worktrees/<branch>`) when it is checked out nowhere, so it can be
+/// edited and the language server runs on its files. The opened folder is
+/// never switched.
 #[tauri::command]
-pub async fn checkout_branch(root: String, branch: String, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn branch_worktree(root: String, branch: String, state: State<'_, AppState>) -> Result<BranchCheckout, String> {
     let root = state.checked_root(&root)?;
-    arnold_git::switch_branch(&root, &branch).await.map_err(text_error)
+    let checkout = arnold_git::branch_worktree(&root, &branch).await.map_err(text_error)?;
+    state.allow_root(&checkout.path);
+    Ok(checkout)
 }
 
 /// The branches again, after the watcher saw them change.
