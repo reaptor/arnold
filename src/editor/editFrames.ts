@@ -10,6 +10,8 @@
 //
 // With `onSuggest` (a pull request's files) each framed change also gets a
 // Suggest button on a row of its own under it, there from the first keystroke.
+// Until suggested such a change is a draft that only this computer has: its
+// frame is dashed (posted suggestions have a solid one) and its row says so.
 
 import { type EditorState, type Extension, type Range, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, layer, type LayerMarker, WidgetType } from "@codemirror/view";
@@ -47,6 +49,8 @@ class Frame implements LayerMarker {
     readonly height: number,
     /** Lines removed: a bar instead of a frame. */
     readonly removed: boolean,
+    /** A draft not suggested yet: dashed. */
+    readonly pending: boolean,
   ) {}
 
   draw() {
@@ -67,12 +71,13 @@ class Frame implements LayerMarker {
       other.top === this.top &&
       other.width === this.width &&
       other.height === this.height &&
-      other.removed === this.removed
+      other.removed === this.removed &&
+      other.pending === this.pending
     );
   }
 
   private adjust(element: HTMLElement) {
-    element.className = this.removed ? "cm-editFrame cm-editFrame-removed" : "cm-editFrame";
+    element.className = `cm-editFrame${this.removed ? " cm-editFrame-removed" : ""}${this.pending ? " cm-editFrame-pending" : ""}`;
     element.style.left = `${this.left}px`;
     element.style.top = `${this.top}px`;
     element.style.width = `${this.width}px`;
@@ -105,7 +110,11 @@ class SuggestWidget extends WidgetType {
     // The editor would take the press as placing the cursor.
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => this.onSuggest(this.block));
-    row.append(button);
+    const note = document.createElement("span");
+    note.className = "cm-suggestNote";
+    note.textContent = "Draft · not on the pull request yet";
+    note.title = "This edit is only in your worktree of the pull request. Nobody else sees it until you press Suggest.";
+    row.append(button, note);
     return row;
   }
 
@@ -134,7 +143,7 @@ function suggestRows(state: EditorState, field: StateField<Edits>, onSuggest: (b
 /** How tall the bar for removed lines is, centered on the line boundary. */
 const REMOVED_BAR = 2;
 
-function frames(view: EditorView, field: StateField<Edits>): Frame[] {
+function frames(view: EditorView, field: StateField<Edits>, pending: boolean): Frame[] {
   const { blocks } = view.state.field(field);
   if (blocks.length === 0) return [];
   // Layer positions are relative to the scrolled content, as in lineTints.
@@ -164,13 +173,13 @@ function frames(view: EditorView, field: StateField<Edits>): Frame[] {
         top = top === null ? rect.top : Math.min(top, rect.top);
         bottom = bottom === null ? rect.bottom : Math.max(bottom, rect.bottom);
       }
-      if (top !== null && bottom !== null) result.push(new Frame(left, y(top), width, (bottom - top) / view.scaleY, false));
+      if (top !== null && bottom !== null) result.push(new Frame(left, y(top), width, (bottom - top) / view.scaleY, false, pending));
     } else {
       // Only removed: a bar at the top of the line that now follows, or under the last line.
       const after = drawn.get(block.fromB);
       const before = drawn.get(block.fromB - 1);
       const at = after ? after.top : before?.bottom;
-      if (at !== undefined) result.push(new Frame(left, y(at) - REMOVED_BAR / 2, width, REMOVED_BAR, true));
+      if (at !== undefined) result.push(new Frame(left, y(at) - REMOVED_BAR / 2, width, REMOVED_BAR, true, pending));
     }
   }
   return result;
@@ -182,13 +191,14 @@ const layerUpdate = (update: { transactions: readonly unknown[]; viewportChanged
 /**
  * Frames the lines of the working text that differ from `committed` (the
  * file at the branch's last commit); none when it is null. With `onSuggest`
- * each framed change has a Suggest button, which calls it with the change.
+ * each framed change is a draft suggestion (dashed, marked as not posted)
+ * with a Suggest button, which calls it with the change.
  */
 export function editFrames(committed: string | null, onSuggest?: (block: LineBlock) => void): Extension {
   const field = editsField(committed);
   return [
     field,
-    layer({ above: true, class: "cm-editFrameLayer", markers: (view) => frames(view, field), update: layerUpdate }),
+    layer({ above: true, class: "cm-editFrameLayer", markers: (view) => frames(view, field, !!onSuggest), update: layerUpdate }),
     onSuggest ? EditorView.decorations.compute([field], (state) => suggestRows(state, field, onSuggest)) : [],
   ];
 }

@@ -2901,6 +2901,29 @@ button.primary:hover:not(:disabled) {
   font-family: "Inter Variable", Inter, system-ui, sans-serif;
 }
 
+.cm-suggestRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Says the change above is a draft that is not on the pull request yet. */
+.cm-suggestNote {
+  color: var(--edited);
+  font: italic 11px/1.6 "Inter Variable", Inter, system-ui, sans-serif;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+/* A draft suggestion (not posted yet): dashed, where posted ones are solid. */
+.cm-editFrame-pending {
+  border-style: dashed;
+}
+
+.cm-editFrame-removed.cm-editFrame-pending {
+  background: repeating-linear-gradient(90deg, var(--edited) 0 6px, transparent 6px 10px);
+}
+
 .cm-suggestButton {
   padding: 1px 10px;
   border: 1px solid var(--edited);
