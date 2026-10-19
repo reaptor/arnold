@@ -8,7 +8,8 @@
 //!
 //! Files a project needs but git does not have (generated, ignored) are not
 //! in a new checkout. Elmish Land's generated projects are made with its own
-//! `restore`; any other missing project reference is reported, since
+//! `restore`, and Paket's `.paket/Paket.Restore.targets` with `paket restore`;
+//! any other missing project reference is reported, since
 //! FsAutoComplete fails to load the whole workspace over one.
 
 use std::collections::{BTreeSet, HashMap};
@@ -36,6 +37,10 @@ pub struct Plan {
     /// manifest): its generated projects (`.elmish-land/`, ignored by git)
     /// come from `dotnet elmish-land restore`, before restoring.
     pub elmish_land: bool,
+    /// Packages come from Paket (`paket.dependencies` at the top): its
+    /// `restore` writes `.paket/Paket.Restore.targets`, which the projects
+    /// import and which repositories often leave out of git.
+    pub paket: bool,
     /// Changes when anything Elmish Land generates from changes.
     pub generate_stamp: String,
     /// Changes when anything restoring depends on changes.
@@ -114,6 +119,7 @@ pub fn plan(files: &[(String, String)], projects: &HashMap<String, String>) -> O
 
     let tool_restore = exists(".config/dotnet-tools.json") || exists("dotnet-tools.json");
     let elmish_land = tool_restore && exists("elmish-land.json");
+    let paket = exists("paket.dependencies");
     let solution = files
         .iter()
         .map(|(path, _)| path.as_str())
@@ -167,6 +173,7 @@ pub fn plan(files: &[(String, String)], projects: &HashMap<String, String>) -> O
         restore,
         build,
         elmish_land,
+        paket,
         generate_stamp,
         restore_stamp,
         build_stamp,
@@ -349,8 +356,17 @@ mod tests {
         let files = files(&["App.sln", "src/App/App.fsproj", "src/App/Program.fs"]);
         let plan = plan(&files, &projects(&[("src/App/App.fsproj", "<Project />")])).unwrap();
         assert!(!plan.tool_restore);
+        assert!(!plan.paket);
         assert_eq!(plan.restore, vec!["src/App/App.fsproj"]);
         assert!(plan.build.is_empty());
+    }
+
+    #[test]
+    fn paket_repositories_restore_with_paket() {
+        let files = files(&["paket.dependencies", "paket.lock", ".config/dotnet-tools.json", "src/App/App.fsproj"]);
+        let plan = plan(&files, &HashMap::new()).unwrap();
+        assert!(plan.paket);
+        assert!(plan.tool_restore);
     }
 
     #[test]

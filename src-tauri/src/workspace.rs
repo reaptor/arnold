@@ -192,7 +192,9 @@ async fn run_plan(plan: &Plan, dotnet: &dotnet::Dotnet, checkout: &Path, done_fi
         }
     }
 
-    let restored = if !generated && done.restore.as_deref() == Some(plan.restore_stamp.as_str()) {
+    // Restoring without it once looked successful, so check the file itself.
+    let paket_targets = !plan.paket || checkout.join(".paket").join("Paket.Restore.targets").is_file();
+    let restored = if !generated && paket_targets && done.restore.as_deref() == Some(plan.restore_stamp.as_str()) {
         emit(SetupEvent::Skipped {
             title: "Restore packages".into(),
             reason: "already restored for these project files".into(),
@@ -208,6 +210,15 @@ async fn run_plan(plan: &Plan, dotnet: &dotnet::Dotnet, checkout: &Path, done_fi
             }
         }
         let mut succeeded = true;
+        if plan.paket {
+            emit(SetupEvent::Step {
+                title: "Restoring Paket packages (dotnet paket restore)".into(),
+            });
+            if let Err(error) = workspace::run_dotnet(dotnet, checkout, &["paket", "restore"], &on_line).await {
+                warn(error);
+                succeeded = false;
+            }
+        }
         for target in &plan.restore {
             emit(SetupEvent::Step {
                 title: format!("Restoring packages for {target} (dotnet restore)"),
