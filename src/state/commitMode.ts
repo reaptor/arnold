@@ -310,7 +310,11 @@ export async function openTreeFile(path: string) {
 const snapshots = new Map<string, Snapshot>();
 /** Side and path of what the editor shows. */
 let shownKey: string | null = null;
-/** A file of the explorer shown on its own because it has no changes: its first edit brings in the diff. */
+/**
+ * A file of the explorer shown on its own because it had no changes when it
+ * was opened. Edited, it stays on its own with a "Show changes" button until
+ * that is clicked or the file is opened again.
+ */
 let shownAlone: string | null = null;
 /** A file of the explorer shown against the last commit: once edits take all its changes back, it is shown on its own. */
 let shownDiff: string | null = null;
@@ -339,6 +343,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
       base,
       working: deleted ? base : working,
       plain: added || deleted || base === working,
+      showChanges: added || deleted ? undefined : "Show the changes against the last commit",
       deleted,
       editable: !deleted,
       lineActions: [],
@@ -410,7 +415,10 @@ async function show() {
     const same = key === shownKey;
     // Edits not saved yet stay, and decide whether a file of the explorer has changes.
     const unsaved = same && hasPendingSave(file.path) ? editor.texts()?.working : undefined;
-    const document = documentOf(file, side, side === null && unsaved !== undefined ? { ...pair, working: unsaved } : pair);
+    const read = documentOf(file, side, side === null && unsaved !== undefined ? { ...pair, working: unsaved } : pair);
+    // Edited while shown on its own: it stays so until asked for its changes.
+    const held = same && shownAlone === file.path && !read.deleted && pair.base !== null;
+    const document = held ? { ...read, plain: true } : read;
     const unchanged = side === null && !!document.plain && !document.deleted && pair.base !== null;
     const working = unsaved ?? document.working;
     if (same && editor.shows(file.path, document)) {
@@ -439,16 +447,22 @@ async function show() {
 export function edited(path: string, text: string) {
   const checkout = state.checkout;
   if (!checkout || state.workSide === "staged") return;
-  // Not from inside the editor's own update.
-  if (shownAlone === path) queueMicrotask(() => switchView(path, false));
-  else if (shownDiff === path && text === fileEditor()?.texts()?.base) queueMicrotask(() => switchView(path, true));
+  // Not from inside the editor's own update. (A file shown on its own
+  // stays so: its "Show changes" button brings in the diff.)
+  if (shownDiff === path && text === fileEditor()?.texts()?.base) queueMicrotask(() => switchView(path, true));
   queueSave(checkout, path, text, fail(`Saving ${path}`));
 }
 
+/** The "Show changes" button of the explorer file shown on its own: it is shown against the last commit. */
+export function showChanges() {
+  const path = state.selected;
+  if (path !== null) switchView(path, false);
+}
+
 /**
- * A file of the explorer has its first change (`alone` false: from now on it
- * is shown against the last commit), or edits took all its changes back
- * (`alone`: shown on its own). The cursor, scroll position and undo history stay.
+ * A file of the explorer shown on its own is to be shown against the last
+ * commit (`alone` false), or edits took all its changes back (`alone`: shown
+ * on its own). The cursor, scroll position and undo history stay.
  */
 function switchView(path: string, alone: boolean) {
   const editor = fileEditor();

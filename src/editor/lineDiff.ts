@@ -113,3 +113,125 @@ export function lineFirstDiff(a: string, b: string): Change[] {
 
 /** Pass as `diffConfig` to the merge views. */
 export const lineFirstDiffConfig: DiffConfig = { override: lineFirstDiff };
+
+/**
+ * Where else a block of only added (or only removed) lines could be. When
+ * the line leaving the block on one side equals the one entering it on the
+ * other, the block can slide that way and the diff is just as true: a new
+ * empty line next to an empty line is either of the two. `positions` lists
+ * them top to bottom, staying clear of the neighbouring blocks.
+ */
+export function blockPositions(
+  block: LineBlock,
+  aLines: readonly string[],
+  bLines: readonly string[],
+  limits: { fromA: number; fromB: number; toA: number; toB: number },
+): LineBlock[] {
+  const inserted = block.fromA === block.toA;
+  if (inserted === (block.fromB === block.toB)) return [block];
+  // The side that has the lines.
+  const lines = inserted ? bLines : aLines;
+  const from = (p: LineBlock) => (inserted ? p.fromB : p.fromA);
+  const to = (p: LineBlock) => (inserted ? p.toB : p.toA);
+  const shift = (p: LineBlock, by: number): LineBlock => ({
+    fromA: p.fromA + by,
+    toA: p.toA + by,
+    fromB: p.fromB + by,
+    toB: p.toB + by,
+  });
+  const above: LineBlock[] = [];
+  for (let p = block; p.fromA > limits.fromA && p.fromB > limits.fromB && lines[from(p) - 1] === lines[to(p) - 1]; ) {
+    p = shift(p, -1);
+    above.unshift(p);
+  }
+  const below: LineBlock[] = [];
+  for (let p = block; p.toA < limits.toA && p.toB < limits.toB && lines[from(p)] === lines[to(p)]; ) {
+    p = shift(p, 1);
+    below.push(p);
+  }
+  return [...above, block, ...below];
+}
+
+/**
+ * Line blocks with each sliding block (see `blockPositions`) where `pick`
+ * puts it; `pick` gets the block's positions, top to bottom, and the one
+ * diffed, and returns one.
+ */
+export function placeBlocks(
+  blocks: readonly LineBlock[],
+  aLines: readonly string[],
+  bLines: readonly string[],
+  pick: (positions: LineBlock[], diffed: LineBlock) => LineBlock,
+): LineBlock[] {
+  const placed: LineBlock[] = [];
+  blocks.forEach((block, index) => {
+    const previous = placed[placed.length - 1];
+    const next = blocks[index + 1];
+    const positions = blockPositions(block, aLines, bLines, {
+      fromA: previous?.toA ?? 0,
+      fromB: previous?.toB ?? 0,
+      toA: next?.fromA ?? aLines.length,
+      toB: next?.fromB ?? bLines.length,
+    });
+    placed.push(positions.length === 1 ? block : pick(positions, block));
+  });
+  return placed;
+}
+
+/** Whether a line has no text (spaces and tabs only). */
+const isBlank = (line: string | undefined) => line !== undefined && line.trim() === "";
+
+/**
+ * Blocks with only empty lines between them, joined into one (those lines
+ * included). An empty line in the middle of new text that happens to match
+ * an empty line of the other side is no unchanged line to the reader.
+ */
+export function joinAcrossBlankLines(blocks: readonly LineBlock[], bLines: readonly string[]): LineBlock[] {
+  const joined: LineBlock[] = [];
+  for (const block of blocks) {
+    const previous = joined[joined.length - 1];
+    if (previous && bLines.slice(previous.toB, block.fromB).every(isBlank)) {
+      joined[joined.length - 1] = { fromA: previous.fromA, toA: block.toA, fromB: previous.fromB, toB: block.toB };
+    } else {
+      joined.push(block);
+    }
+  }
+  return joined;
+}
+
+/**
+ * Blocks grown over the unchanged empty lines next to them that `takes`
+ * accepts (both sides grow, those lines standing for themselves), up to the
+ * neighbouring blocks.
+ */
+export function takeInBlankLines(
+  blocks: readonly LineBlock[],
+  aLines: readonly string[],
+  bLines: readonly string[],
+  takes: (line: number) => boolean,
+): LineBlock[] {
+  return blocks.map((block, index) => {
+    const previous = blocks[index - 1];
+    const next = blocks[index + 1];
+    let { fromA, toA, fromB, toB } = block;
+    while (
+      fromA > (previous?.toA ?? 0) &&
+      fromB > (previous?.toB ?? 0) &&
+      isBlank(bLines[fromB - 1]) &&
+      takes(fromB - 1)
+    ) {
+      fromA--;
+      fromB--;
+    }
+    while (
+      toA < (next?.fromA ?? aLines.length) &&
+      toB < (next?.fromB ?? bLines.length) &&
+      isBlank(bLines[toB]) &&
+      takes(toB)
+    ) {
+      toA++;
+      toB++;
+    }
+    return { fromA, toA, fromB, toB };
+  });
+}

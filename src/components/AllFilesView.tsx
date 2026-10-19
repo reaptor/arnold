@@ -11,9 +11,17 @@ import {
 } from "../state/review";
 import { SectionList, type SectionSource } from "./SectionList";
 
-/** The review's files: every file of the diff, and files opened from outside it. */
+/**
+ * The review's files: every file of the diff, and files opened from outside
+ * it. A visited file just edited into the diff is listed once, though for a
+ * moment of a refresh it is in both (its two sections would share one host).
+ */
 const reviewSource: SectionSource = {
-  entries: () => [...(state.comparison?.files ?? []), ...state.visited].map((file) => ({ key: file.path, file })),
+  entries: () => {
+    const files = state.comparison?.files ?? [];
+    const visited = state.visited.filter((file) => !files.some((changed) => changed.path === file.path));
+    return [...files, ...visited].map((file) => ({ key: file.path, file }));
+  },
   selected: () => state.selected,
   select: (path) => setState("selected", path),
   collapsed: (path) => !!state.collapsed[path],

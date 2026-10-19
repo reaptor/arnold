@@ -4,18 +4,27 @@
 // of those changes are still uncommitted. Lines removed by an edit leave a
 // bar where they were.
 //
+// A new line equal to its neighbour (an empty line pressed in next to another)
+// could be either of the two. The frame goes on the one just typed (where the
+// cursor is, as the merge view's own diff does while typing) and stays there.
+// One frame surrounds all of an edit: empty lines inside it that happen to
+// match the committed text are taken in, and so is the empty line Enter put
+// the cursor on next to it.
+//
 // The frames are a layer above the text, measured from the drawn lines like
-// lineTints, so they follow folding, widgets and wrapping. styles.css gives
-// them their color (--edited, as the "edited" marks of the dock).
+// lineTints, so they follow folding, widgets and wrapping. In the unified
+// view the lines an edit removed are shown (red) above the lines it added:
+// the frame takes them in, so that all of the edit's text is inside it.
+// styles.css gives them their color (--edited, as the "edited" marks of the dock).
 //
 // With `onSuggest` (a pull request's files) each framed change also gets a
 // Suggest button on a row of its own under it, there from the first keystroke.
 // Until suggested such a change is a draft that only this computer has: its
 // frame is dashed (posted suggestions have a solid one) and its row says so.
 
-import { type EditorState, type Extension, type Range, StateEffect, StateField } from "@codemirror/state";
+import { type ChangeSet, type EditorState, type Extension, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, layer, type LayerMarker, WidgetType } from "@codemirror/view";
-import { type LineBlock, lineBlocks } from "./lineDiff";
+import { joinAcrossBlankLines, type LineBlock, lineBlocks, placeBlocks, takeInBlankLines } from "./lineDiff";
 
 /** Replaces the committed text the working text is compared with; null removes the frames. */
 export const setCommitted = StateEffect.define<string | null>();
@@ -26,8 +35,70 @@ interface Edits {
   blocks: readonly LineBlock[];
 }
 
-const blocksOf = (committed: string | null, doc: string): LineBlock[] =>
-  committed === null ? [] : lineBlocks(committed.split("\n"), doc.split("\n"));
+/**
+ * What the last edit changed: its line ranges in the new text, the line the
+ * cursor ended on (null when the text was not edited), and the earlier
+ * blocks moved along with it.
+ */
+interface Edit {
+  lines: { from: number; to: number }[];
+  cursor: number | null;
+  before: readonly LineBlock[];
+}
+
+/** The 0-based line `line` of `doc` (or its end) in the text `changes` make of it. */
+function mapLine(line: number, doc: Text, changes: ChangeSet, newDoc: Text): number {
+  if (line >= doc.lines) return newDoc.lines;
+  return newDoc.lineAt(changes.mapPos(doc.line(line + 1).from, -1)).number - 1;
+}
+
+function editOf(before: readonly LineBlock[], doc: Text, changes: ChangeSet, newDoc: Text, head: number): Edit {
+  const lines: Edit["lines"] = [];
+  changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    lines.push({ from: newDoc.lineAt(fromB).number - 1, to: newDoc.lineAt(toB).number - 1 });
+  });
+  const moved = before.map((block) => {
+    const fromB = mapLine(block.fromB, doc, changes, newDoc);
+    // An empty block (removed lines) stays empty.
+    const toB = block.toB === block.fromB ? fromB : Math.max(fromB, mapLine(block.toB, doc, changes, newDoc));
+    return { ...block, fromB, toB };
+  });
+  return { lines, cursor: newDoc.lineAt(head).number - 1, before: moved };
+}
+
+/**
+ * Of the places a sliding block could be: one on the lines just edited, and
+ * of those the one it was at before (or overlapping it, as when another
+ * empty line is added to new ones), else the last (the line the cursor went
+ * to). Untouched by the edit, where it was before, else where the diff put it.
+ */
+function pickPosition(edit: Edit) {
+  const same = (p: LineBlock) => edit.before.some((b) => b.fromB === p.fromB && b.toB === p.toB);
+  const overlapping = (p: LineBlock) => edit.before.some((b) => b.fromB < p.toB && p.fromB < b.toB);
+  return (positions: LineBlock[], diffed: LineBlock): LineBlock => {
+    const touched = positions.filter((p) =>
+      edit.lines.some((range) =>
+        p.fromB === p.toB ? range.from <= p.fromB && p.fromB <= range.to + 1 : range.from < p.toB && p.fromB <= range.to,
+      ),
+    );
+    if (touched.length > 0) return touched.find(same) ?? touched.find(overlapping) ?? touched[touched.length - 1];
+    return positions.find(same) ?? diffed;
+  };
+}
+
+function blocksOf(committed: string | null, doc: string, edit: Edit | null = null): LineBlock[] {
+  if (committed === null) return [];
+  const aLines = committed.split("\n");
+  const bLines = doc.split("\n");
+  const blocks = lineBlocks(aLines, bLines);
+  if (!edit) return joinAcrossBlankLines(blocks, bLines);
+  // The empty line the edit put the cursor on, and those framed before, stay framed.
+  const edited = (line: number) => edit.lines.some((range) => range.from <= line && line <= range.to);
+  const framedBefore = (line: number) => edit.before.some((block) => block.fromB <= line && line < block.toB);
+  const placed = placeBlocks(blocks, aLines, bLines, pickPosition(edit));
+  const grown = takeInBlankLines(placed, aLines, bLines, (line) => (line === edit.cursor && edited(line)) || framedBefore(line));
+  return joinAcrossBlankLines(grown, bLines);
+}
 
 function editsField(initial: string | null) {
   return StateField.define<Edits>({
@@ -36,7 +107,10 @@ function editsField(initial: string | null) {
       let committed = value.committed;
       for (const effect of transaction.effects) if (effect.is(setCommitted)) committed = effect.value;
       if (committed === value.committed && !transaction.docChanged) return value;
-      return { committed, blocks: blocksOf(committed, transaction.newDoc.toString()) };
+      const edit = transaction.docChanged
+        ? editOf(value.blocks, transaction.startState.doc, transaction.changes, transaction.newDoc, transaction.newSelection.main.head)
+        : { lines: [], cursor: null, before: value.blocks };
+      return { committed, blocks: blocksOf(committed, transaction.newDoc.toString(), edit) };
     },
   });
 }
@@ -155,12 +229,22 @@ function frames(view: EditorView, field: StateField<Edits>, pending: boolean): F
   const width = content.width / view.scaleX;
   const y = (screen: number) => (screen - baseTop) / view.scaleY;
 
-  // The drawn lines (the viewport only), by 0-based line number.
+  // The drawn lines (the viewport only), by 0-based line number, and the
+  // removed lines the unified view shows above a line (or after the last).
   const drawn = new Map<number, DOMRect>();
-  for (const element of view.contentDOM.querySelectorAll(":scope > .cm-line")) {
-    const line = view.state.doc.lineAt(view.posAtDOM(element)).number - 1;
-    drawn.set(line, element.getBoundingClientRect());
+  const removedAbove = new Map<number, DOMRect>();
+  let removed: DOMRect | null = null;
+  for (const element of view.contentDOM.children) {
+    if (element.classList.contains("cm-deletedChunk")) {
+      removed = element.getBoundingClientRect();
+    } else if (element.classList.contains("cm-line")) {
+      const line = view.state.doc.lineAt(view.posAtDOM(element)).number - 1;
+      drawn.set(line, element.getBoundingClientRect());
+      if (removed) removedAbove.set(line, removed);
+      removed = null;
+    }
   }
+  if (removed) removedAbove.set(view.state.doc.lines, removed);
 
   const result: Frame[] = [];
   for (const block of blocks) {
@@ -173,7 +257,14 @@ function frames(view: EditorView, field: StateField<Edits>, pending: boolean): F
         top = top === null ? rect.top : Math.min(top, rect.top);
         bottom = bottom === null ? rect.bottom : Math.max(bottom, rect.bottom);
       }
+      // Lines replaced: the removed ones shown above are in the frame too.
+      const replaced = block.toA > block.fromA ? removedAbove.get(block.fromB) : undefined;
+      if (replaced && top !== null) top = Math.min(top, replaced.top);
       if (top !== null && bottom !== null) result.push(new Frame(left, y(top), width, (bottom - top) / view.scaleY, false, pending));
+    } else if (removedAbove.has(block.fromB)) {
+      // Only removed, and shown: framed like added lines.
+      const shown = removedAbove.get(block.fromB)!;
+      result.push(new Frame(left, y(shown.top), width, shown.height / view.scaleY, false, pending));
     } else {
       // Only removed: a bar at the top of the line that now follows, or under the last line.
       const after = drawn.get(block.fromB);

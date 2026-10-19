@@ -965,6 +965,50 @@ button.primary:hover:not(:disabled) {
   display: none;
 }
 
+/*
+ * The "Show changes" button of an edited file shown alone (diffEditor.ts):
+ * over the top right of the editor, clear of the scrollbar, and in the
+ * all-files view sticking under the section header.
+ */
+.show-changes-bar {
+  position: sticky;
+  top: 0;
+  z-index: 250;
+  height: 0;
+}
+
+.section-host .show-changes-bar {
+  top: 29px;
+}
+
+.show-changes-bar[hidden] {
+  display: none;
+}
+
+.show-changes {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--edited) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--edited) 14%, var(--panel));
+  color: var(--edited);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+
+/* Beats the general button:hover:not(:disabled), whose see-through background would show the code. */
+.show-changes:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--edited) 24%, var(--panel));
+}
+
 .editor-host .cm-mergeView {
   height: 100%;
   overflow: auto;

@@ -308,6 +308,12 @@ export { setupOutput };
 const MAX_OUTPUT_LINES = 400;
 
 const sessions = new Map<string, Session>();
+/**
+ * Files outside the diff that were edited while shown alone, by path. They
+ * stay alone, with a "Show changes" button, until that is clicked or the
+ * file is shown again (then as a diff).
+ */
+const heldAlone = new Set<string>();
 /** Text last handed to the language server for files no editor shows, by path. */
 const backgroundSent = new Map<string, string>();
 /** More files than this are not checked in the background. */
@@ -372,7 +378,7 @@ const WHOLE_FILE: FileStatus[] = ["added", "deleted", "unchanged"];
  * How `file` is shown, with `texts` (by default what was read). When the
  * comparison reads the branch's checkout its files can be edited; a file
  * outside the diff is shown alone while its text is the merge-base's, and
- * as a diff once edited.
+ * as a diff once edited (when edited while shown, once asked: `heldAlone`).
  */
 function documentOf(
   file: ChangedFile,
@@ -387,7 +393,10 @@ function documentOf(
     path: file.path,
     base,
     working: deleted ? base : working,
-    plain: file.status === "unchanged" ? base === working : WHOLE_FILE.includes(file.status),
+    plain:
+      heldAlone.has(file.path) || (file.status === "unchanged" ? base === working : WHOLE_FILE.includes(file.status)),
+    showChanges:
+      editable && file.status !== "added" ? `Show the changes against ${branchNames().base || "the base"}` : undefined,
     deleted,
     editable,
     // Frames the uncommitted edits; a file the last commit lacks is all edits, framed by nothing.
@@ -472,6 +481,12 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
     onSuggest(block) {
       const path = pathOf();
       if (path !== null) void suggestChange(path, block);
+    },
+    onShowChanges() {
+      const path = pathOf();
+      if (path === null) return;
+      if (state.source === "commit") commitMode.showChanges();
+      else showChanges(path);
     },
     onPlaceChange() {
       // Sections of the all-files view: the list keeps the place there.
@@ -741,6 +756,7 @@ export function resetSessions() {
   placePending = true;
   editInfoShown = false;
   sessions.clear();
+  heldAlone.clear();
   backgroundSent.clear();
   backStack.length = 0;
   forwardStack.length = 0;
@@ -864,6 +880,8 @@ export async function selectFile(path: string | null) {
     return;
   }
   stashOpenFile();
+  // Shown again later, an edited file outside the diff is shown as a diff.
+  if (state.selected !== path) heldAlone.clear();
   setState({ selected: path, menu: null });
   const file = fileAt(path);
   if (!file) {
@@ -972,8 +990,9 @@ function reopen(target: DiffEditor, document: DiffDocument) {
 
 /**
  * Branches: the working text of `path` was edited in the checkout the
- * comparison reads. It is saved once typing pauses; a file outside the diff
- * turns into a diff at its first edit, and back once the edits are undone.
+ * comparison reads. It is saved once typing pauses. A file outside the diff
+ * shown alone stays so (its "Show changes" button brings in the diff); shown
+ * as a diff, it is shown alone again once the edits are undone.
  */
 function edited(path: string, text: string) {
   const checkout = state.comparison?.checkout;
@@ -987,9 +1006,22 @@ function edited(path: string, text: string) {
   queueMicrotask(() => {
     const texts = target.texts();
     if (!texts) return;
+    if (texts.working !== texts.base && target.shows(path, { plain: true, editable: true })) heldAlone.add(path);
     const document = documentOf(file, session, texts);
     if (!target.shows(path, document)) reopen(target, document);
   });
+}
+
+/** The "Show changes" button of an edited file outside the diff: it is shown as a diff. */
+function showChanges(path: string) {
+  heldAlone.delete(path);
+  const file = fileAt(path);
+  const target = editorFor(path);
+  const session = sessions.get(path);
+  const texts = target?.texts();
+  if (!file || !target || !session || !texts) return;
+  const document = documentOf(file, session, texts);
+  if (!target.shows(path, document)) reopen(target, document);
 }
 
 /**
@@ -1438,6 +1470,7 @@ export async function setView(view: ViewMode) {
   if (view === state.view) return;
   localStorage.setItem("arnold.view", view);
   const path = activePath();
+  heldAlone.clear();
   if (view === "all") {
     stashOpenFile();
     editor?.close();
@@ -1512,6 +1545,7 @@ export function hideSection(path: string, keepFocused = false): boolean {
   target?.destroy();
   sectionHosts.get(path)?.replaceChildren();
   sectionEditors.delete(path);
+  heldAlone.delete(path);
   if (focusedPath === path) focusedPath = null;
   // Without an editor the file goes back to background checking.
   if (target) void checkChangedFiles();

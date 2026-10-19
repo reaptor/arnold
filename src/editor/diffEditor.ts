@@ -61,6 +61,12 @@ export interface DiffDocument {
   working: string;
   /** Show the working text alone, without a diff (an added, deleted or unchanged file). */
   plain?: boolean;
+  /**
+   * A file shown alone that has a base to compare with: once its text
+   * differs from `base`, a "Show changes" button offers the diff (through
+   * `onShowChanges`). This is the button's tooltip.
+   */
+  showChanges?: string;
   /** The file is removed by the branch; `working` holds its base text. */
   deleted?: boolean;
   /** Pull request discussions about lines of the file. */
@@ -139,6 +145,8 @@ export interface DiffEditorCallbacks {
   onSuggest?(block: LineBlock): void;
   /** A file was shown, or its cursor or scroll moved. */
   onPlaceChange?(): void;
+  /** The "Show changes" button of an edited file shown alone (`DiffDocument.showChanges`). */
+  onShowChanges?(): void;
 }
 
 /** Whether a key pressed in an editor would change its text. */
@@ -204,6 +212,8 @@ export class DiffEditor {
   private layoutSplit: (() => void) | null = null;
   /** The side last given the keyboard (or right-clicked): what line actions act on. */
   private lastFocused: EditorView | null = null;
+  /** The "Show changes" button, while the document offers one. */
+  private changesButton: HTMLElement | null = null;
 
   constructor(
     private readonly parent: HTMLElement,
@@ -362,6 +372,7 @@ export class DiffEditor {
     if (!document || !view) return;
     this.document = { ...document, base, working };
     const current = view.state.doc.toString();
+    this.syncChangesButton(current);
     if (current !== working) {
       view.dispatch({
         changes: replacement(current, working),
@@ -590,7 +601,41 @@ export class DiffEditor {
     });
   }
 
+  /**
+   * Puts the "Show changes" button over the top right of the editor, shown
+   * while the text differs from the base. It sticks under the section header
+   * of the all-files view.
+   */
+  private addChangesButton(title: string) {
+    const bar = document.createElement("div");
+    bar.className = "show-changes-bar";
+    const button = document.createElement("button");
+    button.className = "show-changes";
+    button.title = title;
+    const dot = document.createElement("span");
+    dot.className = "edited-dot";
+    dot.setAttribute("aria-hidden", "true");
+    dot.textContent = "●";
+    const action = document.createElement("span");
+    action.className = "edit-status-action";
+    action.textContent = "Show changes";
+    button.append(dot, "Edited", action);
+    // Keeps the cursor in the editor until the click.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => this.callbacks.onShowChanges?.());
+    bar.append(button);
+    this.parent.prepend(bar);
+    this.changesButton = bar;
+    this.syncChangesButton(this.working?.state.doc.toString() ?? "");
+  }
+
+  private syncChangesButton(text: string) {
+    if (this.changesButton) this.changesButton.hidden = text === (this.document?.base ?? "");
+  }
+
   private destroyViews() {
+    this.changesButton?.remove();
+    this.changesButton = null;
     this.lastFocused = null;
     if (this.layoutSplit) splitLayouts.delete(this.layoutSplit);
     this.layoutSplit = null;
@@ -628,6 +673,7 @@ export class DiffEditor {
           this.mirrorSemanticRanges();
         }
         const edited = update.transactions.some((tr) => tr.docChanged && !tr.annotation(fromOutside));
+        if (update.docChanged) this.syncChangesButton(update.state.doc.toString());
         if (edited && this.document?.editable) this.callbacks.onChange?.(update.state.doc.toString());
         if (update.selectionSet) this.callbacks.onPlaceChange?.();
       }),
@@ -693,6 +739,7 @@ export class DiffEditor {
         () => {},
       );
     }
+    if (document.plain && document.showChanges) this.addChangesButton(document.showChanges);
     this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
     this.scroller()?.addEventListener("scroll", () => this.callbacks.onPlaceChange?.(), { passive: true });

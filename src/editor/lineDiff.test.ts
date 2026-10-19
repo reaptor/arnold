@@ -1,7 +1,15 @@
 import { type Change, Chunk, type DiffConfig } from "@codemirror/merge";
 import { Text } from "@codemirror/state";
-import { describe, expect, it } from "vitest";
-import { lineFirstDiff, lineFirstDiffConfig } from "./lineDiff";
+import { describe, expect, it, vi } from "vitest";
+import {
+  joinAcrossBlankLines,
+  type LineBlock,
+  lineBlocks,
+  lineFirstDiff,
+  lineFirstDiffConfig,
+  placeBlocks,
+  takeInBlankLines,
+} from "./lineDiff";
 
 /** Applies the changes to `a`, which must give `b`. */
 function apply(a: string, b: string, changes: readonly Change[]) {
@@ -110,5 +118,85 @@ describe("lineFirstDiff", () => {
     const changes = lineFirstDiff(bigFile, rewritten);
     expect(performance.now() - started).toBeLessThan(3000);
     expect(apply(bigFile, rewritten, changes)).toBe(rewritten);
+  });
+});
+
+describe("placeBlocks", () => {
+  const blocks = (a: string[], b: string[], pick: (positions: LineBlock[], diffed: LineBlock) => LineBlock) =>
+    placeBlocks(lineBlocks(a, b), a, b, pick);
+
+  it("offers every place a new empty line next to empty lines could be", () => {
+    const a = ["run", "", "from"];
+    const b = ["run", "", "", "from"];
+    const offered: number[][] = [];
+    blocks(a, b, (positions, diffed) => {
+      offered.push(positions.map((p) => p.fromB));
+      return diffed;
+    });
+    expect(offered).toEqual([[1, 2]]);
+  });
+
+  it("puts the block where it is picked, both sides moving together", () => {
+    expect(blocks(["run", "", "from"], ["run", "", "", "from"], (positions) => positions[0])).toEqual([
+      { fromA: 1, toA: 1, fromB: 1, toB: 2 },
+    ]);
+  });
+
+  it("slides removed lines too", () => {
+    const offered: number[][] = [];
+    blocks(["a", "", "", "", "b"], ["a", "", "b"], (positions, diffed) => {
+      offered.push(positions.map((p) => p.fromA));
+      return diffed;
+    });
+    // Two of three empty lines: starting at the first or the second.
+    expect(offered).toEqual([[1, 2]]);
+  });
+
+  it("does not slide into a neighbouring change", () => {
+    const offered: number[][] = [];
+    // The first line changed; the empty line added after it cannot move above it.
+    blocks(["x", "", "y"], ["z", "", "", "y"], (positions, diffed) => {
+      offered.push(positions.map((p) => p.fromB));
+      return diffed;
+    });
+    expect(offered.every((starts) => starts.every((start) => start >= 1))).toBe(true);
+  });
+
+  it("leaves blocks that cannot slide alone", () => {
+    const pick = vi.fn((_positions: LineBlock[], diffed: LineBlock) => diffed);
+    expect(blocks(["a", "b"], ["a", "new", "b"], pick)).toEqual([{ fromA: 1, toA: 1, fromB: 1, toB: 2 }]);
+    expect(pick).not.toHaveBeenCalled();
+  });
+});
+
+describe("joinAcrossBlankLines", () => {
+  it("joins changes that only empty lines separate", () => {
+    // The empty line after "delegate" matches the file's last (empty) line.
+    const a = ["// Program.fs", ""];
+    const b = ["// Program.fs", "delegate", "", "", "rffr", "", "jk"];
+    expect(joinAcrossBlankLines(lineBlocks(a, b), b)).toEqual([{ fromA: 1, toA: 2, fromB: 1, toB: 7 }]);
+  });
+
+  it("keeps changes apart that text separates", () => {
+    const a = ["a", "b", "c"];
+    const b = ["x", "b", "y"];
+    expect(joinAcrossBlankLines(lineBlocks(a, b), b)).toHaveLength(2);
+  });
+});
+
+describe("takeInBlankLines", () => {
+  it("grows a block over the empty lines it takes, on both sides", () => {
+    const a = ["a", "", "b"];
+    const b = ["a", "new", "", "b"];
+    expect(takeInBlankLines(lineBlocks(a, b), a, b, (line) => line === 2)).toEqual([
+      { fromA: 1, toA: 2, fromB: 1, toB: 3 },
+    ]);
+  });
+
+  it("takes no line with text, nor lines it is not given", () => {
+    const a = ["a", "", "b"];
+    const b = ["a", "new", "", "b"];
+    expect(takeInBlankLines(lineBlocks(a, b), a, b, () => false)).toEqual(lineBlocks(a, b));
+    expect(takeInBlankLines(lineBlocks(a, b), a, b, (line) => line === 0)).toEqual(lineBlocks(a, b));
   });
 });
