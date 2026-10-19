@@ -36,9 +36,35 @@ watchtower to pull it. Site-only pushes publish no app release.
 
 One-time setup:
 
-1. **DNS:** `A` (and `AAAA`) records for `arnoldapp.dev` and `www.arnoldapp.dev` pointing at the
-   server. `.dev` is on the HSTS preload list, so browsers only ever use HTTPS; Traefik gets the
-   certificate from Let's Encrypt (`myresolver`) on the first request.
+1. **DNS:** the domain is registered at Strato (nameservers `*.rzone.de`), which parks it on its
+   own server until the records are changed. In Strato's DNS settings for `arnoldapp.dev`:
+
+   | Name | Type | Value |
+   |---|---|---|
+   | `arnoldapp.dev` | `A` | `46.62.151.209` (the Hetzner server, same as reaptor.com) |
+   | `arnoldapp.dev` | `AAAA` | none: delete Strato's default `2001:8d8:…` record |
+   | `www.arnoldapp.dev` | `CNAME` | `arnoldapp.dev` |
+
+   The `AAAA` record must go: the server has no IPv6 address in DNS, and a leftover one sends
+   IPv6 visitors, and possibly Let's Encrypt's validation, to Strato's parking page. Check that
+   both names resolve to the server and nothing else:
+
+   ```bash
+   dig +short A arnoldapp.dev
+   ```
+
+   ```bash
+   dig +short AAAA arnoldapp.dev
+   ```
+
+   ```bash
+   dig +short www.arnoldapp.dev
+   ```
+
+   The first and last print `46.62.151.209` (the last after `arnoldapp.dev.`); the middle prints
+   nothing. `.dev` is on the HSTS preload list, so browsers only ever use HTTPS; Traefik gets the
+   certificate from Let's Encrypt (`myresolver`) on the first request after the records have
+   spread. Until then it serves its own `TRAEFIK DEFAULT CERT`, which browsers reject.
 2. **Secret:** `WATCHTOWER_HTTP_API_TOKEN` in this repository's Actions secrets (the same value as
    in the reaptorcom repository and the server's `watchtower/.env`).
 3. **Registry access:** after the first run, either make the `arnoldapp` package public on GitHub,
