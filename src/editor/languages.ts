@@ -8,6 +8,7 @@ import { Compartment, type Extension } from "@codemirror/state";
 import { ViewPlugin } from "@codemirror/view";
 import { csharp } from "@replit/codemirror-lang-csharp";
 import { fSharpLanguage } from "./fsharpLanguage";
+import { sqlInStrings } from "./sqlInStrings";
 
 const extensionOf = (path: string) => path.slice(path.lastIndexOf(".") + 1).toLowerCase();
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -33,9 +34,10 @@ const ALIASES: Record<string, string> = {
 /** Syntax highlighting for a file, chosen by its name. */
 export function languageFor(path: string): Extension {
   const own = ownLanguage(path);
-  if (own) return own;
-  const description = languageDescription(path);
-  return description ? loaded(description) : [];
+  const description = own ? null : languageDescription(path);
+  const language = own ?? (description ? loaded(description) : []);
+  // SQL files are SQL already.
+  return extensionOf(path) === "sql" ? language : [language, sqlInStrings];
 }
 
 /** The languages Arnold picks itself, rather than `@codemirror/language-data`'s for the name. */

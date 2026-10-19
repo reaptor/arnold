@@ -2,7 +2,7 @@
 // and call these functions; the CodeMirror editor is driven from here.
 
 import { EditorSelection } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
@@ -138,8 +138,10 @@ interface State {
   lspStatus: string | null;
   /** F# language features for the reviewed commit; null when it has no F# projects. */
   languageSetup: LanguageSetup | null;
-  /** Number of files that "back" can return to. */
+  /** Number of places "back" can return to. */
   backCount: number;
+  /** Number of places "forward" can go to again. */
+  forwardCount: number;
   busy: boolean;
   error: string | null;
   /** Shown in place of the editor (nothing selected, binary file, ...). */
@@ -229,6 +231,7 @@ export const [state, setState] = createStore<State>({
   lspStatus: null,
   languageSetup: null,
   backCount: 0,
+  forwardCount: 0,
   busy: false,
   error: null,
   placeholder: "Open a repository to start reviewing.",
@@ -309,8 +312,20 @@ const sessions = new Map<string, Session>();
 const backgroundSent = new Map<string, string>();
 /** More files than this are not checked in the background. */
 const MAX_BACKGROUND_FILES = 50;
-/** Files left by go-to-definition, most recent last. */
-const backStack: string[] = [];
+/**
+ * A place navigation left: a file and the cursor in it. `side`: Commit mode's
+ * Unstaged or Staged list the file was shown from, null for a whole file.
+ */
+interface NavigationPlace {
+  path: string;
+  side: WorkingSide | null;
+  anchor: number;
+}
+/** Places "back" returns to and "forward" goes to again, most recent last. */
+const backStack: NavigationPlace[] = [];
+const forwardStack: NavigationPlace[] = [];
+/** Older places than this many are forgotten. */
+const MAX_HISTORY = 100;
 /** The editor of the one-file view. */
 let editor: DiffEditor | null = null;
 /** The editor of the one-file view, which Commit mode uses too. */
@@ -484,6 +499,7 @@ export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected));
   setThreadActions({ reply, createThread, cancelDraft, deleteComment });
   lsp.onDisplayFile(displayUri);
+  lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
   lsp.onServerEvent(onServerEvent);
   onEditFile(editClosedFile);
@@ -727,11 +743,12 @@ export function resetSessions() {
   sessions.clear();
   backgroundSent.clear();
   backStack.length = 0;
+  forwardStack.length = 0;
   editor?.close();
   setState("problems", reconcile({}));
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
-  setState({ comparison: null, visited: [], backCount: 0 });
+  setState({ comparison: null, visited: [], backCount: 0, forwardCount: 0 });
   setAllFiles([]);
 }
 
@@ -828,6 +845,7 @@ const unchangedFile = (path: string): ChangedFile => ({
 /** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
 /** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
 export async function openFile(path: string) {
+  if (path !== activePath() || (state.source === "commit" && state.workSide !== null)) noteDeparture();
   if (state.source === "commit") return commitMode.openTreeFile(path);
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
   if (state.view === "file") {
@@ -1941,11 +1959,8 @@ async function displayUri(uri: string): Promise<EditorView | null> {
     if (path !== state.selected) await commitMode.openTreeFile(path);
     return editor?.working ?? null;
   }
-  const from = activePath();
-  if (path !== from) {
+  if (path !== activePath()) {
     if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
-    if (from) backStack.push(from);
-    setState("backCount", backStack.length);
     if (state.view === "file") await selectFile(path);
   }
   if (state.view === "file") return editor?.working ?? null;
@@ -1960,18 +1975,75 @@ async function showFileSection(path: string) {
   return showSection(path);
 }
 
-/** Returns to the file go-to-definition was started from. */
-export async function goBack() {
-  const previous = backStack.pop();
-  setState("backCount", backStack.length);
-  if (state.view === "all") {
-    const target = previous ? await showFileSection(previous) : activeEditor();
-    target?.revealCursor();
-    target?.focus();
-    return;
+// ---------------------------------------------------------------- back and forward
+
+/** Where the keyboard is: the file and its cursor; null when no file is shown. */
+function currentPlace(anchor?: number): NavigationPlace | null {
+  const path = state.source === "commit" ? state.selected : activePath();
+  if (path === null) return null;
+  const side = state.source === "commit" ? state.workSide : null;
+  return { path, side, anchor: anchor ?? activeEditor()?.working?.state.selection.main.head ?? 0 };
+}
+
+const samePlace = (a: NavigationPlace, b: NavigationPlace) => a.path === b.path && a.side === b.side && a.anchor === b.anchor;
+
+function countHistory() {
+  setState({ backCount: backStack.length, forwardCount: forwardStack.length });
+}
+
+/**
+ * Notes where the user is before going elsewhere (go-to-definition, a file
+ * opened from the dock), so that "back" returns there. `anchor`: the cursor
+ * position left, when the cursor has already moved.
+ */
+export function noteDeparture(anchor?: number) {
+  const place = currentPlace(anchor);
+  if (!place) return;
+  const last = backStack.at(-1);
+  if (!last || !samePlace(last, place)) backStack.push(place);
+  if (backStack.length > MAX_HISTORY) backStack.shift();
+  forwardStack.length = 0;
+  countHistory();
+}
+
+/** Returns to the place before the last jump (toolbar, Alt+←, mouse back button). */
+export const goBack = () => travel(backStack, forwardStack);
+
+/** Goes again to the place "back" left (toolbar, Alt+→, mouse forward button). */
+export const goForward = () => travel(forwardStack, backStack);
+
+async function travel(from: NavigationPlace[], to: NavigationPlace[]) {
+  const place = from.pop();
+  if (!place) return;
+  const here = currentPlace();
+  if (here && !samePlace(here, place)) to.push(here);
+  countHistory();
+  setState("menu", null);
+  const target = await showPlace(place);
+  const view = target?.working;
+  if (!view) return;
+  const anchor = Math.min(place.anchor, view.state.doc.length);
+  view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+  view.focus();
+  // An editor opened just now restores its old scroll position a frame later.
+  requestAnimationFrame(() => target?.revealCursor());
+}
+
+/** Shows the file of `place` and returns its editor. */
+async function showPlace(place: NavigationPlace): Promise<DiffEditor | null> {
+  if (state.source === "commit") {
+    if (place.side === null) await commitMode.openTreeFile(place.path);
+    else await commitMode.selectWorkFile(place.side, place.path);
+    if (state.view === "all" && place.side !== null) return commitMode.showSection(commitMode.keyOf(place.side, place.path));
+    return commitMode.currentEditor();
   }
-  if (previous) await selectFile(previous);
-  editor?.focus();
+  if (!fileAt(place.path)) setState("visited", (visited) => [...visited, unchangedFile(place.path)]);
+  if (state.view === "all") {
+    revealSection(place.path);
+    return showFileSection(place.path);
+  }
+  if (place.path !== state.selected) await selectFile(place.path);
+  return editor;
 }
 
 // ---------------------------------------------------------------- discussions

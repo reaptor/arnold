@@ -316,7 +316,8 @@ let shownAlone: string | null = null;
 let shownDiff: string | null = null;
 let showToken = 0;
 
-const keyOf = (side: WorkingSide | null, path: string) => `${side ?? "file"}:${path}`;
+/** Key of a file in the all-files view and of where the editor was in it. */
+export const keyOf = (side: WorkingSide | null, path: string) => `${side ?? "file"}:${path}`;
 
 function stash() {
   const snapshot = fileEditor()?.snapshot();

@@ -21,6 +21,7 @@ import {
   addToGitignore,
   attachEditor,
   goBack,
+  goForward,
   goToDefinition,
   removeUnusedOpensInFile,
   renameSymbol,
@@ -40,6 +41,16 @@ const isBackShortcut = (event: KeyboardEvent) =>
   isMac
     ? event.ctrlKey && !event.metaKey && event.key === "-"
     : event.altKey && !event.ctrlKey && event.key === "ArrowLeft";
+
+/** "Go forward": Ctrl+Shift+- on macOS, Alt+Right elsewhere. */
+const isForwardShortcut = (event: KeyboardEvent) =>
+  isMac
+    ? event.ctrlKey && event.shiftKey && !event.metaKey && (event.key === "_" || event.key === "-")
+    : event.altKey && !event.ctrlKey && event.key === "ArrowRight";
+
+/** The back and forward buttons on the side of a mouse. */
+const MOUSE_BACK = 3;
+const MOUSE_FORWARD = 4;
 
 /** Hides or shows the files dock: Ctrl+B, and on macOS Cmd+B too, as in VS Code. */
 const isDockShortcut = (event: KeyboardEvent) =>
@@ -116,6 +127,10 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
       void goBack();
+    } else if (isForwardShortcut(event) && state.forwardCount > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      void goForward();
     } else if (isDockShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
@@ -123,14 +138,26 @@ export function App() {
     }
   };
   const closeMenu = () => setState("menu", null);
+  // The webview would otherwise go back in its own history on these buttons.
+  const onMouseButton = (event: MouseEvent) => {
+    if (event.button !== MOUSE_BACK && event.button !== MOUSE_FORWARD) return;
+    event.preventDefault();
+    if (event.type !== "mouseup") return;
+    if (event.button === MOUSE_BACK) void goBack();
+    else void goForward();
+  };
   // Capture phase: the editor would otherwise use these shortcuts itself (Ctrl+B moves the cursor on macOS).
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("pointerdown", closeMenu);
+  window.addEventListener("mousedown", onMouseButton);
+  window.addEventListener("mouseup", onMouseButton);
   window.addEventListener("contextmenu", suppressBrowserMenu);
   onCleanup(() => {
     window.removeEventListener("contextmenu", suppressBrowserMenu);
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("pointerdown", closeMenu);
+    window.removeEventListener("mousedown", onMouseButton);
+    window.removeEventListener("mouseup", onMouseButton);
   });
 
   const startResize = (down: PointerEvent) => {

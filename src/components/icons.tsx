@@ -50,6 +50,12 @@ export const BackIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const ForwardIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" />
+  </Icon>
+);
+
 export const RefreshIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M13 8a5 5 0 1 1-1.5-3.6M12 1.5v3.2H8.8" />

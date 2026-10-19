@@ -39,9 +39,19 @@ let running: Running | null = null;
 let displayFile: DisplayFile = async () => null;
 let startFailed: (reason: unknown) => void = () => {};
 let serverEvent: (event: ipc.LspEvent) => void = () => {};
+let jumped: (from?: number) => void = () => {};
 
 export function onDisplayFile(handler: DisplayFile) {
   displayFile = handler;
+}
+
+/**
+ * Called when go-to-definition or a reference is about to leave the place the
+ * cursor is at, for "back"; with the position left when the cursor has
+ * already moved.
+ */
+export function onJump(handler: (from?: number) => void) {
+  jumped = handler;
 }
 
 /** Called with the reason when a server could not be started. */
@@ -65,6 +75,40 @@ export function goToDefinitionAt(view: EditorView, position: number) {
   view.focus();
   jumpToDefinition(view);
 }
+
+/**
+ * The client puts the cursor in another file's editor right after it is
+ * shown, but leaves the keyboard where the jump started, and a newly opened
+ * editor restores its old scroll position a frame later. So on the next frame
+ * that editor gets the keyboard and scrolls back to its cursor.
+ */
+function focusAfterJump(view: EditorView | null) {
+  if (view) {
+    arriving = view;
+    requestAnimationFrame(() => {
+      // Landed by now; an editor without the listener yet would keep it.
+      if (arriving === view) arriving = null;
+      if (!view.dom.isConnected) return;
+      view.focus();
+      view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head) });
+    });
+  }
+  return view;
+}
+
+/** The editor another file's jump lands in next; its landing is not a jump within it. */
+let arriving: EditorView | null = null;
+
+/** A jump within one file: the place it left is noted once it lands. */
+const noteJumpWithinFile: Extension = EditorView.updateListener.of((update) => {
+  if (!update.transactions.some((transaction) => transaction.isUserEvent("select.definition"))) return;
+  if (update.view === arriving) {
+    arriving = null;
+    return;
+  }
+  const from = update.startState.selection.main.head;
+  if (from !== update.state.selection.main.head) jumped(from);
+});
 
 // macOS turns Ctrl+click into a right-click, so the context menu that follows
 // a Ctrl+click that went to a definition is swallowed.
@@ -140,6 +184,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
           semanticTokens(),
           serverDiagnostics(),
           clickToDefinition,
+          noteJumpWithinFile,
           { clientCapabilities: codeActionCapabilities, editorExtension: codeActions },
           { clientCapabilities: { textDocument: { rename: { prepareSupport: true } } }, editorExtension: rename },
         ],
@@ -153,7 +198,11 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         },
         unhandledNotification: () => {},
       });
-      created.workspace.displayFile = (uri) => displayFile(canonicalUri(uri));
+      created.workspace.displayFile = (uri) => {
+        // Another file: the cursor is still where the jump started.
+        jumped();
+        return displayFile(canonicalUri(uri)).then(focusAfterJump);
+      };
       created.connect(transport);
       return created;
     },

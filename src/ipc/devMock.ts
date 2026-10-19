@@ -133,12 +133,50 @@ const SQL_WORKING = SQL_BASE.replace(
   "    DECLARE @Since DATETIME2 = DATEADD(DAY, -30, SYSUTCDATETIME());\n    SELECT TOP (100) o.[Id], o.[Total], ISNULL(o.[Note], '') AS [Note]",
 ).replace("N'Open';", "N'Open' AND o.Created >= @Since;");
 
+const QUERIES_BASE = `module Shop.Data.OrderQueries
+
+/// Open orders of one customer.
+let openOrders = "SELECT o.Id, o.Total FROM dbo.Orders o WHERE o.CustomerId = @customerId"
+`;
+
+const QUERIES_WORKING = `module Shop.Data.OrderQueries
+
+/// Open orders of one customer, newest first.
+let openOrders = """
+    -- open orders only
+    SELECT TOP (100) o.[Id], o.[Total], ISNULL(o.[Note], '') AS [Note]
+    FROM [dbo].[Orders] o WITH (NOLOCK)
+    WHERE o.CustomerId = @customerId AND o.Status = N'Open'
+    ORDER BY o.Created DESC
+    """
+
+let closeOrder (id: int) =
+    $"UPDATE dbo.Orders SET Status = 'Closed', Closed = SYSUTCDATETIME() WHERE Id = {id}"
+
+let title = "Select an order from the list"
+`;
+
+const CSHARP_QUERIES = `namespace Shop.Api;
+
+public static class OrderSql
+{
+    public const string Count = "select count(*) from dbo.Orders where Status = 'Open'";
+
+    public static string ByCustomer(int customerId) =>
+        $@"SELECT o.Id, o.Total
+           FROM dbo.Orders o
+           WHERE o.CustomerId = {customerId}";
+}
+`;
+
 const files = new Map<string, FakeFile>([
   ["Orders.fs", { base: ORDERS_BASE, working: ORDERS_WORKING }],
   ["Pricing.fs", { base: PRICING_BASE, working: PRICING_WORKING }],
   ["src/Api/OrderController.cs", { base: CSHARP_BASE, working: CSHARP_WORKING }],
   ["Audit.fs", { base: null, working: 'module Shop.Audit\n\nlet log (message: string) : unit =\n    printfn "[audit] %s" message\n' }],
   ["db/Orders.sql", { base: SQL_BASE, working: SQL_WORKING }],
+  ["src/Data/OrderQueries.fs", { base: QUERIES_BASE, working: QUERIES_WORKING }],
+  ["src/Api/OrderSql.cs", { base: null, working: CSHARP_QUERIES }],
   ["docs/Legacy.md", { base: "# Legacy notes\n\nRemoved by the agent.\n", working: null }],
 ]);
 
@@ -174,7 +212,9 @@ const ROOT = "/src/shop-api";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 
 // `?lsp` starts a stand-in language server that answers go-to-definition,
-// with the first whole-word occurrence of the symbol in the same file,
+// with the `let`/`type` declaring the symbol in any F# file (e.g. Pricing.fs
+// for `Pricing.roundMoney` in Orders.fs), else the first whole-word
+// occurrence of the symbol in the same file,
 // hover, with a `let`'s declaration line, and completion (see `fakeCompletion`); it reports every `open` as unused
 // and a string bound to an `int` as a type error, the way FsAutoComplete does.
 const fakeServer = new URLSearchParams(location.search).has("lsp");
@@ -316,12 +356,33 @@ function fakeServerAnswer(raw: string): unknown {
   const word = line.slice(start === -1 ? at : start).match(/^\w+/)?.[0];
   if (!word) return null;
   if (message.method === "textDocument/hover") return fakeHover(lines, word);
+  const declared = fakeDeclaration(uri, word);
+  if (declared) return declared;
   const pattern = new RegExp(`\\b${word}\\b`);
   for (const [index, text] of lines.entries()) {
     const column = text.search(pattern);
     if (column !== -1) {
       const range = { start: { line: index, character: column }, end: { line: index, character: column + word.length } };
       return { uri, range };
+    }
+  }
+  return null;
+}
+
+/** Where `word` is declared by a `let` or `type` in an F# file of the mock repo, the file of `uri` first. */
+function fakeDeclaration(uri: string, word: string) {
+  const current = [...files.keys()].find((path) => uri.endsWith("/" + path));
+  if (!current) return null;
+  const root = uri.slice(0, uri.length - current.length);
+  const paths = [current, ...[...files.keys()].filter((path) => path !== current && path.endsWith(".fs"))];
+  const pattern = new RegExp(`^\\s*(?:let|type)\\s+(?:rec\\s+|inline\\s+|private\\s+)*(${word})\\b`);
+  for (const path of paths) {
+    const text = path === current ? serverDocs.get(uri) : files.get(path)?.working;
+    for (const [index, line] of (text ?? "").split("\n").entries()) {
+      const match = pattern.exec(line);
+      if (!match) continue;
+      const column = match.index + match[0].length - word.length;
+      return { uri: root + path, range: { start: { line: index, character: column }, end: { line: index, character: column + word.length } } };
     }
   }
   return null;

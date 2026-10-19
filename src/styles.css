@@ -255,6 +255,13 @@ button.primary:hover:not(:disabled) {
   justify-content: center;
 }
 
+.nav-buttons {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  margin-right: 4px;
+}
+
 .toolbar-word {
   flex: none;
   padding: 0 4px;

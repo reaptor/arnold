@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show, untrack } from "soli
 import type { ChangedFile, WorkingSide } from "../ipc/commands";
 import { type FileAction, filesAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
 import { isMac } from "../platform";
-import { allFiles, ignoreTarget, setState, state } from "../state/review";
+import { allFiles, ignoreTarget, noteDeparture, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree } from "./FileTree";
 
@@ -135,6 +135,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
       setPicked({ side, paths, anchor: path, cursor: path });
     } else {
       pickOnly(side, path);
+      if (!selectedIn(side, path)) noteDeparture();
       void openWorkFile(side, path);
     }
   };
