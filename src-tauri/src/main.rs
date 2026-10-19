@@ -35,6 +35,8 @@ fn main() {
         .on_menu_event(|app, event| {
             if event.id() == "check-for-updates" {
                 let _ = app.emit("check-for-updates", ());
+            } else if event.id() == "show-licenses" {
+                let _ = app.emit("show-licenses", ());
             }
         })
         // The main window is created here rather than from tauri.conf.json so
@@ -123,8 +125,9 @@ fn main() {
         .expect("error while running Arnold");
 }
 
-/// macOS: the standard app menu, with "Check for Updates…" under "About Arnold". Windows has
-/// no menu bar (the toolbar is the title bar); there the status bar's version item checks.
+/// macOS: the standard app menu, with "Check for Updates…" and "Open Source Licenses…" under
+/// "About Arnold". Windows has no menu bar (the toolbar is the title bar); there the status
+/// bar's version item has both.
 #[cfg(target_os = "macos")]
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem};
@@ -132,6 +135,8 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wr
     if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu().cloned()) {
         let check = MenuItem::with_id(app, "check-for-updates", "Check for Updates…", true, None::<&str>)?;
         app_menu.insert(&check, 1)?;
+        let licenses = MenuItem::with_id(app, "show-licenses", "Open Source Licenses…", true, None::<&str>)?;
+        app_menu.insert(&licenses, 2)?;
     }
     Ok(menu)
 }

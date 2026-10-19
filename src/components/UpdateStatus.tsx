@@ -1,5 +1,6 @@
 import { createSignal, Match, onCleanup, Show, Switch } from "solid-js";
 import { platform } from "../platform";
+import { setLicensesOpen } from "../state/licenses";
 import { checkNow, restartToUpdate, retryDownload, setUpdatePopupOpen, updates } from "../state/updates";
 import { ago } from "./CommitPicker";
 import { openInBrowser } from "./DevOpsSetup";
@@ -136,6 +137,14 @@ export function UpdateStatus() {
               </button>
               <button onClick={() => openInBrowser(RELEASES_URL)}>
                 All releases
+              </button>
+              <button
+                onClick={() => {
+                  setUpdatePopupOpen(false);
+                  setLicensesOpen(true);
+                }}
+              >
+                Licenses
               </button>
             </div>
           </div>

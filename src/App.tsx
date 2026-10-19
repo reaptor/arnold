@@ -6,6 +6,7 @@ import { EditStatus } from "./components/EditStatus";
 import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
+import { LicensesDialog } from "./components/LicensesDialog";
 import { UpdateStatus } from "./components/UpdateStatus";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
@@ -14,6 +15,7 @@ import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
 import { startupPath, type WorkingSide } from "./ipc/commands";
 import { isMac } from "./platform";
 import { prs } from "./state/pullRequests";
+import { licensesOpen } from "./state/licenses";
 import { startUpdateChecks } from "./state/updates";
 import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
@@ -228,6 +230,9 @@ export function App() {
       </Show>
       <Show when={state.unformatted}>
         <UnformattedDialog />
+      </Show>
+      <Show when={licensesOpen()}>
+        <LicensesDialog />
       </Show>
       <Show when={suggestionPlan()} keyed>
         {(plan) => <SuggestDialog plan={plan} />}

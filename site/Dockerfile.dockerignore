@@ -1,0 +1,9 @@
+# The build context is the whole repository (see Dockerfile); send only what the site uses.
+*
+!site/
+!docs/screenshots/
+!src-tauri/app-icon.svg
+site/node_modules/
+site/dist/
+site/.astro/
+**/.DS_Store

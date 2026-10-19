@@ -9,9 +9,11 @@ import {
   downloadUpdate,
   installUpdate,
   onCheckForUpdates,
+  onShowLicenses,
   updaterInfo,
 } from "../ipc/commands";
 import { flushSave } from "./autosave";
+import { setLicensesOpen } from "./licenses";
 
 export type UpdatePhase =
   | { kind: "idle" }
@@ -68,6 +70,7 @@ export function startUpdateChecks() {
     setUpdatePopupOpen(true);
     void checkNow();
   });
+  void onShowLicenses(() => setLicensesOpen(true));
   // Development builds are not checked in the background; the popup still can.
   if (import.meta.env.DEV) return;
   window.setTimeout(() => void checkNow({ quiet: true }), FIRST_CHECK);

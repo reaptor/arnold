@@ -30,7 +30,7 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 ## Install
 
-Download the installer from [Releases](https://github.com/reaptor/arnold/releases): the `.pkg` for macOS (Apple silicon), the `-setup.exe` or `.msi` for Windows (x64). Arnold needs `git` on the PATH, and the .NET SDK (8 or newer) for F# language features.
+Download the installer from [arnoldapp.dev](https://arnoldapp.dev) or [Releases](https://github.com/reaptor/arnold/releases): the `.pkg` for macOS (Apple silicon), the `-setup.exe` or `.msi` for Windows (x64). Arnold needs `git` on the PATH, and the .NET SDK (8 or newer) for F# language features.
 
 The builds are not signed with a developer certificate yet:
 
@@ -306,6 +306,10 @@ Not there yet: C# language server, a problems list with messages, settings, GitH
 
 Arnold is released under the [MIT License](LICENSE). FsAutoComplete, which Arnold downloads, is under its own Apache-2.0 license.
 
+Arnold is built on several hundred open source packages (Rust crates and npm packages, all under permissive licenses such as MIT, Apache-2.0, BSD and, for the Inter and JetBrains Mono fonts, the SIL Open Font License). Their license texts ship with every build: *Open Source Licenses…* in the Arnold menu on macOS, or *Licenses* in the popup of the version in the status bar. `npm run notices` ([`scripts/third-party-notices.mjs`](scripts/third-party-notices.mjs)) collects them into `public/third-party-notices.json`; `npm run build` runs it, so the list always matches what was built.
+
+JetBrains and Rider are trademarks of JetBrains s.r.o. Arnold's look follows Rider's *Islands Dark* theme (its colors come from JetBrains' Apache-2.0 [rider-theme-pack](https://github.com/JetBrains/rider-theme-pack) and [intellij-community](https://github.com/JetBrains/intellij-community)), but Arnold is an independent project, not affiliated with or endorsed by JetBrains.
+
 ## The name
 
 Arnold is named after Arnold Rimmer, the hologram in the TV show *Red Dwarf*. People who describe his personality tend to reach for the word *git*, British slang for an unpleasant, annoying person, which is also where git itself got its name. This app works with git, so it is named after one.
@@ -347,9 +351,13 @@ src-tauri/installer/macos/build-pkg.sh target/release/bundle/macos/Arnold.app 0.
 
 ### Releases
 
-Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases).
+Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases). Pushes that change only the website (`site/`) build no release.
 
 The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/tauri.conf.json` and the patch number is the number of commits on `main`, so the 57th commit is released as `v0.1.57`. To start a new minor or major version, change the version in `src-tauri/tauri.conf.json`. Local builds keep the version written in that file.
+
+### Website
+
+[arnoldapp.dev](https://arnoldapp.dev) is a static Astro site in [`site/`](site/), served from Docker behind Traefik; [`site/README.md`](site/README.md) has how to run and deploy it.
 
 ### Commands
 
@@ -360,6 +368,7 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | `cargo test --workspace` | Backend tests (create temporary git repositories) |
 | `cargo test -p arnold-lsp --test fsautocomplete_live -- --ignored --nocapture` | Downloads and runs the real FsAutoComplete on a small project |
 | `cargo test -p arnold-pr -- --ignored` | Checks that dev.azure.com turns down a bogus token |
+| `npm run notices` | Collects the license texts of every crate and npm package built into Arnold into `public/third-party-notices.json` (shown under *Licenses*; `npm run build` runs it) |
 | `npm run screenshots` | Retakes the screenshots in `docs/screenshots/` from `npm run dev` (needs Google Chrome); `npm run screenshots -- review` takes one |
 | `src-tauri/make-icons.sh` | Regenerates `src-tauri/icons/` from the icon source, `src-tauri/app-icon.svg` |
 

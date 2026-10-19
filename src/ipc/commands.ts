@@ -630,3 +630,7 @@ export const installUpdate = () => invoke<void>("install_update");
 /** macOS: Arnold → Check for Updates… */
 export const onCheckForUpdates = (handler: () => void): Promise<UnlistenFn> =>
   listen("check-for-updates", () => handler());
+
+/** macOS: Arnold → Open Source Licenses… */
+export const onShowLicenses = (handler: () => void): Promise<UnlistenFn> =>
+  listen("show-licenses", () => handler());

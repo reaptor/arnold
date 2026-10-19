@@ -1,0 +1,391 @@
+---
+import { Image } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import iconUrl from '../../../src-tauri/app-icon.svg?url';
+import commit from '../../../docs/screenshots/commit.png';
+import review from '../../../docs/screenshots/review.png';
+import commits from '../../../docs/screenshots/commits.png';
+import pullRequests from '../../../docs/screenshots/pull-requests.png';
+import comment from '../../../docs/screenshots/comment.png';
+import createPr from '../../../docs/screenshots/create-pr.png';
+import vote from '../../../docs/screenshots/vote.png';
+import complete from '../../../docs/screenshots/complete.png';
+import fsharp from '../../../docs/screenshots/fsharp.png';
+import language from '../../../docs/screenshots/language.png';
+import fantomas from '../../../docs/screenshots/fantomas.png';
+
+const repo = 'https://github.com/reaptor/arnold';
+const allReleases = `${repo}/releases`;
+const releases = `${allReleases}/latest`;
+
+const steps = [
+  { name: 'Commit', text: 'Go through what the agent left uncommitted and fix it in the diff, with F# errors and quick fixes as you type. Fantomas checks the formatting.' },
+  { name: 'Review', text: 'See the branch as its pull request will show it, with hover, go to definition and find references in every F# file.' },
+  { name: 'Push', text: 'One button, with the number of commits it sends. Never forced.' },
+  { name: 'Open the PR', text: 'Title, Markdown description, draft or not, and a linked work item.' },
+  { name: 'Review the PR', text: 'Discussions in the diff. Fix things with F# quick fixes and rename, and post them as suggestions.' },
+];
+
+// What FsAutoComplete brings to every diff (see the F# section of README.md).
+const fsharpFeatures = [
+  {
+    name: 'Errors as you read',
+    text: 'Type errors and warnings in the diff, on both the files you changed and the ones you open. The all-files view counts them per file, so a broken branch shows before you scroll.',
+  },
+  {
+    name: 'Hover',
+    text: 'Point at anything for its type and documentation, or at an error for the full message.',
+  },
+  {
+    name: 'Go to definition',
+    keys: ['F12'],
+    text: 'Or Ctrl/⌘-click, into any file of the branch, then Back to where you were. Shift+F12 finds every reference.',
+  },
+  {
+    name: 'Rename everywhere',
+    keys: ['F2'],
+    text: 'Renames the symbol in every file FsAutoComplete finds it in, including files not on screen.',
+  },
+  {
+    name: 'Quick fixes',
+    keys: ['Alt', 'Enter'],
+    text: 'As in Rider, or Ctrl+. — FsAutoComplete\'s fixes and refactorings for the line or the selection. Remove unused opens takes them all out at once.',
+  },
+  {
+    name: 'Completion',
+    text: 'The list comes up as a name starts or after a dot, with the signature and docs beside it, and signature help inside calls.',
+  },
+  {
+    name: "Rider's colors",
+    text: "Semantic highlighting from the language server in Rider's Islands Dark palette, with unused opens faded out.",
+  },
+  {
+    name: 'Fantomas before commit',
+    text: 'In repositories that use Fantomas, committing checks the formatting first and can format exactly what is committed — staged lines only.',
+  },
+];
+
+// Images are resized to these widths; the browser picks by the slot it is shown in.
+const wide = [720, 1080, 1440, 2160];
+const half = [480, 720, 960, 1280];
+const wideSizes = '(min-width: 1180px) 1100px, calc(100vw - 32px)';
+const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100vw - 32px)';
+---
+<Base
+  title="Arnold — review and ship the F# your AI agent wrote"
+  description="A desktop app for macOS and Windows with an F# language server in every diff: errors, hover, go to definition, rename, quick fixes and Fantomas while you commit an AI agent's changes, review the branch and its Azure DevOps pull request."
+>
+  <header class="topbar">
+    <nav class="wrap topbar-inner" aria-label="Main">
+      <a class="brand" href="/">
+        <img src={iconUrl} alt="" width="28" height="28" />
+        <span>Arnold</span>
+      </a>
+      <div class="topbar-links">
+        <a href="#fsharp">F#</a>
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href={repo}>GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <img class="hero-icon" src={iconUrl} alt="Arnold's icon: an H drawn as a git graph" width="96" height="96" />
+      <p class="pill"><span class="pill-mark">F#</span> A language server in every diff</p>
+      <h1>Review your agent's F#<br class="wide-only" /> with the compiler at your side.</h1>
+      <p class="lede">
+        Arnold is a desktop app for the work AI agents leave behind. Every diff is a real F# editor — errors,
+        hover, go to definition, rename, quick fixes and Fantomas — while you commit the agent's changes line by
+        line, review the branch and see its Azure DevOps pull request through to completion.
+      </p>
+      <div class="downloads" data-downloads>
+        <a class="button primary" href={releases} data-asset="pkg" data-os="mac">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.6ZM14.1 5.6c.6-.8 1.1-1.9 1-2.9-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-1 2.8 1 .1 2.1-.5 2.7-1.3Z" fill="currentColor"/></svg>
+          <span>Download for macOS<small>Apple silicon · .pkg</small></span>
+        </a>
+        <a class="button" href={releases} data-asset="setup.exe" data-os="windows">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.4 4.5v7H3v-6Zm8.4-1.1L21 3v8.5h-9.6V4.4ZM3 12.5h7.4v7L3 18.5v-6Zm8.4 0H21V21l-9.6-1.4v-7.1Z" fill="currentColor"/></svg>
+          <span>Download for Windows<small>x64 · installer</small></span>
+        </a>
+      </div>
+      <p class="release-line">
+        <span data-version>Free and open source (MIT).</span>
+        <a href={releases} data-asset="msi">.msi</a> ·
+        <a href={allReleases}>All releases</a>
+      </p>
+      <figure class="shot hero-shot">
+        <Image
+          src={commit}
+          widths={wide}
+          sizes={wideSizes}
+          alt="Arnold in Commit mode: the Unstaged and Staged lists, a side-by-side diff of an F# file with an agent's fix, the commit message, and Review against main, Push and Push & create PR in the toolbar"
+          loading="eager"
+          fetchpriority="high"
+        />
+      </figure>
+    </section>
+
+    <section id="fsharp" class="wrap section">
+      <div class="feature-text centered">
+        <p class="eyebrow fsharp">F#, first class</p>
+        <h2>A review tool that understands your code</h2>
+        <p>
+          Most diff viewers show F# as colored text. Arnold runs
+          <a href="https://github.com/ionide/FsAutoComplete">FsAutoComplete</a>, the language server behind
+          Ionide, in every diff — in Commit mode, in a branch review and in a pull request. A type error the agent
+          left behind is underlined before you read the line, and you can fix it right there.
+        </p>
+      </div>
+      <figure class="shot fsharp-shot">
+        <Image src={fsharp} widths={half} sizes={halfSizes} alt="A type error in the diff: hovering shows the expression was expected to have type int but has type string" />
+      </figure>
+      <ul class="fs-grid">
+        {fsharpFeatures.map((feature) => (
+          <li class="card">
+            <h3>
+              {feature.name}
+              {feature.keys && <span class="keys">{feature.keys.map((key) => <kbd>{key}</kbd>)}</span>}
+            </h3>
+            <p>{feature.text}</p>
+          </li>
+        ))}
+      </ul>
+
+      <article class="feature reverse fs-setup">
+        <div class="feature-text">
+          <p class="eyebrow fsharp">Zero setup</p>
+          <h2>Open a repository. F# just works.</h2>
+          <p>
+            Nothing to install but the .NET SDK. The first time an F# file shows up, Arnold downloads
+            FsAutoComplete from nuget.org, checks it against NuGet's SHA-512 hash and starts it; after that it looks
+            for a newer release once a day. Your <code>global.json</code> picks the SDK.
+          </p>
+          <p>
+            Branches and pull requests get a real checkout (a worktree of their own when they need one), so the
+            language server sees your projects as they are: Arnold restores tools and Paket or NuGet packages when
+            needed, builds the C# projects your F# projects reference, and prepares Elmish Land apps. The status bar shows how far it
+            has come, with the build log of any project that failed — and the review never waits for it.
+          </p>
+        </div>
+        <figure class="shot">
+          <Image src={language} widths={half} sizes={halfSizes} alt="The F# language features popup: restoring, building, starting FsAutoComplete and loading projects" />
+        </figure>
+      </article>
+    </section>
+
+    <section class="wrap section" aria-labelledby="whole-way">
+      <h2 id="whole-way">The whole way, in one window</h2>
+      <ol class="steps">
+        {steps.map((step, i) => (
+          <li>
+            <span class="step-number">{i + 1}</span>
+            <h3>{step.name}</h3>
+            <p>{step.text}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section id="features" class="wrap section">
+      <article class="feature">
+        <div class="feature-text">
+          <p class="eyebrow added">Commit</p>
+          <h2>Line by line, like Git Extensions</h2>
+          <p>
+            An agent's uncommitted changes land in <em>Unstaged</em> and <em>Staged</em> lists. Fix things right in
+            the diff, with completion, quick fixes and errors that update as you type, then press <kbd>S</kbd>,
+            <kbd>U</kbd> or <kbd>R</kbd> to stage, unstage or reset whole files or just the selected lines.
+          </p>
+          <p>
+            When the repository uses <a href="https://fsprojects.github.io/fantomas/">Fantomas</a>, committing
+            checks the formatting first. Arnold formats only what you staged, so unstaged work stays as it is.
+            Works on any worktree, including an agent's <code>.claude/worktrees/…</code>.
+          </p>
+        </div>
+        <figure class="shot">
+          <Image src={fantomas} widths={half} sizes={halfSizes} alt="Committing in a repository that uses Fantomas: four files would be reformatted; Run Fantomas and commit, Commit without formatting, or Cancel" />
+        </figure>
+      </article>
+
+      <article class="feature reverse">
+        <div class="feature-text">
+          <p class="eyebrow modified">Compare branches</p>
+          <h2>Review the branch as its pull request will show it</h2>
+          <p>
+            Merge-base to the branch's last commit, one file at a time or every file in one scrolling list.
+            <kbd>F7</kbd> steps from change to change across files, changed words are marked red and green, and
+            small edits far apart stay small.
+          </p>
+          <p>
+            A branch checked out nowhere gets a git worktree of its own, so F# language features work on any
+            branch without ever switching your folder — and fixes go straight into the diff. Narrow it to some of
+            the branch's commits, as in Azure DevOps.
+          </p>
+        </div>
+        <figure class="shot">
+          <Image src={commits} widths={half} sizes={halfSizes} alt="The commit picker, listing the branch's commits with checkboxes" />
+        </figure>
+      </article>
+
+      <article class="feature-wide">
+        <div class="feature-text centered">
+          <p class="eyebrow modified">Azure DevOps pull requests</p>
+          <h2>Create, discuss, vote, complete</h2>
+          <p>
+            Arnold lists a repository's active pull requests and compares them the way Azure DevOps does.
+            Discussions sit under the lines they are about; right-click a line to comment. To suggest a change,
+            make it: the pull request has its own worktree, so quick fixes and rename work there too, and
+            <em>Suggest</em> posts the edit for the author to apply with a click.
+          </p>
+        </div>
+        <figure class="shot">
+          <Image src={review} widths={wide} sizes={wideSizes} alt="Arnold reviewing an Azure DevOps pull request: the files dock, the side-by-side diff with discussions, and Approve and Complete in the toolbar" />
+        </figure>
+        <div class="gallery">
+          <figure class="shot">
+            <Image src={pullRequests} widths={half} sizes={halfSizes} alt="The list of active pull requests, with descriptions, votes, an Approved tag and a draft" />
+            <figcaption>Active pull requests, with votes and drafts</figcaption>
+          </figure>
+          <figure class="shot">
+            <Image src={comment} widths={half} sizes={halfSizes} alt="A new comment being written under a changed line, next to an existing discussion" />
+            <figcaption>Comments in Azure DevOps Markdown, with a preview</figcaption>
+          </figure>
+          <figure class="shot">
+            <Image src={createPr} widths={half} sizes={halfSizes} alt="Create pull request: title, a linked work item, a Markdown description and Create as a draft" />
+            <figcaption>New pull requests, linked to a work item</figcaption>
+          </figure>
+          <figure class="shot">
+            <Image src={complete} widths={half} sizes={halfSizes} alt="The Complete pull request dialog: merge type, commit message and what to do after merging" />
+            <figcaption>Completing, with the merge type of your choice</figcaption>
+          </figure>
+        </div>
+        <figure class="shot narrow">
+          <Image src={vote} widths={half} sizes={halfSizes} alt="The Approve menu: Approve, Approve with suggestions, Wait for author, Reject, Reset feedback" />
+        </figure>
+      </article>
+
+      <div class="cards">
+        <article class="card">
+          <h3>Safe by default</h3>
+          <p>
+            Comparing and reviewing never touch your folder: other branches and pull requests get worktrees of
+            their own. Only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Looks like Rider</h3>
+          <p>
+            JetBrains Rider's <em>Islands Dark</em> theme, with the toolbar as the title bar, on macOS and Windows.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Keyboard first</h3>
+          <p>
+            <kbd>F7</kbd> next change across files, <kbd>S</kbd>/<kbd>U</kbd>/<kbd>R</kbd> stage, unstage, reset,
+            and the F# keys you know from Rider and Visual Studio.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Updates itself</h3>
+          <p>
+            Arnold checks for a new release when it starts and every hour, downloads it in the background, and
+            offers to restart.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section id="install" class="wrap section">
+      <h2>Install</h2>
+      <div class="install">
+        <div class="card">
+          <h3>macOS (Apple silicon)</h3>
+          <p>Download the <a href={releases} data-asset="pkg">.pkg</a>. The build is not notarized yet: try to open it once, then choose <em>Open Anyway</em> under <em>System Settings → Privacy &amp; Security</em>.</p>
+        </div>
+        <div class="card">
+          <h3>Windows (x64)</h3>
+          <p>Download the <a href={releases} data-asset="setup.exe">installer</a> or the <a href={releases} data-asset="msi">.msi</a>. The build is not signed yet: choose <em>More info → Run anyway</em> in the SmartScreen prompt.</p>
+        </div>
+        <div class="card">
+          <h3>Requirements</h3>
+          <p><code>git</code> on the PATH, and the .NET SDK 8 or newer for F#. Arnold fetches the language server itself.</p>
+        </div>
+      </div>
+      <div class="terminal" aria-label="Opening a repository from a terminal">
+        <div class="terminal-bar"><span></span><span></span><span></span></div>
+        <pre><code><span class="prompt">~/src/shop</span> <span class="dim">$</span> arnold .
+<span class="comment"># or the short one</span>
+<span class="prompt">~/src/shop</span> <span class="dim">$</span> ace .</code></pre>
+      </div>
+      <p class="note">The installers put <code>arnold</code> and <code>ace</code> on the PATH. Started from the Dock or the Start menu, Arnold reopens the last repository.</p>
+    </section>
+
+    <section class="wrap section split">
+      <div>
+        <h2>Status</h2>
+        <p>
+          Arnold is young and changes often: every push to <code>main</code> is a release. It is used mostly on
+          macOS; the Windows build ships alongside it.
+        </p>
+        <p class="muted">
+          Not there yet: a C# language server (C# files are highlighted, not analyzed), a problems list, settings, GitHub pull requests, and in Azure DevOps
+          auto-complete, resolving discussions and adding reviewers.
+        </p>
+      </div>
+      <div>
+        <h2>The name</h2>
+        <p>
+          Arnold is named after Arnold Rimmer, the hologram in <em>Red Dwarf</em> — a <em>git</em>, in British
+          slang, which is where git got its name too. The icon is the <strong>H</strong> on his forehead, drawn as a
+          git graph, with a <span class="removed">removed</span> and an <span class="added">added</span> commit.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>Arnold · <a href={`${repo}/blob/main/LICENSE`}>MIT License</a></span>
+      <span><a href={repo}>Source on GitHub</a> · <a href={`${repo}/issues`}>Issues</a> · Made by <a href="https://reaptor.com">Reaptor</a></span>
+      <p class="trademarks">JetBrains and Rider are trademarks of JetBrains s.r.o. Arnold is an independent project, not affiliated with or endorsed by JetBrains.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Point the download links at the newest release's files. Without this (no script, or
+    // the GitHub API is unreachable or rate limited) they stay on the releases page.
+    type Asset = { name: string; browser_download_url: string };
+
+    const isWindows = /Windows/.test(navigator.userAgent);
+    if (isWindows) {
+      const buttons = document.querySelector<HTMLElement>('[data-downloads]');
+      const mac = buttons?.querySelector<HTMLElement>('[data-os="mac"]');
+      const windows = buttons?.querySelector<HTMLElement>('[data-os="windows"]');
+      if (buttons && mac && windows) {
+        mac.classList.remove('primary');
+        windows.classList.add('primary');
+        buttons.prepend(windows);
+      }
+    }
+
+    fetch('https://api.github.com/repos/reaptor/arnold/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+      .then((release: { tag_name: string; published_at: string; assets: Asset[] }) => {
+        const bySuffix = (suffix: string) => release.assets.find((a) => a.name.endsWith(`.${suffix}`) || a.name.endsWith(`-${suffix}`));
+        document.querySelectorAll<HTMLAnchorElement>('a[data-asset]').forEach((link) => {
+          const asset = bySuffix(link.dataset.asset!);
+          if (asset) link.href = asset.browser_download_url;
+        });
+        const version = document.querySelector('[data-version]');
+        if (version) {
+          const date = new Date(release.published_at).toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' });
+          version.textContent = `Version ${release.tag_name.replace(/^v/, '')} · ${date} · Free and open source (MIT).`;
+        }
+      })
+      .catch(() => {});
+  </script>
+</Base>

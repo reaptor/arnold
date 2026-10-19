@@ -1,0 +1,45 @@
+# arnoldapp.dev — copy this file to the server (e.g. ~/arnoldapp/) and run
+#   docker compose up -d
+#
+# Hosts the image CI published (.github/workflows/site.yml); it does not build one.
+# There is deliberately no build: section — with one, a missing image makes compose
+# build from the local directory instead of pulling.
+#
+# No ports: are published. Traefik reaches the container over traefik-network and
+# gets the Let's Encrypt certificate through its myresolver resolver.
+services:
+  web:
+    image: ${DOCKER_IMAGE:-ghcr.io/reaptor/arnoldapp}:${DOCKER_TAG:-latest}
+    platform: linux/amd64
+    # latest is mutable, so re-resolve it on every up rather than reusing the
+    # copy already on disk.
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      # Enrols this container with the shared watchtower stack (reaptor.com's
+      # watchtower/docker-compose.yml), which runs in label-enable mode.
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "traefik.enable=true"
+      - "traefik.http.routers.arnoldapp.rule=Host(`arnoldapp.dev`)"
+      - "traefik.http.routers.arnoldapp.entrypoints=websecure"
+      - "traefik.http.routers.arnoldapp.tls.certresolver=myresolver"
+      # httpd listens on 80 inside the container.
+      - "traefik.http.services.arnoldapp.loadbalancer.server.port=80"
+      - "traefik.docker.network=traefik-network"
+      # Redirect www.arnoldapp.dev -> arnoldapp.dev (301). Middleware names are
+      # global to Traefik's docker provider, so the name is prefixed to keep it
+      # from colliding with the www redirects of the other stacks.
+      - "traefik.http.routers.arnoldapp-www.rule=Host(`www.arnoldapp.dev`)"
+      - "traefik.http.routers.arnoldapp-www.entrypoints=websecure"
+      - "traefik.http.routers.arnoldapp-www.tls.certresolver=myresolver"
+      - "traefik.http.routers.arnoldapp-www.service=arnoldapp"
+      - "traefik.http.routers.arnoldapp-www.middlewares=arnoldapp-www-to-apex"
+      - "traefik.http.middlewares.arnoldapp-www-to-apex.redirectregex.regex=^https://www\\.arnoldapp\\.dev/(.*)"
+      - "traefik.http.middlewares.arnoldapp-www-to-apex.redirectregex.replacement=https://arnoldapp.dev/$${1}"
+      - "traefik.http.middlewares.arnoldapp-www-to-apex.redirectregex.permanent=true"
+    networks:
+      - traefik-network
+
+networks:
+  traefik-network:
+    external: true
