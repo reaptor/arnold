@@ -16,6 +16,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
 import { codeActionCapabilities, codeActions } from "./codeActions";
 import { serverCompletion } from "./completion";
+import { rename } from "./rename";
 import { serverDiagnostics } from "./diagnostics";
 import { semanticTokens } from "./semanticTokens";
 import { canonicalUri, pathToUri } from "./uri";
@@ -127,8 +128,8 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         // Loading a solution can keep a server busy for a while.
         timeout: 20_000,
         // Completion and signature help only come up while typing, in the
-        // editors that allow it. Rename and formatting are left out: they
-        // would change files no editor shows.
+        // editors that allow it; so do quick fixes and rename (rename.ts
+        // writes the files no editor shows). Formatting is left out.
         extensions: [
           serverCompletion,
           signatureHelp(),
@@ -140,6 +141,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
           serverDiagnostics(),
           clickToDefinition,
           { clientCapabilities: codeActionCapabilities, editorExtension: codeActions },
+          { clientCapabilities: { textDocument: { rename: { prepareSupport: true } } }, editorExtension: rename },
         ],
         notificationHandlers: {
           // Match the server's spelling of file URIs to ours; the built-in

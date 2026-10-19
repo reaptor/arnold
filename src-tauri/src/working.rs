@@ -156,6 +156,21 @@ pub async fn set_index_text(checkout: String, path: String, text: String, state:
     arnold_git::set_index_text(&checkout, &path, &text).await.map_err(text_error)
 }
 
+/// The text of `path` in the working tree, for editing a file no editor has
+/// open (such as the other files a rename changes). `None` when it is not
+/// there; an error when it is not text.
+#[tauri::command]
+pub async fn read_worktree_text(checkout: String, path: String, state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let checkout = state.checked_root(&checkout)?;
+    let Some(bytes) = arnold_git::read_worktree(&checkout, &path).await.map_err(text_error)? else {
+        return Ok(None);
+    };
+    match crate::fsio::decode(&bytes) {
+        crate::fsio::Decoded::Text(text) => Ok(Some(text)),
+        _ => Err(format!("{path} is not a text file")),
+    }
+}
+
 /// Saves an edit of `path` in the working tree, keeping its line endings.
 #[tauri::command]
 pub async fn save_worktree_file(checkout: String, path: String, text: String, state: State<'_, AppState>) -> Result<(), String> {

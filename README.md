@@ -231,7 +231,7 @@ As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 ### Language features
 
-In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (everywhere but a picked run of commits) there are FsAutoComplete's quick fixes and refactorings, such as *Remove unused open*: `Alt+Enter` (as in Rider) or `Ctrl+.` / `Cmd+.` lists those for the cursor's line or the selection, as do *Quick fixes…* in the right-click menu and the hover card of an error or hint; `↑`/`↓` and `Enter` pick one, which edits the file like typing would (in a pull request, into a suggestion). There is completion and signature help too: the list comes up as a name starts or after a dot (`Ctrl+Space` asks anywhere), narrows as you type, shows the highlighted item's signature and documentation beside it, and `Tab` or `Enter` takes it. The file headers of the all-files view count the errors of every changed F# file.
+In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (everywhere but a picked run of commits) there are FsAutoComplete's quick fixes and refactorings, such as *Remove unused open*: `Alt+Enter` (as in Rider) or `Ctrl+.` / `Cmd+.` lists those for the cursor's line or the selection, as do *Quick fixes…* in the right-click menu and the hover card of an error or hint; `↑`/`↓` and `Enter` pick one, which edits the file like typing would (in a pull request, into a suggestion). *Remove unused opens* in the right-click menu removes every unused `open` of the file at once. *Rename…* (`F2`, or `Ctrl+R` `Ctrl+R` as in Visual Studio) renames the symbol under the cursor everywhere FsAutoComplete finds it: type the new name in the box on the symbol and press `Enter`. Files on screen change like typing would; the others are changed on disk in the checkout and show up as edited. There is completion and signature help too: the list comes up as a name starts or after a dot (`Ctrl+Space` asks anywhere), narrows as you type, shows the highlighted item's signature and documentation beside it, and `Tab` or `Enter` takes it. The file headers of the all-files view count the errors of every changed F# file.
 
 ![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
 
@@ -265,6 +265,7 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 | `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#) |
 | `Shift+F12` | Find references (F#) |
 | `Alt+Enter`, `Ctrl+.` (`Cmd+.`) | Quick fixes and refactorings for the cursor's line or the selection (F#, where the diff can be edited) |
+| `F2`, `Ctrl+R` `Ctrl+R` | Rename the symbol under the cursor in every file (F#, where the diff can be edited) |
 | `Ctrl+-` (macOS), `Alt+←` (Windows) | Back to where you jumped from |
 | `Ctrl+B` (on macOS also `Cmd+B`) | Hide or show the files dock |
 | `S` / `U` / `R` | Commit mode: stage / unstage / reset the file (lists) or the selected lines (diff; where text can be typed, plain keys need a selection and `Alt`/`⌥` acts on the cursor's line) |
@@ -364,7 +365,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
 | `workitems=noaccess` | The token may not read work items. Otherwise work items below 90000 exist (1234 has a real title) and higher numbers do not |
 | `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |
-| `lsp` | A stand-in language server that answers go-to-definition, hover and completion, and reports unused `open`s with a *Remove unused open* fix; `projectfail` makes a project fail to load, `workspacefail` makes the whole workspace fail |
+| `lsp` | A stand-in language server that answers go-to-definition, hover, completion and rename, and reports unused `open`s with a *Remove unused open* fix; `projectfail` makes a project fail to load, `workspacefail` makes the whole workspace fail |
 | `setupslow`, `setupfail` | Preparing the language server's copy is slow, or fails |
 | `files=40` | Adds that many changed files, for a large diff |
 | `platform=windows` | Shows the Windows title bar |

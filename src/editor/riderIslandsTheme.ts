@@ -170,6 +170,33 @@ const theme = EditorView.theme(
     ".cm-fixMenu > li.cm-fixMenu-empty": {
       color: color.inactive,
     },
+    // The rename box (lsp/rename.ts), above the symbol.
+    ".cm-renameBox": {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      padding: "4px",
+    },
+    ".cm-renameBox input": {
+      font: "inherit",
+      color: color.text,
+      backgroundColor: color.background,
+      border: `1px solid ${color.keyword}`,
+      borderRadius: "4px",
+      padding: "2px 6px",
+      minWidth: "180px",
+      outline: "none",
+    },
+    ".cm-renameBox-hint": {
+      color: color.inactive,
+      fontSize: "11px",
+      paddingRight: "4px",
+      whiteSpace: "nowrap",
+    },
+    ".cm-renameBox.cm-renameBox-problem": {
+      padding: "4px 8px",
+      color: color.inactive,
+    },
     // Code the server tags as unnecessary, such as unused opens (see
     // lsp/diagnostics.ts): faded like Rider's unused code, no underline.
     ".cm-lintRange.cm-unnecessary, .cm-lintRange.cm-unnecessary *": {

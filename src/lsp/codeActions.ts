@@ -21,7 +21,7 @@ interface Range {
   start: Position;
   end: Position;
 }
-interface TextEdit {
+export interface TextEdit {
   range: Range;
   newText: string;
 }
@@ -35,7 +35,7 @@ export interface ServerDiagnostic {
   tags?: number[];
   data?: unknown;
 }
-interface WorkspaceEdit {
+export interface WorkspaceEdit {
   changes?: Record<string, TextEdit[]>;
   documentChanges?: ({ textDocument: { uri: string }; edits: TextEdit[] } | { kind: string })[];
 }
@@ -79,7 +79,7 @@ export const codeActionCapabilities = {
 };
 
 /** The edits of `edit`, by canonical file URI; null when it does more than edit text (creates, renames or deletes files). */
-function editsOf(edit: WorkspaceEdit): Map<string, TextEdit[]> | null {
+export function editsOf(edit: WorkspaceEdit): Map<string, TextEdit[]> | null {
   const edits = new Map<string, TextEdit[]>();
   const add = (uri: string, more: TextEdit[]) => {
     const key = canonicalUri(uri);
@@ -166,6 +166,59 @@ export function applyFix(view: EditorView, fix: Fix) {
     });
   }
   view.focus();
+}
+
+// ------------------------------------------------------- unused opens
+
+/** FsAutoComplete's code for an unused `open`. */
+const UNUSED_OPEN = "FSAC0001";
+
+/** The unused opens the server reported for the file in `view`, where they are now. */
+function unusedOpens(view: EditorView, plugin: LSPPlugin): ServerDiagnostic[] {
+  return diagnosticsAt(view, plugin, 0, view.state.doc.length).filter((diagnostic) => diagnostic.code === UNUSED_OPEN);
+}
+
+/** How many unused opens the file in `view` has; 0 without a server. */
+export function unusedOpenCount(view: EditorView): number {
+  const plugin = LSPPlugin.get(view);
+  return plugin ? unusedOpens(view, plugin).length : 0;
+}
+
+/**
+ * Removes every unused open of the file in `view` in one edit: the server's
+ * own fix for each, asked for together. Resolves to how many were removed.
+ */
+export async function removeUnusedOpens(view: EditorView): Promise<number> {
+  const plugin = LSPPlugin.get(view);
+  if (!plugin || view.state.readOnly) return 0;
+  plugin.client.sync();
+  const doc = view.state.doc;
+  const fixes = await Promise.all(
+    unusedOpens(view, plugin).map(async (diagnostic) => {
+      const params = { textDocument: { uri: plugin.uri }, range: diagnostic.range, context: { diagnostics: [diagnostic], triggerKind: 1 } };
+      try {
+        const actions = await plugin.client.request<typeof params, (CodeAction | { command: string })[] | null>("textDocument/codeAction", params);
+        const fix = (actions ?? []).find(
+          (action): action is CodeAction => "title" in action && !!action.edit && /unused open/i.test(action.title),
+        );
+        return fix?.edit ? editsOf(fix.edit)?.get(canonicalUri(plugin.uri)) ?? [] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+  // Typed meanwhile: the positions no longer fit.
+  if (view.state.doc !== doc) return 0;
+  const changes = fixes
+    .flat()
+    .map((edit) => ({ from: plugin.fromPosition(edit.range.start, doc), to: plugin.fromPosition(edit.range.end, doc), insert: edit.newText }))
+    .sort((a, b) => a.from - b.from)
+    // Neighbouring fixes may meet; ones that overlap are left for another go.
+    .filter((change, index, all) => index === 0 || change.from >= all[index - 1].to);
+  if (changes.length === 0) return 0;
+  view.dispatch({ changes, userEvent: "input.fix" });
+  view.focus();
+  return fixes.filter((edits) => edits.length > 0).length;
 }
 
 // ---------------------------------------------------------------- the menu

@@ -67,6 +67,7 @@ fn main() {
             working::working_status,
             working::stop_watching_checkout,
             working::read_working_pair,
+            working::read_worktree_text,
             working::worktree_files,
             working::stage_files,
             working::unstage_files,

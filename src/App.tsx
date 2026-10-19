@@ -20,6 +20,8 @@ import {
   attachEditor,
   goBack,
   goToDefinition,
+  removeUnusedOpensInFile,
+  renameSymbol,
   showQuickFixes,
   openRepoAt,
   setState,
@@ -224,6 +226,17 @@ export function App() {
                 <li onClick={() => showQuickFixes()}>
                   <span>Quick fixes…</span>
                   <kbd>{isMac ? "⌥↩" : "Alt+Enter"}</kbd>
+                </li>
+                <li onClick={() => renameSymbol()}>
+                  <span>Rename…</span>
+                  <kbd>F2</kbd>
+                </li>
+                <li
+                  classList={{ disabled: !menu().unusedOpens }}
+                  title={menu().unusedOpens ? undefined : "The file has no unused opens"}
+                  onClick={() => menu().unusedOpens && removeUnusedOpensInFile()}
+                >
+                  <span>{menu().unusedOpens ? `Remove unused opens (${menu().unusedOpens})` : "Remove unused opens"}</span>
                 </li>
               </Show>
             </Show>

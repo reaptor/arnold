@@ -37,7 +37,8 @@ import type {
   Worktree,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
-import { showFixes } from "../lsp/codeActions";
+import { removeUnusedOpens, showFixes, unusedOpenCount } from "../lsp/codeActions";
+import { applyTextEdits, onEditFile, onRenameError, startRename } from "../lsp/rename";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
 import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
@@ -175,8 +176,10 @@ interface State {
     x: number;
     y: number;
     definition: boolean;
-    /** The right-clicked editor has a language server and can be typed in: its quick fixes can be asked for. */
+    /** The right-clicked editor has a language server and can be typed in: quick fixes and rename. */
     fixes?: boolean;
+    /** How many unused opens the right-clicked editor's file has. */
+    unusedOpens?: number;
     comment?: string | null;
     file?: string;
     /** Commit mode: what can be done to the selected lines (an editor) or the file (a list of the dock). */
@@ -422,6 +425,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
         y,
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
         fixes: menuTarget !== null && lsp.hasLanguageServer(view) && !view.state.readOnly,
+        unusedOpens: lsp.hasLanguageServer(view) && !view.state.readOnly ? unusedOpenCount(view) : 0,
         comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
         lines:
           state.source === "commit"
@@ -480,6 +484,28 @@ export function attachEditor(host: HTMLElement) {
   lsp.onDisplayFile(displayUri);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
   lsp.onServerEvent(onServerEvent);
+  onEditFile(editClosedFile);
+  onRenameError(fail);
+}
+
+/**
+ * A rename's edits to a file no editor shows: made to the file on disk in
+ * the checkout the language server runs in (the diff follows by the
+ * checkout's watch), and passed on to the server if it holds the file open.
+ */
+async function editClosedFile(uri: string, edits: Parameters<typeof applyTextEdits>[1]) {
+  const root = serverRoot();
+  const absolute = uriToPath(uri);
+  const path = root && absolute ? relativeTo(root, absolute) : null;
+  if (!root || path === null) throw new Error("it is outside the checkout");
+  const text = await ipc.readWorktreeText(root, path);
+  if (text === null) throw new Error("it is not there");
+  const edited = applyTextEdits(text, edits);
+  await ipc.saveWorktreeFile(root, path, edited);
+  if (backgroundSent.has(path)) {
+    backgroundSent.set(path, edited);
+    await lsp.openInBackground(uri, "fsharp", edited);
+  }
 }
 
 // ---------------------------------------------------------------- repository
@@ -1467,6 +1493,25 @@ export function showQuickFixes() {
   if (position < selection.from || position > selection.to) view.dispatch({ selection: { anchor: position } });
   view.focus();
   showFixes(view);
+}
+
+/** "Rename…" in the context menu: the right-clicked symbol. */
+export function renameSymbol() {
+  setState("menu", null);
+  const target = menuTarget;
+  menuTarget = null;
+  if (!target) return;
+  target.view.dispatch({ selection: { anchor: target.position } });
+  target.view.focus();
+  startRename(target.view);
+}
+
+/** "Remove unused opens" in the context menu: every one in the right-clicked file. */
+export function removeUnusedOpensInFile() {
+  setState("menu", null);
+  const target = menuTarget;
+  menuTarget = null;
+  if (target) void removeUnusedOpens(target.view);
 }
 
 export const nextChange = () => stepChange(1);

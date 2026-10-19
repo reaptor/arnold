@@ -297,10 +297,13 @@ function fakeServerAnswer(raw: string): unknown {
         hoverProvider: true,
         completionProvider: { triggerCharacters: [".", "'", "{"], resolveProvider: true },
         codeActionProvider: true,
+        renameProvider: { prepareProvider: true },
       },
     };
   }
   if (message.method === "textDocument/codeAction") return fakeCodeActions(params);
+  if (message.method === "textDocument/prepareRename") return fakePrepareRename(params);
+  if (message.method === "textDocument/rename") return fakeRename(params);
   if (message.method === "textDocument/completion") return fakeCompletion(params);
   if (message.method === "completionItem/resolve") return fakeResolve(params);
   if (message.method !== "textDocument/definition" && message.method !== "textDocument/hover") return null;
@@ -351,6 +354,44 @@ function fakeCodeActions(params: any) {
         ],
       },
     }));
+}
+
+const FAKE_KEYWORDS = new Set(["let", "open", "module", "type", "member", "match", "with", "fun", "if", "then", "else", "string", "int", "decimal"]);
+
+/** The name at `position` in `uri` and where it is; null on a keyword, a number or nothing. */
+function nameAt(uri: string, position: { line: number; character: number }) {
+  const line = (serverDocs.get(uri) ?? "").split("\n")[position.line] ?? "";
+  for (const match of line.matchAll(/[A-Za-z_][\w']*/g)) {
+    const start = match.index ?? 0;
+    if (position.character >= start && position.character <= start + match[0].length) {
+      return FAKE_KEYWORDS.has(match[0]) ? null : { name: match[0], line: position.line, start };
+    }
+  }
+  return null;
+}
+
+/** As FsAutoComplete: the name's range, or an error ("Nothing to rename"). */
+function fakePrepareRename(params: any) {
+  const found = nameAt(params.textDocument.uri, params.position);
+  if (!found) throw { code: -32602, message: "Nothing to rename" };
+  return { start: { line: found.line, character: found.start }, end: { line: found.line, character: found.start + found.name.length } };
+}
+
+/** Every whole-word use of the name in every file the server knows, open in an editor or not. */
+function fakeRename(params: any) {
+  const found = nameAt(params.textDocument.uri, params.position);
+  if (!found) throw { code: -32602, message: "Nothing to rename" };
+  const pattern = new RegExp(`(?<![\\w'])${found.name}(?![\\w'])`, "g");
+  const documentChanges = [...serverDocs].flatMap(([uri, text]) => {
+    const edits = text.split("\n").flatMap((line, index) =>
+      [...line.matchAll(pattern)].map((match) => ({
+        range: { start: { line: index, character: match.index! }, end: { line: index, character: match.index! + found.name.length } },
+        newText: params.newName,
+      })),
+    );
+    return edits.length ? [{ textDocument: { uri, version: serverVersions.get(uri) ?? 0 }, edits }] : [];
+  });
+  return { documentChanges };
 }
 
 /** Members the stand-in server knows, by the name before the dot. */
@@ -1354,6 +1395,9 @@ export function install() {
           checkoutState();
           index.set(args.path, args.text);
           return checkoutChanged(null);
+        case "read_worktree_text":
+          checkoutState();
+          return treeOf(args.checkout).get(args.path) ?? null;
         case "save_worktree_file":
           checkoutState();
           treeOf(args.checkout).set(args.path, args.text);
@@ -1558,6 +1602,9 @@ export function install() {
           return null;
         }
         case "lsp_open_background":
+          // Known to the stand-in server, so a rename reaches it too.
+          serverDocs.set(args.uri, args.text);
+          return null;
         case "lsp_stop":
           return null;
         case "plugin:dialog|message": {

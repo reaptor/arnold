@@ -251,6 +251,10 @@ export const resetFilesToHead = (checkout: string, paths: string[]) =>
 export const setIndexText = (checkout: string, path: string, text: string) =>
   invoke<void>("set_index_text", { checkout, path, text });
 
+/** The text of a file in a checkout; null when it is not there. */
+export const readWorktreeText = (checkout: string, path: string) =>
+  invoke<string | null>("read_worktree_text", { checkout, path });
+
 export const saveWorktreeFile = (checkout: string, path: string, text: string) =>
   invoke<void>("save_worktree_file", { checkout, path, text });
 
