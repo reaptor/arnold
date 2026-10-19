@@ -247,6 +247,9 @@ export const unstageFiles = (checkout: string, paths: string[]) => invoke<void>(
 /** Tracked files back to the index; untracked ones are deleted. */
 export const discardFiles = (checkout: string, paths: string[]) => invoke<void>("discard_files", { checkout, paths });
 
+/** Deletes files from the working tree; the index keeps them, so a tracked one shows as an unstaged deletion. */
+export const deleteFiles = (checkout: string, paths: string[]) => invoke<void>("delete_files", { checkout, paths });
+
 /** Back to HEAD in the index and the working tree; a file HEAD lacks is only unstaged. */
 export const resetFilesToHead = (checkout: string, paths: string[]) =>
   invoke<void>("reset_files_to_head", { checkout, paths });

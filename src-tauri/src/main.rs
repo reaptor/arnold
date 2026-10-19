@@ -73,6 +73,7 @@ fn main() {
             working::stage_files,
             working::unstage_files,
             working::discard_files,
+            working::delete_files,
             working::reset_files_to_head,
             working::undo_file_edits,
             working::ignore_path,

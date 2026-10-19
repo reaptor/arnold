@@ -186,6 +186,8 @@ interface State {
     lines?: readonly LineAction[];
     /** Commit mode: the list of the dock the file was right-clicked in. */
     side?: WorkingSide;
+    /** Commit mode: the files of that list the menu acts on, `file` and any picked with it. */
+    files?: readonly string[];
     /** Commit mode: the right-clicked editor can be typed in, so its line actions need Alt. */
     editable?: boolean;
     /**

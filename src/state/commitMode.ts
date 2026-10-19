@@ -548,43 +548,104 @@ function setIndexText(checkout: string, file: ChangedFile, text: string) {
 
 const pathsOf = (file: ChangedFile) => (file.oldPath ? [file.path, file.oldPath] : [file.path]);
 
-/** S, U or R on a file of the lists. Resetting asks first. */
-export async function fileAction(action: LineAction, side: WorkingSide, file: ChangedFile) {
+/** What can be done to files picked in Unstaged or Staged: a line action on whole files, or deleting them from disk. */
+export type FileAction = LineAction | "delete";
+
+/** S, U, R or Del on a file of the lists. */
+export function fileAction(action: FileAction, side: WorkingSide, file: ChangedFile) {
+  return filesAction(action, side, [file]);
+}
+
+/** Files of a list still on disk: the ones Delete can take. */
+export const deletable = (files: readonly ChangedFile[]) => files.filter((file) => file.status !== "deleted");
+
+/** S, U, R or Del on files picked in Unstaged or Staged, all at once. Resetting and deleting ask first. */
+export async function filesAction(action: FileAction, side: WorkingSide, files: readonly ChangedFile[]) {
   const checkout = state.checkout;
-  if (!checkout) return;
+  if (!checkout || files.length === 0) return;
+  const what = files.length === 1 ? files[0].path : `${files.length} files`;
   try {
     if (action === "stage" && side === "unstaged") {
       await flushSave();
-      await ipc.stageFiles(checkout, pathsOf(file));
+      await ipc.stageFiles(checkout, files.flatMap(pathsOf));
     } else if (action === "unstage" && side === "staged") {
-      await ipc.unstageFiles(checkout, pathsOf(file));
+      await ipc.unstageFiles(checkout, files.flatMap(pathsOf));
     } else if (action === "reset") {
-      if (!(await confirmReset(side, file))) return;
-      dropPendingSave(file.path);
-      await saved();
-      if (side === "unstaged") await ipc.discardFiles(checkout, [file.path]);
-      else await ipc.resetFilesToHead(checkout, pathsOf(file));
-      snapshots.delete(keyOf("unstaged", file.path));
+      if (!(await confirmReset(side, files))) return;
+      await forget(files);
+      if (side === "unstaged") await ipc.discardFiles(checkout, files.map((file) => file.path));
+      else await ipc.resetFilesToHead(checkout, files.flatMap(pathsOf));
+    } else if (action === "delete") {
+      const onDisk = deletable(files);
+      if (onDisk.length === 0) return notify(files.length === 1 ? `${files[0].path} is already deleted.` : "Those files are already deleted.");
+      if (!(await confirmDelete(side, onDisk))) return;
+      await forget(onDisk);
+      await ipc.deleteFiles(checkout, onDisk.map((file) => file.path));
     } else {
       return;
     }
   } catch (error) {
-    fail(`Could not ${action} ${file.path}`)(error);
+    fail(`Could not ${action} ${what}`)(error);
   }
   await refreshWork();
 }
 
-function confirmReset(side: WorkingSide, file: ChangedFile): Promise<boolean> {
-  const untracked = side === "unstaged" && file.status === "added";
+/** Files about to be put back or deleted: no save may write them again, nor a snapshot bring back their old text. */
+async function forget(files: readonly ChangedFile[]) {
+  for (const file of files) dropPendingSave(file.path);
+  await saved();
+  for (const file of files) snapshots.delete(keyOf("unstaged", file.path));
+}
+
+/** The files a question is about: all of them, up to a handful. */
+function fileNames(files: readonly ChangedFile[]): string {
+  const most = 8;
+  const names = files.slice(0, most).map((file) => `  ${file.path}`);
+  if (files.length > most) names.push(`  …and ${files.length - most} more`);
+  return names.join("\n");
+}
+
+function confirmReset(side: WorkingSide, files: readonly ChangedFile[]): Promise<boolean> {
+  const untracked = side === "unstaged" ? files.filter((file) => file.status === "added").length : 0;
+  if (files.length === 1) {
+    const file = files[0];
+    const text =
+      side === "unstaged"
+        ? untracked
+          ? `Delete ${file.path}? It is not tracked by git, so it cannot be brought back.`
+          : `Reset ${file.path}? Its unstaged changes are lost.`
+        : file.status === "added"
+          ? `Unstage ${file.path}? It is new, so it stays on disk as an untracked file.`
+          : `Reset ${file.path} to the last commit? Its staged and unstaged changes are lost.`;
+    return confirm(text, { title: "Reset", kind: "warning", okLabel: untracked ? "Delete" : "Reset" });
+  }
   const text =
     side === "unstaged"
-      ? untracked
-        ? `Delete ${file.path}? It is not tracked by git, so it cannot be brought back.`
-        : `Reset ${file.path}? Its unstaged changes are lost.`
-      : file.status === "added"
-        ? `Unstage ${file.path}? It is new, so it stays on disk as an untracked file.`
-        : `Reset ${file.path} to the last commit? Its staged and unstaged changes are lost.`;
-  return confirm(text, { title: "Reset", kind: "warning", okLabel: untracked ? "Delete" : "Reset" });
+      ? `Reset ${files.length} files? Their unstaged changes are lost.` +
+        (untracked ? ` ${untracked === files.length ? "They are" : `${untracked} of them are`} not tracked by git, so they are deleted and cannot be brought back.` : "")
+      : `Reset ${files.length} files to the last commit? Their staged and unstaged changes are lost; new ones stay on disk as untracked files.`;
+  return confirm(`${text}\n\n${fileNames(files)}`, { title: "Reset", kind: "warning", okLabel: `Reset ${files.length} files` });
+}
+
+/**
+ * Deleting asks first, saying what cannot be brought back: untracked files,
+ * and unstaged changes (git keeps only what is staged or committed).
+ */
+function confirmDelete(side: WorkingSide, files: readonly ChangedFile[]): Promise<boolean> {
+  const unstaged = new Map(listOf("unstaged").map((file) => [file.path, file]));
+  // An added file of Unstaged is untracked; of Staged, it is in the index.
+  const isUntracked = (file: ChangedFile) => side === "unstaged" && file.status === "added";
+  const untracked = files.filter(isUntracked).length;
+  const edited = files.filter((file) => unstaged.has(file.path) && !isUntracked(file)).length;
+  const one = files.length === 1;
+  const lost: string[] = [];
+  if (untracked) lost.push(one ? "It is not tracked by git, so it cannot be brought back." : `${untracked === files.length ? "They are" : `${untracked} of them are`} not tracked by git, so they cannot be brought back.`);
+  if (edited)
+    lost.push(one ? "Its unstaged changes are lost." : edited === files.length ? "Their unstaged changes are lost." : `The unstaged changes of ${edited} of them are lost.`);
+  if (untracked + edited < files.length)
+    lost.push(one ? "Git still has it: Reset brings it back." : `Git still has ${untracked + edited ? "the others" : "them"}: Reset brings them back.`);
+  const text = one ? `Delete ${files[0].path} from disk? ${lost.join(" ")}` : `Delete ${files.length} files from disk? ${lost.join(" ")}\n\n${fileNames(files)}`;
+  return confirm(text, { title: "Delete", kind: "warning", okLabel: one ? "Delete" : `Delete ${files.length} files` });
 }
 
 /** Stages every unstaged file. */

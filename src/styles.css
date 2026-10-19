@@ -745,7 +745,8 @@ button.primary:hover:not(:disabled) {
   background: var(--selected);
 }
 
-.tree:focus .tree-row.cursor {
+.tree:focus .tree-row.cursor,
+.file-list:focus .file.cursor {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }

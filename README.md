@@ -96,6 +96,9 @@ What `S`, `U` and `R` do:
 | `S` | Stage the file | Stage the selected lines (the cursor's line without a selection) |
 | `U` | Unstage the file | Unstage the selected lines |
 | `R` | Reset the file, after asking: unstaged changes are thrown away (an untracked file is deleted); a staged file goes back to the last commit | Unstaged: put the selected lines back as they are in the index, as an edit that undo brings back. Staged: put them back to the last commit in the index and the working tree, after asking |
+| `Del` | Delete the file from disk, after asking (on macOS also `⌫`); the index is left as it is, so a tracked file shows up in Unstaged as deleted and *Reset* brings it back | |
+
+Several files of a list can be picked at once: `Ctrl`+click (`⌘`+click) adds or takes away one, `Shift`+click and `Shift+↑`/`↓` pick a run of them, `Ctrl+A` (`⌘A`) the whole list and `Esc` goes back to the file shown. `S`, `U`, `R`, `Del` and the right-click menu (*Stage 3 files*, *Reset 3 files…*, *Delete 3 files…*) then act on all of them.
 
 Where the text can be typed in (the working side of an unstaged file), plain `S` and `R` act on selected lines; with only a cursor they type, and `Alt+S` / `Alt+R` (`⌥S` / `⌥R` on macOS) act on the cursor's line. Both are in the right-click menus too, and *Stage all* / *Unstage all* sit on the list headings. Each change also has arrows that move it to the other side: in the split view between the two sides, in the unified view on the change. In Unstaged, `←` stages the change and `→` resets it to the index (undo brings it back); in Staged, `→` unstages it; in All files, `→` reverts it to the last commit.
 
@@ -269,13 +272,14 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 | `Ctrl+-` (macOS), `Alt+←` (Windows) | Back to where you jumped from |
 | `Ctrl+B` (on macOS also `Cmd+B`) | Hide or show the files dock |
 | `S` / `U` / `R` | Commit mode: stage / unstage / reset the file (lists) or the selected lines (diff; where text can be typed, plain keys need a selection and `Alt`/`⌥` acts on the cursor's line) |
+| `Del` (on macOS also `⌫`) | Commit mode: delete the picked files of Unstaged or Staged from disk, after asking |
 | `Tab` / `Shift+Tab` | Commit mode, where text can be typed: indent / outdent, in the file's own indentation (tabs, or its step of spaces); `Esc` then `Tab` leaves the editor |
 | `Ctrl+Enter` (`⌘+Enter`) | Commit; send a comment |
 | `Esc` | Close a menu, popup or dialog; cancel a comment |
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), deleting files (after asking), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;

@@ -1385,6 +1385,10 @@ export function install() {
             else worktree.set(path, text);
           }
           return checkoutChanged(null);
+        case "delete_files":
+          checkoutState();
+          for (const path of (payload as { paths: string[] }).paths) worktree.delete(path);
+          return checkoutChanged(null);
         case "ignore_path":
           return ignorePath(args.checkout, args.path, (payload as { folder: boolean }).folder);
         case "path_tracked":

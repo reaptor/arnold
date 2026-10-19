@@ -197,6 +197,21 @@ pub async fn discard(checkout: &Path, paths: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Deletes `paths` from the working tree, tracked or not; the index is left
+/// alone, so a tracked file shows as an unstaged deletion. A path already
+/// gone is skipped; a folder is refused.
+pub async fn delete_files(checkout: &Path, paths: &[String]) -> Result<()> {
+    for path in paths {
+        let Some(full) = existing(checkout, path)? else { continue };
+        let metadata = tokio::fs::symlink_metadata(&full).await.map_err(|e| io_error(path, e))?;
+        if metadata.is_dir() {
+            return Err(GitError::Parse(format!("{path} is a folder, not a file")));
+        }
+        tokio::fs::remove_file(&full).await.map_err(|e| io_error(path, e))?;
+    }
+    Ok(())
+}
+
 /// Puts `paths` back to how HEAD has them, in the index and the working
 /// tree. A file HEAD does not have is only taken out of the index; it stays
 /// on disk, untracked.

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    commit, delete_files, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, FileStatus,
 };
 
@@ -144,6 +144,25 @@ async fn discards_unstaged_changes_and_resets_to_head() {
     let status = working_status(root).await.unwrap();
     assert!(status.staged.is_empty());
     assert_eq!(summary(&status.unstaged), vec![("added.txt", FileStatus::Added)]);
+}
+
+#[tokio::test]
+async fn deletes_files_from_the_working_tree_only() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "untracked.txt", "x\n");
+    write(root, "added.txt", "new\n");
+    git(root, &["add", "added.txt"]);
+    std::fs::create_dir(root.join("folder")).unwrap();
+
+    delete_files(root, &["a.txt".into(), "untracked.txt".into(), "added.txt".into(), "gone.txt".into()]).await.unwrap();
+    assert!(!root.join("a.txt").exists() && !root.join("untracked.txt").exists() && !root.join("added.txt").exists());
+    let status = working_status(root).await.unwrap();
+    // The index still has them.
+    assert_eq!(summary(&status.staged), vec![("added.txt", FileStatus::Added)]);
+    assert_eq!(summary(&status.unstaged), vec![("a.txt", FileStatus::Deleted), ("added.txt", FileStatus::Deleted)]);
+    assert!(delete_files(root, &["folder".into()]).await.is_err());
+    assert!(delete_files(root, &["../outside.txt".into()]).await.is_err());
 }
 
 #[tokio::test]

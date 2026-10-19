@@ -42,7 +42,7 @@ pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 pub use worktree::{branch_worktree, detached_worktree, find_worktree, BranchCheckout, Worktree};
 pub use working::{
-    commit, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    commit, delete_files, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,
 };
 

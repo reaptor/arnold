@@ -125,6 +125,13 @@ pub async fn discard_files(checkout: String, paths: Vec<String>, state: State<'_
     arnold_git::discard(&checkout, &paths).await.map_err(text_error)
 }
 
+/// Deletes files from the working tree, leaving the index as it is.
+#[tauri::command]
+pub async fn delete_files(checkout: String, paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::delete_files(&checkout, &paths).await.map_err(text_error)
+}
+
 /// Puts files back to HEAD in the index and the working tree.
 #[tauri::command]
 pub async fn reset_files_to_head(checkout: String, paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {

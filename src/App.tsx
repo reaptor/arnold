@@ -10,10 +10,10 @@ import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
 import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
-import { startupPath } from "./ipc/commands";
+import { startupPath, type WorkingSide } from "./ipc/commands";
 import { isMac } from "./platform";
 import { prs } from "./state/pullRequests";
-import { fileAction, lineAction, listOf } from "./state/commitMode";
+import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
   addComment,
   addToGitignore,
@@ -270,11 +270,26 @@ export function App() {
               <For each={menu().lines}>
                 {(action) => (
                   <li onClick={() => runMenuAction(action)}>
-                    <span>{actionLabel(action, !!menu().file)}</span>
+                    <span>{actionLabel(action, menu().file ? (menu().files?.length ?? 1) : 0)}</span>
                     <kbd>{menu().editable ? `${isMac ? "⌥" : "Alt+"}${LINE_ACTION_KEYS[action]}` : LINE_ACTION_KEYS[action]}</kbd>
                   </li>
                 )}
               </For>
+            </Show>
+            <Show when={menu().side && menu().files}>
+              {(paths) => {
+                const onDisk = () => deletable(menuFiles(menu().side!, paths())).length;
+                return (
+                  <li
+                    classList={{ disabled: onDisk() === 0 }}
+                    title={onDisk() === 0 ? (paths().length === 1 ? "The file is already deleted" : "The files are already deleted") : "Delete from disk"}
+                    onClick={() => onDisk() > 0 && runMenuAction("delete")}
+                  >
+                    <span>{paths().length === 1 ? "Delete file…" : `Delete ${onDisk() || paths().length} files…`}</span>
+                    <kbd>{isMac ? "⌫" : "Del"}</kbd>
+                  </li>
+                );
+              }}
             </Show>
             <Show when={menu().ignore}>
               {(ignore) => (
@@ -332,21 +347,27 @@ export function App() {
 const ACTION_LABELS: Record<LineAction, string> = { stage: "Stage", unstage: "Unstage", reset: "Reset" };
 
 /**
- * "Stage selected lines" in an editor's menu, "Stage file" in a list's. A
- * reset asks first ("…"), except of unstaged lines: that is an edit, undone like any other.
+ * "Stage selected lines" in an editor's menu, "Stage file" (or "Stage 3
+ * files", `files` being how many) in a list's. A reset asks first ("…"),
+ * except of unstaged lines: that is an edit, undone like any other.
  */
-const actionLabel = (action: LineAction, file: boolean) =>
-  `${ACTION_LABELS[action]} ${file ? "file" : "selected lines"}${action === "reset" && (file || state.workSide === "staged") ? "…" : ""}`;
+const actionLabel = (action: LineAction, files: number) =>
+  `${ACTION_LABELS[action]} ${files > 1 ? `${files} files` : files ? "file" : "selected lines"}${action === "reset" && (files || state.workSide === "staged") ? "…" : ""}`;
+
+/** The files of a list of the dock a menu was opened on, as the list has them now. */
+const menuFiles = (side: WorkingSide, paths: readonly string[]) => {
+  const wanted = new Set(paths);
+  return listOf(side).filter((file) => wanted.has(file.path));
+};
 
 /** A line or file action of a context menu. */
-function runMenuAction(action: LineAction) {
+function runMenuAction(action: FileAction) {
   const menu = state.menu;
   setState("menu", null);
   if (!menu) return;
   if (menu.file && menu.side) {
-    const file = listOf(menu.side).find((candidate) => candidate.path === menu.file);
-    if (file) void fileAction(action, menu.side, file);
-  } else {
+    void filesAction(action, menu.side, menuFiles(menu.side, menu.files ?? [menu.file]));
+  } else if (action !== "delete") {
     void lineAction(action);
   }
 }
