@@ -8,15 +8,17 @@ mod lsp;
 mod pull_requests;
 mod watcher;
 mod workspace;
+mod updates;
 mod working;
 
-use tauri::WebviewWindowBuilder;
+use tauri::{Emitter, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Reopens the window where it was, maximized if it was. The window
         // starts hidden (tauri.conf.json) and the plugin shows it once placed,
         // so it does not flash at the default size first.
@@ -30,12 +32,19 @@ fn main() {
                 )
                 .build(),
         )
+        .on_menu_event(|app, event| {
+            if event.id() == "check-for-updates" {
+                let _ = app.emit("check-for-updates", ());
+            }
+        })
         // The main window is created here rather than from tauri.conf.json so
         // it can differ per platform: the toolbar is the title bar, as in
         // Rider. macOS keeps its window buttons over the toolbar (the config's
         // overlay title bar); Windows gets no system title bar and the
         // toolbar draws minimize/maximize/close itself.
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_menu(app_menu(app.handle())?)?;
             let mut config = app
                 .config()
                 .app
@@ -54,6 +63,7 @@ fn main() {
         .manage(lsp::LspState::default())
         .manage(workspace::PrepareState::default())
         .manage(pull_requests::PrState::default())
+        .manage(updates::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             commands::dev_trace,
             commands::startup_path,
@@ -104,7 +114,24 @@ fn main() {
             lsp::lsp_send,
             lsp::lsp_open_background,
             lsp::lsp_stop,
+            updates::updater_info,
+            updates::check_for_update,
+            updates::download_update,
+            updates::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arnold");
+}
+
+/// macOS: the standard app menu, with "Check for Updates…" under "About Arnold". Windows has
+/// no menu bar (the toolbar is the title bar); there the status bar's version item checks.
+#[cfg(target_os = "macos")]
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem};
+    let menu = Menu::default(app)?;
+    if let Some(app_menu) = menu.items()?.first().and_then(|item| item.as_submenu().cloned()) {
+        let check = MenuItem::with_id(app, "check-for-updates", "Check for Updates…", true, None::<&str>)?;
+        app_menu.insert(&check, 1)?;
+    }
+    Ok(menu)
 }

@@ -1273,6 +1273,19 @@ const slowly = <T>(value: () => T, ms = 500) =>
     }, ms),
   );
 
+const FAKE_RELEASE_NOTES = `- Pick several files in Unstaged and Staged, delete files from disk
+- Show unpushed branches, push from Branches, count uncommitted files
+- F# rename and "Remove unused opens" in the editor`;
+
+async function fakeDownload(onProgress: Channel<{ downloaded: number; total: number | null }>) {
+  const total = 14_000_000;
+  for (let downloaded = 0; downloaded < total; ) {
+    await pause(150);
+    downloaded = Math.min(total, downloaded + 700_000);
+    onProgress.onmessage({ downloaded, total });
+  }
+}
+
 export function install() {
   mockWindows("main");
   mockIPC(
@@ -1603,6 +1616,21 @@ export function install() {
         case "plugin:opener|open_url":
           console.info("devMock: would open", args.url);
           return null;
+        // Updates: ?update=none (up to date), ?update=offline (the check fails), else 0.1.80 is found.
+        case "updater_info":
+          return { version: "0.1.77", canInstall: true };
+        case "check_for_update":
+          return slowly(() => {
+            if (searchParams.get("update") === "offline") throw "error sending request for url (https://github.com/reaptor/arnold/releases/latest/download/latest.json)";
+            if (searchParams.get("update") === "none") return null;
+            return { version: "0.1.80", notes: FAKE_RELEASE_NOTES };
+          }, 800);
+        case "download_update":
+          return fakeDownload((payload as { onProgress: Channel<{ downloaded: number; total: number | null }> }).onProgress);
+        case "install_update":
+          return slowly(() => {
+            throw "The browser preview cannot restart.";
+          }, 800);
         case "prepare_workspace":
           return fakePrepare(
             (payload as { onEvent: Channel<SetupEvent> }).onEvent,

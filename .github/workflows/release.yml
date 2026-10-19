@@ -5,6 +5,10 @@ name: Release
 # src-tauri/tauri.conf.json and the patch number is the number of commits on main.
 # The release stays a draft until all builds have succeeded, so a failed build never leaves a
 # half-filled public release behind.
+#
+# Installed copies update themselves from the newest release's latest.json (see
+# src-tauri/src/updates.rs). The update packages are signed with the key in the
+# TAURI_SIGNING_PRIVATE_KEY secret; its public half is `plugins.updater.pubkey` in tauri.conf.json.
 
 on:
   push:
@@ -93,9 +97,14 @@ jobs:
             fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
           '
 
+      # Also signs and uploads the update packages: Arnold.app.tar.gz on macOS, the installers
+      # themselves on Windows, each with a .sig. latest.json is written once both builds are in
+      # (publish-release), since two builds updating one file would race.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.create-release.outputs.release-id }}
           args: --target ${{ matrix.target }}
@@ -120,6 +129,55 @@ jobs:
     needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the notes list the commits since the previous release
+
+      # What installed copies read to find this version: per platform, the package to download
+      # and its signature. Points at the tag's download URLs, which work once it is published.
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release-id }}
+        run: |
+          set -euo pipefail
+          assets=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" | jq -s add)
+          named() {
+            local name
+            name=$(jq -r --arg suffix "$1" '[.[].name | select(endswith($suffix))][0] // empty' <<<"$assets")
+            [ -n "$name" ] || { echo "No asset ending in $1" >&2; exit 1; }
+            echo "$name"
+          }
+          package() {
+            local id
+            id=$(jq -r --arg name "$1.sig" '.[] | select(.name == $name) | .id' <<<"$assets")
+            [ -n "$id" ] || { echo "No signature for $1" >&2; exit 1; }
+            jq -n \
+              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$1" \
+              --arg signature "$(gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$id")" \
+              '{url: $url, signature: $signature}'
+          }
+          mac=$(package "$(named .app.tar.gz)")
+          nsis=$(package "$(named -setup.exe)")
+          msi=$(package "$(named .msi)")
+          previous=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          notes=$(git log --no-merges --format='- %s' "${previous:+$previous..}$GITHUB_SHA" | head -40)
+          # The updater asks for <os>-<arch>-<installer> first, then <os>-<arch>: an .msi
+          # installation updates with the .msi, a -setup.exe one with the -setup.exe.
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$notes" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson mac "$mac" --argjson nsis "$nsis" --argjson msi "$msi" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: {
+              "darwin-aarch64": $mac, "darwin-aarch64-app": $mac,
+              "windows-x86_64": $nsis, "windows-x86_64-nsis": $nsis, "windows-x86_64-msi": $msi}}' \
+            > latest.json
+          cat latest.json
+          gh api -X POST -H "Content-Type: application/json" --input latest.json --jq .name \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=latest.json"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -37,6 +37,12 @@ The builds are not signed with a developer certificate yet:
 - **macOS:** try to open the `.pkg` once, then choose *Open Anyway* under *System Settings → Privacy & Security*.
 - **Windows:** choose *More info → Run anyway* in the SmartScreen prompt.
 
+### Updates
+
+Arnold updates itself. It looks for a newer release when it starts and then once an hour, downloads it in the background, and shows *Restart to update to …* at the right end of the status bar. Restarting installs it and reopens the repository where you were; edits are saved first. On Windows the installer closes Arnold, updates it and starts it again; on macOS it may ask for an administrator password, since the `.pkg` installs `Arnold.app` as the system.
+
+To check right away, click the version at the right end of the status bar and choose *Check for updates* (on macOS also *Arnold → Check for Updates…*).
+
 ### Start from a terminal
 
 The installers put two commands on the PATH, `arnold` and the shorter `ace`:

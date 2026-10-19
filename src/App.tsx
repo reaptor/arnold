@@ -6,6 +6,7 @@ import { EditStatus } from "./components/EditStatus";
 import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
+import { UpdateStatus } from "./components/UpdateStatus";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
@@ -13,6 +14,7 @@ import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
 import { startupPath, type WorkingSide } from "./ipc/commands";
 import { isMac } from "./platform";
 import { prs } from "./state/pullRequests";
+import { startUpdateChecks } from "./state/updates";
 import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
   addComment,
@@ -100,6 +102,7 @@ export function App() {
   onMount(() => {
     attachEditor(editorHost);
     void startWatching();
+    startUpdateChecks();
     void startupPath().then((fromCommandLine) => {
       const path = fromCommandLine ?? localStorage.getItem("arnold.lastRepo");
       if (path) void openRepoAt(path);
@@ -425,6 +428,7 @@ function StatusBar() {
         )}
       </Show>
       </Show>
+      <UpdateStatus />
     </footer>
   );
 }

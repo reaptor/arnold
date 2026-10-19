@@ -593,3 +593,40 @@ export const lspOpenBackground = (id: number, uri: string, language: string, tex
 
 export const lspStop = (id: number) => invoke<void>("lsp_stop", { id });
 
+
+export interface UpdaterInfo {
+  /** The running version. */
+  version: string;
+  /** False in development builds, which check but never download or install. */
+  canInstall: boolean;
+}
+
+export interface AvailableUpdate {
+  version: string;
+  /** Release notes (Markdown). */
+  notes: string | null;
+}
+
+export interface DownloadProgress {
+  downloaded: number;
+  total: number | null;
+}
+
+export const updaterInfo = () => invoke<UpdaterInfo>("updater_info");
+
+/** The newer version on GitHub, or null when this one is the newest. */
+export const checkForUpdate = () => invoke<AvailableUpdate | null>("check_for_update");
+
+/** Downloads and verifies the update the last check found. */
+export function downloadUpdate(onProgress: (progress: DownloadProgress) => void) {
+  const channel = new Channel<DownloadProgress>();
+  channel.onmessage = onProgress;
+  return invoke<void>("download_update", { onProgress: channel });
+}
+
+/** Installs the downloaded update and restarts into it; resolves only if that failed. */
+export const installUpdate = () => invoke<void>("install_update");
+
+/** macOS: Arnold → Check for Updates… */
+export const onCheckForUpdates = (handler: () => void): Promise<UnlistenFn> =>
+  listen("check-for-updates", () => handler());

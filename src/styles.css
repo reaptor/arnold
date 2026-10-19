@@ -3164,3 +3164,43 @@ button.primary:hover:not(:disabled) {
 .edit-popup.at-cursor:not(.placed) {
   visibility: hidden;
 }
+
+/* ------------------------------------------------------------------ updates */
+
+/* Arnold's own updates, at the right end of the status bar. */
+.update-status {
+  margin-left: auto;
+}
+
+.update-button.ready {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+.update-button.ready:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+
+.update-popup {
+  width: min(460px, calc(100vw - 24px));
+}
+
+.update-popup .update-error {
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+.update-notes {
+  margin: 0 0 10px;
+}
+
+.update-notes summary {
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.update-notes .markdown {
+  max-height: 240px;
+  overflow: auto;
+}

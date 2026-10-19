@@ -41,6 +41,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2Q0UyQ0QwRDMzQzJEOTkKUldTWkxUelQwQ3pPdGgySGFFWWJvYWNQQ2QxRnlGYlpubzVMd1luNG1wVnQzdzk2UzNaR1U4TGQK",
+      "endpoints": [
+        "https://github.com/reaptor/arnold/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
