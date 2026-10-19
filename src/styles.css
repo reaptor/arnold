@@ -3075,3 +3075,13 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent);
   outline: none;
 }
+
+/* Opened by typing: placed next to the cursor once measured (hidden until then). */
+.edit-popup.at-cursor {
+  right: auto;
+  bottom: auto;
+}
+
+.edit-popup.at-cursor:not(.placed) {
+  visibility: hidden;
+}

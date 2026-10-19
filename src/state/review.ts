@@ -6,6 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
+  type BlockedEdit,
   DiffEditor,
   type DiffDocument,
   type DiffEditorCallbacks,
@@ -443,11 +444,19 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       const path = pathOf();
       if (path !== null) void suggestChange(path, block);
     },
-    onBlockedEdit() {
-      // Said once: typing on afterwards is just ignored.
-      if (editBlocked() && !editInfoShown) {
+    onBlockedEdit(edit) {
+      if (!editBlocked()) return;
+      const path = pathOf();
+      if (!editInfoOpen()) {
+        // Said once: typing on afterwards is just ignored.
+        if (editInfoShown) return;
         editInfoShown = true;
-        setEditInfoOpen(true);
+        openEditInfo(edit.rect);
+        pendingEdit = path !== null && edit.at ? { path, at: edit.at, text: "" } : null;
+      }
+      // Kept while the popup is open, to be typed once the diff can be edited.
+      if (pendingEdit?.path === path) {
+        pendingEdit.text = edit.erase ? pendingEdit.text.slice(0, -1) : pendingEdit.text + edit.text;
       }
     },
   };
@@ -848,10 +857,39 @@ function edited(path: string, text: string) {
   });
 }
 
-/** Whether the Read-only popup is open (it opens by itself the first time a read-only diff is typed in). */
-const [editInfoOpen, setEditInfoOpen] = createSignal(false);
-export { editInfoOpen, setEditInfoOpen };
+/**
+ * The Read-only popup, when open. It opens by itself the first time a
+ * read-only diff is typed in, then next to the cursor (`anchor`); opened
+ * from its status bar pill it shows above the pill.
+ */
+const [editInfo, setEditInfo] = createSignal<{ anchor: CursorRect | null } | null>(null);
+type CursorRect = NonNullable<BlockedEdit["rect"]>;
+export const editInfoOpen = () => editInfo() !== null;
+export const editInfoAnchor = () => editInfo()?.anchor ?? null;
+function openEditInfo(anchor: CursorRect | null) {
+  pendingEdit = null;
+  setEditInfo({ anchor });
+}
+export function setEditInfoOpen(open: boolean) {
+  if (open) openEditInfo(null);
+  else {
+    pendingEdit = null;
+    setEditInfo(null);
+  }
+}
 let editInfoShown = false;
+
+/** What was typed into the read-only diff that opened the popup: typed again once `makeEditable` made it editable. */
+let pendingEdit: { path: string; at: NonNullable<BlockedEdit["at"]>; text: string } | null = null;
+
+/** Types `typed` into its file's editor once that shows the file editable again (it is rebuilt after `makeEditable`). */
+async function retype(typed: NonNullable<typeof pendingEdit>) {
+  if (typed.text === "") return;
+  for (let tries = 0; tries < 100; tries++) {
+    if (editorFor(typed.path)?.typeAt(typed.at, typed.text)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 /** Whether `path` may have uncommitted edits to undo: a file of the checked-out branch or pull request being compared. */
 const editsUndoable = (path: string) =>
@@ -962,9 +1000,19 @@ async function loadPrWorktree(create: boolean, discard = false) {
   }
 }
 
-/** Makes the diff editable as `editBlocked` says. */
+/**
+ * Makes the diff editable as `editBlocked` says, then types what was typed
+ * while the Read-only popup was open (taken by the call, so call this
+ * before closing the popup).
+ */
 export async function makeEditable() {
-  const action = editBlocked()?.action;
+  const typed = pendingEdit;
+  pendingEdit = null;
+  await makeEditableAs(editBlocked()?.action);
+  if (typed && !editBlocked()) await retype(typed);
+}
+
+async function makeEditableAs(action: EditAction | null | undefined) {
   if (!action) return;
   if (action.kind === "checkOut") return checkOutToEdit(action.branch);
   if (action.kind === "discard") {

@@ -22,6 +22,7 @@ import {
   EditorSelection,
   EditorState,
   type Extension,
+  Prec,
   Text,
   Transaction,
 } from "@codemirror/state";
@@ -99,6 +100,24 @@ export interface Snapshot {
   history?: unknown;
 }
 
+/** A place in a text: a 1-based line and a column within it. */
+export interface TextPoint {
+  line: number;
+  column: number;
+}
+
+/** Typing or pasting into a read-only side. */
+export interface BlockedEdit {
+  /** What would have been typed or pasted; "" when that cannot be told. */
+  text: string;
+  /** Backspace or Delete: takes back the last character typed. */
+  erase: boolean;
+  /** The selection it went to, when in the working text (where it can be typed again once editable). */
+  at: { anchor: TextPoint; head: TextPoint } | null;
+  /** Where the cursor is on screen. */
+  rect: { left: number; top: number; bottom: number } | null;
+}
+
 export interface DiffEditorCallbacks {
   onFocus(): void;
   /**
@@ -115,7 +134,7 @@ export interface DiffEditorCallbacks {
   /** A change's move button: `selection` is all of its lines. */
   onMoveChunk?(direction: MoveDirection, selection: LineSelection): void;
   /** Typing or pasting into a read-only side, which does nothing. */
-  onBlockedEdit?(): void;
+  onBlockedEdit?(edit: BlockedEdit): void;
   /** A framed change's Suggest button: `block` is the change, in lines of the committed and the working text. */
   onSuggest?(block: LineBlock): void;
 }
@@ -510,6 +529,44 @@ export class DiffEditor {
     this.working?.focus();
   }
 
+  /**
+   * Types `text` over the selection `at` of the working text, as typing
+   * would, when it can be edited. Points past the end of the text are
+   * clamped.
+   */
+  typeAt(at: { anchor: TextPoint; head: TextPoint }, text: string): boolean {
+    const view = this.working;
+    if (!view || view.state.readOnly || !this.document?.editable) return false;
+    const doc = view.state.doc;
+    const offset = (point: TextPoint) => {
+      const line = doc.line(Math.min(Math.max(point.line, 1), doc.lines));
+      return line.from + Math.min(Math.max(point.column, 0), line.length);
+    };
+    const [from, to] = [offset(at.anchor), offset(at.head)].sort((a, b) => a - b);
+    view.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
+      // Not "input.type": a burst typed again opens no completions.
+      userEvent: "input",
+      scrollIntoView: true,
+    });
+    view.focus();
+    return true;
+  }
+
+  /** Tells the callbacks about `text` typed into read-only `view`. */
+  private blockedEdit(view: EditorView, text: string, erase = false) {
+    const point = (pos: number): TextPoint => {
+      const line = view.state.doc.lineAt(pos);
+      return { line: line.number, column: pos - line.from };
+    };
+    const selection = view.state.selection.main;
+    const at = view === this.working ? { anchor: point(selection.anchor), head: point(selection.head) } : null;
+    const coords = view.coordsAtPos(selection.head);
+    const rect = coords && { left: coords.left, top: coords.top, bottom: coords.bottom };
+    this.callbacks.onBlockedEdit?.({ text, erase, at, rect });
+  }
+
   /** Scrolls the cursor of the working editor into view. */
   revealCursor() {
     const view = this.working;
@@ -828,6 +885,8 @@ export class DiffEditor {
   }
 
   private sharedExtensions(path: string, readOnly: boolean): Extension {
+    // A key's keydown already told about it: its input event, if any, is not told again.
+    let typedKey = false;
     const actions = ["stage", "unstage", "reset"] as const;
     // A plain letter acts where it cannot be typed, and on a selection where
     // it can: typing over selected lines is what S and R are for here. With
@@ -862,19 +921,41 @@ export class DiffEditor {
       changeKindColors,
       lineTints,
       threadMarks,
+      // Typing into a read-only side, told before any key binding can swallow the key.
+      Prec.highest(
+        EditorView.domEventHandlers({
+          keydown: (event, view) => {
+            if (!view.state.readOnly || !isEditKey(event) || event.isComposing) return false;
+            typedKey = true;
+            if (event.key === "Backspace" || event.key === "Delete") this.blockedEdit(view, "", true);
+            else this.blockedEdit(view, event.key === "Enter" ? "\n" : event.key === "Tab" ? "" : event.key);
+            return false;
+          },
+          // Dictation, the emoji picker and composed characters arrive without
+          // a key of their own (a key's own input event follows its keydown).
+          beforeinput: (event, view) => {
+            if (view.state.readOnly && !typedKey) {
+              const text = event.inputType.startsWith("insert") ? (event.data ?? "") : "";
+              this.blockedEdit(view, event.inputType === "insertParagraph" ? "\n" : text);
+            }
+            typedKey = false;
+            return false;
+          },
+          keyup: () => {
+            typedKey = false;
+            return false;
+          },
+          // CodeMirror swallows pasting into a read-only editor before any input event.
+          paste: (event, view) => {
+            if (view.state.readOnly) this.blockedEdit(view, event.clipboardData?.getData("text/plain") ?? "");
+            return false;
+          },
+        }),
+      ),
       EditorView.domEventHandlers({
         focus: (_event, view) => {
           this.lastFocused = view;
           this.callbacks.onFocus();
-          return false;
-        },
-        keydown: (event, view) => {
-          if (view.state.readOnly && isEditKey(event)) this.callbacks.onBlockedEdit?.();
-          return false;
-        },
-        // Pasting, dictation and composed characters arrive without a key of their own.
-        beforeinput: (_event, view) => {
-          if (view.state.readOnly) this.callbacks.onBlockedEdit?.();
           return false;
         },
         contextmenu: (event, view) => {

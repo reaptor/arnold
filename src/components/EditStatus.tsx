@@ -2,6 +2,7 @@ import { createEffect, createResource, createSignal, onCleanup, Show } from "sol
 import {
   commitEdits,
   editBlocked,
+  editInfoAnchor,
   editInfoOpen,
   folderHasChanges,
   makeEditable,
@@ -67,9 +68,26 @@ function ReadOnlyPill() {
     () => folderHasChanges(),
   );
   const act = () => {
-    setEditInfoOpen(false);
+    // Takes what was typed before the popup closes (closing drops it).
     void makeEditable();
+    setEditInfoOpen(false);
   };
+  // Opened by typing: next to the cursor, below its line (above when there
+  // is no room), kept inside the window.
+  let popup: HTMLDivElement | undefined;
+  const [place, setPlace] = createSignal<{ left: number; top: number } | null>(null);
+  createEffect(() => {
+    const anchor = editInfoAnchor();
+    setPlace(null);
+    if (!anchor || !popup) return;
+    const margin = 8;
+    const { width, height } = popup.getBoundingClientRect();
+    const below = anchor.bottom + 6;
+    const top =
+      below + height + margin <= window.innerHeight ? below : Math.max(margin, anchor.top - 6 - height);
+    const left = Math.min(Math.max(margin, anchor.left - 24), window.innerWidth - width - margin);
+    setPlace({ left, top });
+  });
 
   return (
     <Show when={editBlocked()}>
@@ -84,7 +102,14 @@ function ReadOnlyPill() {
             Read-only
           </button>
           <Show when={editInfoOpen()}>
-            <div class="language-popup edit-popup" role="dialog" aria-label="Editing">
+            <div
+              class="language-popup edit-popup"
+              classList={{ "at-cursor": editInfoAnchor() !== null, placed: place() !== null }}
+              style={place() ? { left: `${place()!.left}px`, top: `${place()!.top}px` } : undefined}
+              ref={popup}
+              role="dialog"
+              aria-label="Editing"
+            >
               <h3>Read-only</h3>
               <p>{blocked().reason}</p>
               <Show when={blocked().action?.kind === "worktree"}>
