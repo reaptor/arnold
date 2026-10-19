@@ -69,7 +69,9 @@ jobs:
     env:
       # Windows builds are signed through Azure Artifact Signing once the AZURE_CLIENT_SECRET
       # secret exists (see Signing.md). Until then they stay unsigned.
-      SIGN_WINDOWS: ${{ matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' }}
+      # Switched off with `false &&` until the Azure identity validation is done; remove it to
+      # turn signing back on.
+      SIGN_WINDOWS: ${{ false && matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v7
 
