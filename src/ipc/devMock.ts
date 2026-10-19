@@ -180,6 +180,8 @@ const fakeServer = new URLSearchParams(location.search).has("lsp");
 
 /** The open documents of the stand-in server, by URI. */
 const serverDocs = new Map<string, string>();
+/** The version of each document the stand-in server has. */
+const serverVersions = new Map<string, number>();
 
 let serverChannel: Channel<string> | null = null;
 
@@ -270,10 +272,13 @@ function fakeServerAnswer(raw: string): unknown {
   const params = message.params;
   if (message.method === "textDocument/didOpen") {
     serverDocs.set(params.textDocument.uri, params.textDocument.text);
+    serverVersions.set(params.textDocument.uri, params.textDocument.version);
     publishUnusedOpens(params.textDocument.uri, params.textDocument.text);
   }
   if (message.method === "textDocument/didChange") {
     serverDocs.set(params.textDocument.uri, params.contentChanges.at(-1).text);
+    serverVersions.set(params.textDocument.uri, params.textDocument.version);
+    publishUnusedOpens(params.textDocument.uri, params.contentChanges.at(-1).text);
   }
   if (message.id === undefined) return undefined;
   if (message.method === "initialize") {
@@ -283,9 +288,11 @@ function fakeServerAnswer(raw: string): unknown {
         definitionProvider: true,
         hoverProvider: true,
         completionProvider: { triggerCharacters: [".", "'", "{"], resolveProvider: true },
+        codeActionProvider: true,
       },
     };
   }
+  if (message.method === "textDocument/codeAction") return fakeCodeActions(params);
   if (message.method === "textDocument/completion") return fakeCompletion(params);
   if (message.method === "completionItem/resolve") return fakeResolve(params);
   if (message.method !== "textDocument/definition" && message.method !== "textDocument/hover") return null;
@@ -306,6 +313,36 @@ function fakeServerAnswer(raw: string): unknown {
     }
   }
   return null;
+}
+
+/**
+ * Code actions the way FsAutoComplete gives them for the diagnostics sent
+ * along: an unused open is removed with its line.
+ */
+function fakeCodeActions(params: any) {
+  const uri = params.textDocument.uri;
+  const version = serverVersions.get(uri) ?? 0;
+  return (params.context.diagnostics as any[])
+    .filter((diagnostic) => diagnostic.code === "FSAC0001")
+    .map((diagnostic) => ({
+      title: "Remove unused open",
+      kind: "quickfix",
+      isPreferred: true,
+      diagnostics: [diagnostic],
+      edit: {
+        documentChanges: [
+          {
+            textDocument: { uri, version },
+            edits: [
+              {
+                range: { start: { line: diagnostic.range.start.line, character: 0 }, end: { line: diagnostic.range.start.line + 1, character: 0 } },
+                newText: "",
+              },
+            ],
+          },
+        ],
+      },
+    }));
 }
 
 /** Members the stand-in server knows, by the name before the dot. */

@@ -14,6 +14,7 @@ import {
 import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
+import { codeActionCapabilities, codeActions } from "./codeActions";
 import { serverCompletion } from "./completion";
 import { serverDiagnostics } from "./diagnostics";
 import { semanticTokens } from "./semanticTokens";
@@ -138,6 +139,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
           semanticTokens(),
           serverDiagnostics(),
           clickToDefinition,
+          { clientCapabilities: codeActionCapabilities, editorExtension: codeActions },
         ],
         notificationHandlers: {
           // Match the server's spelling of file URIs to ours; the built-in

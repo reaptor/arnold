@@ -20,6 +20,7 @@ import {
   attachEditor,
   goBack,
   goToDefinition,
+  showQuickFixes,
   openRepoAt,
   setState,
   startWatching,
@@ -219,6 +220,12 @@ export function App() {
                 <span>Go to definition</span>
                 <kbd>F12</kbd>
               </li>
+              <Show when={menu().fixes}>
+                <li onClick={() => showQuickFixes()}>
+                  <span>Quick fixes…</span>
+                  <kbd>{isMac ? "⌥↩" : "Alt+Enter"}</kbd>
+                </li>
+              </Show>
             </Show>
             <Show when={menu().undo}>
               {(undo) => (

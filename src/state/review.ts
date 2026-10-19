@@ -37,6 +37,7 @@ import type {
   Worktree,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
+import { showFixes } from "../lsp/codeActions";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { comparePaths } from "./pathOrder";
 import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
@@ -172,6 +173,8 @@ interface State {
     x: number;
     y: number;
     definition: boolean;
+    /** The right-clicked editor has a language server and can be typed in: its quick fixes can be asked for. */
+    fixes?: boolean;
     comment?: string | null;
     file?: string;
     /** Commit mode: what can be done to the selected lines (an editor) or the file (a list of the dock). */
@@ -416,6 +419,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
         x,
         y,
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
+        fixes: menuTarget !== null && lsp.hasLanguageServer(view) && !view.state.readOnly,
         comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
         lines:
           state.source === "commit"
@@ -1448,6 +1452,19 @@ export function goToDefinition() {
   setState("menu", null);
   if (menuTarget) lsp.goToDefinitionAt(menuTarget.view, menuTarget.position);
   menuTarget = null;
+}
+
+/** "Quick fixes" in the context menu: the fixes for the selection, or for the right-clicked line when that is outside it. */
+export function showQuickFixes() {
+  setState("menu", null);
+  const target = menuTarget;
+  menuTarget = null;
+  if (!target) return;
+  const { view, position } = target;
+  const selection = view.state.selection.main;
+  if (position < selection.from || position > selection.to) view.dispatch({ selection: { anchor: position } });
+  view.focus();
+  showFixes(view);
 }
 
 export const nextChange = () => stepChange(1);

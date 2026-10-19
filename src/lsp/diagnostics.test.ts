@@ -15,7 +15,15 @@ describe("toDiagnostic", () => {
       severity: "hint",
       message: "Unused open statement",
       markClass: "cm-unnecessary",
+      // The server's own start, for asking it for fixes.
+      lsp: { item, shift: 5 },
     });
+  });
+
+  it("offers quick fixes only where the editor can be typed in", () => {
+    const item = { range, severity: 4, code: "FSAC0001", message: "Unused open statement", tags: [1] };
+    expect(toDiagnostic(item, at(3, 7), at(3, 16), doc).actions).toBeUndefined();
+    expect(toDiagnostic(item, at(3, 7), at(3, 16), doc, true).actions?.map((action) => action.name)).toEqual(["Quick fixes"]);
   });
 
   it("keeps other diagnostics as they are", () => {
@@ -25,6 +33,7 @@ describe("toDiagnostic", () => {
       to: at(4, 9),
       severity: "error",
       message: "Type mismatch",
+      lsp: { item, shift: 0 },
     });
   });
 

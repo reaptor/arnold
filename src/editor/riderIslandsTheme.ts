@@ -148,6 +148,28 @@ const theme = EditorView.theme(
       backgroundColor: color.popupSelection,
       color: color.text,
     },
+    // The quick fixes menu (lsp/codeActions.ts), like the completion list.
+    ".cm-fixMenu": {
+      listStyle: "none",
+      margin: "0",
+      padding: "4px",
+      minWidth: "200px",
+      maxWidth: "480px",
+    },
+    ".cm-fixMenu > li": {
+      padding: "3px 8px",
+      borderRadius: "4px",
+      cursor: "default",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    },
+    ".cm-fixMenu > li.cm-fixMenu-active": {
+      backgroundColor: color.popupSelection,
+    },
+    ".cm-fixMenu > li.cm-fixMenu-empty": {
+      color: color.inactive,
+    },
     // Code the server tags as unnecessary, such as unused opens (see
     // lsp/diagnostics.ts): faded like Rider's unused code, no underline.
     ".cm-lintRange.cm-unnecessary, .cm-lintRange.cm-unnecessary *": {
