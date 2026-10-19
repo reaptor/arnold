@@ -30,9 +30,7 @@ impl AppState {
     }
 
     pub(crate) fn checked_root(&self, root: &str) -> Result<PathBuf, String> {
-        let canonical = Path::new(root)
-            .canonicalize()
-            .map_err(|e| format!("{root}: {e}"))?;
+        let canonical = canonical(Path::new(root)).map_err(|e| format!("{root}: {e}"))?;
         if self.roots.lock().unwrap().contains(&canonical) {
             Ok(canonical)
         } else {
@@ -43,10 +41,17 @@ impl AppState {
     /// Lets file and language-server commands use `path` (a prepared copy of
     /// the reviewed commit).
     pub(crate) fn allow_root(&self, path: &Path) {
-        if let Ok(canonical) = path.canonicalize() {
+        if let Ok(canonical) = canonical(path) {
             self.roots.lock().unwrap().insert(canonical);
         }
     }
+}
+
+/// Resolved path of a checkout. Not `std` canonicalize: on Windows that gives
+/// `\\?\C:\…`, and every command works from the checked root, so git and
+/// dotnet would get such paths too (git cannot create lock files there).
+fn canonical(path: &Path) -> std::io::Result<PathBuf> {
+    dunce::canonicalize(path)
 }
 
 pub(crate) fn text_error(error: impl std::fmt::Display) -> String {
@@ -80,7 +85,7 @@ pub async fn open_repo(path: String, app: AppHandle, state: State<'_, AppState>)
     let info = arnold_git::open(Path::new(&path)).await.map_err(text_error)?;
     let mut roots = HashSet::new();
     for checkout in std::iter::once(&info.root).chain(&info.worktrees) {
-        if let Ok(canonical) = checkout.canonicalize() {
+        if let Ok(canonical) = canonical(checkout) {
             roots.insert(canonical);
         }
     }
