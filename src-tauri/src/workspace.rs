@@ -73,7 +73,10 @@ pub async fn prepare_workspace(
             let _ = previous.await;
         }
         *job = Some(tokio::spawn(async move {
-            let _ = sender.send(prepare(&root, &head, &commit, in_place, &on_event).await);
+            let emit = |event: SetupEvent| {
+                let _ = on_event.send(event);
+            };
+            let _ = sender.send(prepare(&root, &head, &commit, in_place, &emit).await);
         }));
     }
     let prepared = receiver.await.map_err(|_| "cancelled".to_string())??;
@@ -83,10 +86,13 @@ pub async fn prepare_workspace(
     Ok(prepared)
 }
 
-async fn prepare(root: &Path, head: &str, commit: &str, in_place: bool, events: &Channel<SetupEvent>) -> Result<Prepared, String> {
-    let emit = |event: SetupEvent| {
-        let _ = events.send(event);
-    };
+async fn prepare(
+    root: &Path,
+    head: &str,
+    commit: &str,
+    in_place: bool,
+    emit: &(dyn Fn(SetupEvent) + Sync),
+) -> Result<Prepared, String> {
     let files: Vec<(String, String)> = arnold_git::tree_files(root, commit)
         .await
         .map_err(|e| e.to_string())?
@@ -127,7 +133,17 @@ async fn prepare(root: &Path, head: &str, commit: &str, in_place: bool, events: 
     let checkout = dunce::canonicalize(&checkout).map_err(|e| e.to_string())?;
 
     let dotnet = dotnet::locate(&checkout).await?;
-    run_plan(&plan, &dotnet, &checkout, &state.join("prepared.json"), &emit).await;
+    run_plan(&plan, &dotnet, &checkout, &state.join("prepared.json"), emit).await;
+    // FsAutoComplete fails to load every project when one reference is missing.
+    for (project, target) in workspace::missing_references(&projects, |path| checkout.join(path).exists()) {
+        emit(SetupEvent::Warning {
+            text: format!(
+                "{project} references {target}, which is not in {}: FsAutoComplete may not load the projects. \
+                 Files that git ignores (such as generated ones) are not part of a new checkout.",
+                checkout.display()
+            ),
+        });
+    }
     Ok(Prepared { path: Some(checkout) })
 }
 
@@ -138,15 +154,52 @@ async fn run_plan(plan: &Plan, dotnet: &dotnet::Dotnet, checkout: &Path, done_fi
     let on_line = |line: String| emit(SetupEvent::Output { line });
     let warn = |text: String| emit(SetupEvent::Warning { text });
     let mut done = Done::load(done_file);
+    let mut tools_restored = false;
+    let mut restore_tools = || {
+        let first = !tools_restored;
+        tools_restored = true;
+        first
+    };
 
-    let restored = if done.restore.as_deref() == Some(plan.restore_stamp.as_str()) {
+    // Before restoring: the generated projects are restored with the rest.
+    let mut generated = false;
+    if plan.elmish_land {
+        if done.generate.as_deref() == Some(plan.generate_stamp.as_str()) && checkout.join(".elmish-land").is_dir() {
+            emit(SetupEvent::Skipped {
+                title: "Generate Elmish Land files".into(),
+                reason: "already generated for these pages and settings".into(),
+            });
+        } else {
+            if restore_tools() {
+                emit(SetupEvent::Step {
+                    title: "Restoring .NET tools (dotnet tool restore)".into(),
+                });
+                if let Err(error) = workspace::run_dotnet(dotnet, checkout, &["tool", "restore"], &on_line).await {
+                    warn(error);
+                }
+            }
+            emit(SetupEvent::Step {
+                title: "Generating Elmish Land files (dotnet elmish-land restore)".into(),
+            });
+            match workspace::run_dotnet(dotnet, checkout, &["elmish-land", "restore"], &on_line).await {
+                Ok(()) => {
+                    done.generate = Some(plan.generate_stamp.clone());
+                    done.save(done_file);
+                    generated = true;
+                }
+                Err(error) => warn(error),
+            }
+        }
+    }
+
+    let restored = if !generated && done.restore.as_deref() == Some(plan.restore_stamp.as_str()) {
         emit(SetupEvent::Skipped {
             title: "Restore packages".into(),
             reason: "already restored for these project files".into(),
         });
         true
     } else {
-        if plan.tool_restore {
+        if plan.tool_restore && restore_tools() {
             emit(SetupEvent::Step {
                 title: "Restoring .NET tools (dotnet tool restore)".into(),
             });

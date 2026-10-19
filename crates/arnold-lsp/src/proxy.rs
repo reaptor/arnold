@@ -9,6 +9,8 @@
 //!   editor client does not handle;
 //! - it reports progress, per-file diagnostic counts and FsAutoComplete's
 //!   workspace loading as events, for the status bar and the files dock;
+//! - it watches FsAutoComplete's log for a failure to load the workspace,
+//!   after which it never reports the projects loaded;
 //! - it can keep files open with the server that no editor shows, so that
 //!   errors are known for the whole change, and hands such a file over
 //!   cleanly when an editor opens it.
@@ -48,6 +50,9 @@ pub enum Event {
     },
     /// FsAutoComplete finished loading the projects of the workspace.
     WorkspaceLoaded,
+    /// FsAutoComplete could not load the workspace at all (it logged the
+    /// error and will not report it loaded). `details`: what it logged.
+    WorkspaceFailed { message: String, details: String },
     /// A line the server wrote to stderr.
     Log(String),
     /// The server's output ended: it exited or crashed.
@@ -110,7 +115,11 @@ impl Session {
         let log_sink = on_event.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
+            let mut watch = LoadFailureWatch::default();
             while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(failed) = watch.line(&line) {
+                    log_sink(failed);
+                }
                 log_sink(Event::Log(line));
             }
         });
@@ -400,6 +409,39 @@ fn handle_server_message(message: &str, shared: &Shared, progress: &mut Progress
     handled
 }
 
+/// Finds FsAutoComplete's failure to load the workspace in its log: an error
+/// entry (`[12:00:00.000 ERR] [Source] What failed`) about loading the
+/// projects, followed by the exception, such as a project reference to a
+/// folder that does not exist. Reported once.
+#[derive(Default)]
+struct LoadFailureWatch {
+    /// The entry seen, waiting for the exception's line.
+    entry: Option<String>,
+    reported: bool,
+}
+
+/// Log entries after which FsAutoComplete has given up loading the workspace.
+const LOAD_FAILURES: [&str; 2] = ["Reloading projects failed", "Initialized Request Errored"];
+
+impl LoadFailureWatch {
+    fn line(&mut self, line: &str) -> Option<Event> {
+        if self.reported || line.trim().is_empty() {
+            return None;
+        }
+        if let Some(entry) = self.entry.take() {
+            // `System.ArgumentException: The directory name … does not exist.`
+            let exception = line.trim();
+            let message = exception.split_once(": ").map_or(exception, |(_, message)| message).to_string();
+            self.reported = true;
+            return Some(Event::WorkspaceFailed { message, details: format!("{entry}\n{exception}") });
+        }
+        if line.contains(" ERR] ") && LOAD_FAILURES.iter().any(|failure| line.contains(failure)) {
+            self.entry = Some(line.trim().to_string());
+        }
+        None
+    }
+}
+
 /// FsAutoComplete reports workspace loading as JSON text in `content`.
 fn workspace_event(params: &Value) -> Option<Event> {
     let content: Value = serde_json::from_str(params["content"].as_str()?).ok()?;
@@ -448,6 +490,34 @@ fn answer_server_request(method: &str, params: &Value, shared: &Shared) -> Resul
 mod tests {
     use super::*;
     use std::sync::mpsc as std_mpsc;
+
+    #[test]
+    fn finds_a_failure_to_load_the_workspace_in_the_log() {
+        let mut watch = LoadFailureWatch::default();
+        let log = [
+            "[11:27:30.701 INF] [FsAutoComplete.Lsp.AdaptiveState] Loading projects",
+            "[11:27:31.042 ERR] [FsAutoComplete.Lsp.AdaptiveState] Reloading projects failed",
+            "System.ArgumentException: The directory name '/r/.elmish-land/Base' does not exist. (Parameter 'path')",
+            "   at System.IO.FileSystemWatcher.CheckPathValidity(String path)",
+            "[11:27:31.050 ERR] [FsAutoComplete.Lsp.AdaptiveFSharpLspServer] Initialized Request Errored",
+            "System.ArgumentException: again",
+        ];
+        let events: Vec<Event> = log.iter().filter_map(|line| watch.line(line)).collect();
+        assert_eq!(
+            events,
+            vec![Event::WorkspaceFailed {
+                message: "The directory name '/r/.elmish-land/Base' does not exist. (Parameter 'path')".into(),
+                details: format!("{}\n{}", log[1], log[2]),
+            }]
+        );
+    }
+
+    #[test]
+    fn other_errors_in_the_log_are_not_load_failures() {
+        let mut watch = LoadFailureWatch::default();
+        assert_eq!(watch.line("[11:27:31.042 ERR] [FsAutoComplete.Adaptive.AsyncAValExtensions] asyncaval callback failed"), None);
+        assert_eq!(watch.line("System.ArgumentException: something"), None);
+    }
     use tokio::io::{duplex, DuplexStream};
 
     /// A proxy session wired to an in-memory "server".

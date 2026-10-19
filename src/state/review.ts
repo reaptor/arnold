@@ -79,6 +79,8 @@ export interface SetupProblem {
   text: string;
   /** The full output it was taken from (a project's build log), if any. */
   details: string | null;
+  /** What `details` is; "Build log" when left out. */
+  detailsTitle?: string;
 }
 
 /** Where FsAutoComplete is with loading one project. */
@@ -1677,8 +1679,8 @@ function finishStep(outcome: "done" | "failed", note?: string) {
   setState("languageSetup", "steps", index, { state: outcome, note: note ?? steps[index].note });
 }
 
-function addSetupProblem(text: string, details: string | null = null) {
-  if (state.languageSetup) setState("languageSetup", "problems", (problems) => [...problems, { text, details }]);
+function addSetupProblem(text: string, details: string | null = null, detailsTitle?: string) {
+  if (state.languageSetup) setState("languageSetup", "problems", (problems) => [...problems, { text, details, detailsTitle }]);
 }
 
 /** A project path as the user knows it: relative to the prepared copy. */
@@ -1727,6 +1729,13 @@ function onServerEvent(event: ipc.LspEvent) {
         finishStep("done", projectNote(state.languageSetup) ?? undefined);
         ipc.devTrace("language features ready");
       }
+      break;
+    case "workspaceFailed":
+      ipc.devTrace(`workspace failed: ${event.message}`);
+      if (state.languageSetup?.phase !== "loading") break;
+      finishStep("failed");
+      addSetupProblem(`FsAutoComplete could not load the projects: ${event.message}`, event.details, "Server log");
+      setState("languageSetup", { phase: "failed", currentProject: null });
       break;
     case "projectLoading":
       setProjectLoad(event.project, "loading");

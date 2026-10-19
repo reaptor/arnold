@@ -557,6 +557,7 @@ export type LspEvent =
   | { kind: "projectLoaded"; project: string }
   | { kind: "projectFailed"; project: string; message: string; details: string | null }
   | { kind: "workspaceLoaded" }
+  | { kind: "workspaceFailed"; message: string; details: string }
   | { kind: "exited" };
 
 /** Starts a language server; resolves to its id once it is running. */

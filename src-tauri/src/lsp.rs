@@ -34,6 +34,8 @@ pub enum LspEvent {
     },
     /// The server has loaded the workspace's projects: features are ready.
     WorkspaceLoaded,
+    /// The server could not load the workspace and will not report it loaded.
+    WorkspaceFailed { message: String, details: String },
     Exited,
 }
 
@@ -103,6 +105,7 @@ pub async fn lsp_start(
                 details,
             }),
             Event::WorkspaceLoaded => emit(LspEvent::WorkspaceLoaded),
+            Event::WorkspaceFailed { message, details } => emit(LspEvent::WorkspaceFailed { message, details }),
             Event::Log(line) => {
                 if cfg!(debug_assertions) && !line.trim().is_empty() {
                     eprintln!("[fsautocomplete] {line}");

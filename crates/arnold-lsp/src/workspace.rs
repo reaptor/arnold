@@ -5,6 +5,11 @@
 //! only for projects in other languages (a C# project an F# project references).
 //! So: restore, and build only those other projects, and skip either step when
 //! its inputs have not changed since it last succeeded in this checkout.
+//!
+//! Files a project needs but git does not have (generated, ignored) are not
+//! in a new checkout. Elmish Land's generated projects are made with its own
+//! `restore`; any other missing project reference is reported, since
+//! FsAutoComplete fails to load the whole workspace over one.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -27,6 +32,12 @@ pub struct Plan {
     pub restore: Vec<String>,
     /// Projects in other languages that F# projects reference.
     pub build: Vec<String>,
+    /// An Elmish Land app (`elmish-land.json` at the top, the tool in the
+    /// manifest): its generated projects (`.elmish-land/`, ignored by git)
+    /// come from `dotnet elmish-land restore`, before restoring.
+    pub elmish_land: bool,
+    /// Changes when anything Elmish Land generates from changes.
+    pub generate_stamp: String,
     /// Changes when anything restoring depends on changes.
     pub restore_stamp: String,
     /// Changes when anything building depends on changes.
@@ -38,6 +49,8 @@ pub struct Plan {
 pub struct Done {
     pub restore: Option<String>,
     pub build: Option<String>,
+    #[serde(default)]
+    pub generate: Option<String>,
 }
 
 impl Done {
@@ -100,6 +113,7 @@ pub fn plan(files: &[(String, String)], projects: &HashMap<String, String>) -> O
     let exists = |path: &str| files.iter().any(|(file, _)| file == path);
 
     let tool_restore = exists(".config/dotnet-tools.json") || exists("dotnet-tools.json");
+    let elmish_land = tool_restore && exists("elmish-land.json");
     let solution = files
         .iter()
         .map(|(path, _)| path.as_str())
@@ -141,13 +155,41 @@ pub fn plan(files: &[(String, String)], projects: &HashMap<String, String>) -> O
         &build,
         files.iter().filter(|(path, _)| !is_fsharp_source(path)),
     );
+    // Its routes come from which pages there are, its settings from
+    // elmish-land.json: page paths, and the content of everything else.
+    let without_source_text: Vec<(String, String)> = files
+        .iter()
+        .map(|(path, oid)| (path.clone(), if is_fsharp_source(path) { String::new() } else { oid.clone() }))
+        .collect();
+    let generate_stamp = stamp(&[], without_source_text.iter());
     Some(Plan {
         tool_restore,
         restore,
         build,
+        elmish_land,
+        generate_stamp,
         restore_stamp,
         build_stamp,
     })
+}
+
+/// Each `(project, referenced project)` among `projects` (path → text) whose
+/// reference is not on disk by `exists`. References built from MSBuild
+/// properties cannot be told, and are left out.
+pub fn missing_references(projects: &HashMap<String, String>, exists: impl Fn(&str) -> bool) -> Vec<(String, String)> {
+    let mut missing: Vec<(String, String)> = projects
+        .iter()
+        .flat_map(|(project, text)| {
+            project_references(text)
+                .into_iter()
+                .filter_map(|include| resolve(project, &include))
+                .map(move |target| (project.clone(), target))
+        })
+        .filter(|(_, target)| !exists(target))
+        .collect();
+    missing.sort();
+    missing.dedup();
+    missing
 }
 
 /// The `Include` of each `<ProjectReference>` in a project file.
@@ -368,6 +410,33 @@ mod tests {
         let mut project_edit = before.clone();
         project_edit[0].1 = "changed".into();
         assert_ne!(first.restore_stamp, plan(&project_edit, &app).unwrap().restore_stamp);
+    }
+
+    #[test]
+    fn elmish_land_apps_generate_their_projects_when_pages_or_settings_change() {
+        let paths = ["App.fsproj", "elmish-land.json", "dotnet-tools.json", "src/Pages/Page.fs"];
+        let none = HashMap::new();
+        let first = plan(&files(&paths), &none).unwrap();
+        assert!(first.elmish_land);
+        assert!(!plan(&files(&["App.fsproj", "elmish-land.json"]), &none).unwrap().elmish_land, "needs the tool");
+
+        let mut edited = files(&paths);
+        edited[3].1 = "changed".into();
+        assert_eq!(plan(&edited, &none).unwrap().generate_stamp, first.generate_stamp, "editing a page");
+        let mut added = files(&paths);
+        added.push(("src/Pages/About/Page.fs".into(), "new".into()));
+        assert_ne!(plan(&added, &none).unwrap().generate_stamp, first.generate_stamp, "adding a page");
+        let mut settings = files(&paths);
+        settings[1].1 = "changed".into();
+        assert_ne!(plan(&settings, &none).unwrap().generate_stamp, first.generate_stamp);
+    }
+
+    #[test]
+    fn finds_references_missing_on_disk() {
+        let app = r#"<ProjectReference Include=".elmish-land/Base/Base.fsproj" /><ProjectReference Include="lib/Lib.csproj" /><ProjectReference Include="$(X)/Y.csproj" />"#;
+        let projects = projects(&[("App.fsproj", app)]);
+        let missing = missing_references(&projects, |path| path == "lib/Lib.csproj");
+        assert_eq!(missing, vec![("App.fsproj".to_string(), ".elmish-land/Base/Base.fsproj".to_string())]);
     }
 
     #[test]

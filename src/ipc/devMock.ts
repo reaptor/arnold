@@ -199,6 +199,14 @@ const FAKE_PROJECTS = ["src/Core/Core.fsproj", "src/Api/Api.fsproj", "tests/Test
 
 async function fakeProjectLoading(events: Channel<LspEvent>) {
   await pause(400);
+  // `?workspacefail`: FsAutoComplete gives up on the workspace, as it does
+  // over a project reference to a folder that does not exist.
+  if (searchParams.has("workspacefail")) {
+    const entry = "[11:27:31.042 ERR] [FsAutoComplete.Lsp.AdaptiveState] Reloading projects failed";
+    const exception = "System.ArgumentException: The directory name '/src/shop-api/.arnold/worktrees/pr-1291/.elmish-land/Base' does not exist. (Parameter 'path')";
+    events.onmessage({ kind: "workspaceFailed", message: exception.slice(exception.indexOf(": ") + 2), details: `${entry}\n${exception}` });
+    return;
+  }
   for (const project of FAKE_PROJECTS) events.onmessage({ kind: "projectLoading", project });
   events.onmessage({ kind: "status", text: `Loading ${FAKE_PROJECTS.length} Projects` });
   for (const [index, project] of FAKE_PROJECTS.entries()) {

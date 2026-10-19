@@ -133,7 +133,7 @@ export function LanguageStatus() {
                         {problem.text}
                         <Show when={problem.details}>
                           <details>
-                            <summary>Build log</summary>
+                            <summary>{problem.detailsTitle ?? "Build log"}</summary>
                             <pre class="setup-output">{problem.details}</pre>
                           </details>
                         </Show>
