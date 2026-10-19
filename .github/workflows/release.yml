@@ -66,6 +66,10 @@ jobs:
             target: x86_64-pc-windows-msvc
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows builds are signed through Azure Artifact Signing once the AZURE_CLIENT_SECRET
+      # secret exists (see Signing.md). Until then they stay unsigned.
+      SIGN_WINDOWS: ${{ matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -97,6 +101,65 @@ jobs:
             fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
           '
 
+      # Points Tauri's signCommand at SignTool with Microsoft's Artifact Signing dlib. Tauri then
+      # signs Arnold.exe, the NSIS uninstaller and both installers, before it signs the update
+      # packages. The dlib logs in with AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_CLIENT_SECRET
+      # (passed to tauri-action below). The account details are repository variables.
+      - name: Set up Windows code signing
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        env:
+          SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          foreach ($name in 'SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_PROFILE') {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "The AZURE_$name repository variable is missing"
+            }
+          }
+
+          $dir = Join-Path $env:RUNNER_TEMP artifact-signing
+          Invoke-WebRequest https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/1.0.128 -OutFile "$dir.zip"
+          Expand-Archive "$dir.zip" $dir
+          $dlib = Join-Path $dir bin\x64\Azure.CodeSigning.Dlib.dll
+
+          # The newest x64 SignTool from the Windows SDK, matching the x64 dlib.
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } | Select-Object -Last 1
+          if (-not $signtool) { throw 'SignTool not found' }
+          Write-Output "SignTool: $($signtool.FullName)"
+
+          # Only the AZURE_* environment variables are used to log in, so a wrong secret fails
+          # straight away instead of trying every other Azure login.
+          $metadata = Join-Path $dir metadata.json
+          @{
+            Endpoint = $env:SIGNING_ENDPOINT
+            CodeSigningAccountName = $env:SIGNING_ACCOUNT
+            CertificateProfileName = $env:SIGNING_PROFILE
+            CorrelationId = "$env:GITHUB_REPOSITORY run $env:GITHUB_RUN_ID"
+            ExcludeCredentials = @(
+              'ManagedIdentityCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential',
+              'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzureCliCredential',
+              'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential'
+            )
+          } | ConvertTo-Json | Set-Content $metadata
+
+          # /d names the MSI in the UAC prompt; without it the prompt shows a random name.
+          $file = 'src-tauri/tauri.windows.conf.json'
+          $config = Get-Content $file -Raw | ConvertFrom-Json -AsHashtable
+          $config.bundle.windows.signCommand = [ordered]@{
+            cmd = $signtool.FullName
+            args = @(
+              'sign', '/v', '/fd', 'SHA256', '/tr', 'http://timestamp.acs.microsoft.com', '/td', 'SHA256',
+              '/d', 'Arnold', '/dlib', $dlib, '/dmdf', $metadata, '%1'
+            )
+          }
+          $config | ConvertTo-Json -Depth 20 | Set-Content $file
+          Get-Content $file
+
       # Also signs and uploads the update packages: Arnold.app.tar.gz on macOS, the installers
       # themselves on Windows, each with a .sig. latest.json is written once both builds are in
       # (publish-release), since two builds updating one file would race.
@@ -105,6 +168,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Only set when Windows signing is on, for SignTool's Artifact Signing dlib.
+          AZURE_CLIENT_ID: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_TENANT_ID: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ env.SIGN_WINDOWS == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
         with:
           releaseId: ${{ needs.create-release.outputs.release-id }}
           args: --target ${{ matrix.target }}
