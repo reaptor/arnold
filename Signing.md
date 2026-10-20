@@ -106,9 +106,7 @@ checks files that were downloaded, here the installer.
 
 ## Plan
 
-Windows: done in `release.yml`. It turns on once the Azure secrets and variables above exist.
-For now it's switched off with `false &&` in `SIGN_WINDOWS`, while the identity validation is
-pending. Remove that once the certificate profile is active and the variables are set.
+Windows: done in `release.yml`, and on: the Azure secrets and variables above are set.
 
 macOS: once the Apple account and secrets exist, change `release.yml`, `tauri.conf.json` and
 `build-pkg.sh`. Like Windows signing, each change should only apply when its secrets exist, so
