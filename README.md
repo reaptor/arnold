@@ -34,10 +34,8 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 Download the installer from [arnoldapp.dev](https://arnoldapp.dev) or [Releases](https://github.com/reaptor/arnold/releases): the `.pkg` for macOS (Apple silicon), the `-setup.exe` or `.msi` for Windows (x64). Arnold needs `git` on the PATH, and the .NET SDK (8 or newer) for F# language features.
 
-The builds are not signed with a developer certificate yet:
-
-- **macOS:** try to open the `.pkg` once, then choose *Open Anyway* under *System Settings → Privacy & Security*.
-- **Windows:** choose *More info → Run anyway* in the SmartScreen prompt.
+- **macOS:** the build is not signed with a developer certificate yet. Try to open the `.pkg` once, then choose *Open Anyway* under *System Settings → Privacy & Security*.
+- **Windows:** the installers are signed by Reaptor AB. While Arnold is new, SmartScreen may still show *Windows protected your PC*; choose *More info → Run anyway*.
 
 ### Updates
 
@@ -317,7 +315,7 @@ Outside the repository, explaining code with AI sends the code you ask about to 
 
 ## Status
 
-Arnold is young and changes often; every push to `main` is released. It is used mostly on macOS; the Windows build is released alongside it. The builds are not signed yet ([`Signing.md`](Signing.md) has the plan).
+Arnold is young and changes often; every push to `main` is released. It is used mostly on macOS; the Windows build is released alongside it. The Windows build is signed; the macOS build is not yet ([`Signing.md`](Signing.md) has the plan).
 
 Not there yet: C# language server, a problems list with messages, settings, GitHub pull requests, and in Azure DevOps: auto-complete, resolving or editing discussions, and adding reviewers.
 

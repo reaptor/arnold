@@ -1,8 +1,8 @@
 # Signing
 
-How to sign Arnold so it installs and opens on macOS and Windows without warnings. Builds are
-currently unsigned (macOS is ad-hoc signed). Windows signing is wired into `release.yml` and
-turns on once its secrets exist; macOS signing isn't set up yet.
+How to sign Arnold so it installs and opens on macOS and Windows without warnings. Windows
+releases are signed through Azure Artifact Signing. macOS builds are only ad-hoc signed; macOS
+signing isn't set up yet.
 
 ## macOS
 
