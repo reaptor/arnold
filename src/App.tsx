@@ -9,6 +9,7 @@ import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { LicensesDialog } from "./components/LicensesDialog";
 import { UpdateStatus } from "./components/UpdateStatus";
+import { activities, isBusy } from "./state/activity";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
@@ -202,8 +203,9 @@ export function App() {
   };
 
   return (
-    <div class="app">
+    <div class="app" classList={{ busy: isBusy() }}>
       <Toolbar />
+      <div class="activity-bar" aria-hidden="true" />
       <Show when={state.error}>
         <div class="banner error">
           <span>{state.error}</span>
@@ -515,8 +517,25 @@ function StatusBar() {
         )}
       </Show>
       </Show>
+      <ActivityStatus />
       <UpdateStatus />
     </footer>
+  );
+}
+
+/** What the app is busy with, while a slow action runs. */
+function ActivityStatus() {
+  const label = () => {
+    const [latest, ...others] = activities();
+    return others.length ? `${latest.label}… (+${others.length})` : `${latest.label}…`;
+  };
+  return (
+    <Show when={isBusy()}>
+      <span class="activity-status" role="status" title={activities().map((item) => `${item.label}…`).join("\n")}>
+        <span class="spinner" aria-hidden="true" />
+        <span class="activity-label">{label()}</span>
+      </span>
+    </Show>
   );
 }
 

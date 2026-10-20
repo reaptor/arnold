@@ -10,6 +10,7 @@ import { LSPPlugin } from "@codemirror/lsp-client";
 import { type Extension, StateEffect, StateField } from "@codemirror/state";
 import { EditorView, keymap, showTooltip, type Tooltip } from "@codemirror/view";
 import { type TextEdit, editsOf, type WorkspaceEdit } from "./codeActions";
+import { track } from "../state/activity";
 
 /** Edits a file no editor has open: its text with `edits` applied (`applyTextEdits`), saved to disk. */
 type EditFile = (uri: string, edits: TextEdit[]) => Promise<void>;
@@ -102,7 +103,7 @@ function boxView(view: EditorView, box: Box) {
     const name = input.value.trim();
     close(view);
     view.focus();
-    if (rename && name && name !== box.name) void renameTo(view, box.from, name);
+    if (rename && name && name !== box.name) void track(`Renaming to ${name}`, renameTo(view, box.from, name));
   };
   input.addEventListener("keydown", (event) => {
     event.stopPropagation();

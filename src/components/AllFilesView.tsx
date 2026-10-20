@@ -10,6 +10,7 @@ import {
   unregisterSection,
 } from "../state/review";
 import { SectionList, type SectionSource } from "./SectionList";
+import { isBusy } from "../state/activity";
 
 /**
  * The review's files: every file of the diff, and files opened from outside
@@ -32,7 +33,8 @@ const reviewSource: SectionSource = {
   hide: hideSection,
   onReveal: (handler) => onRevealSection(handler ?? (() => {})),
   onPlace: noteListPlace,
-  placeholder: () => (state.comparison ? "No differences." : state.repo ? "" : "Open a repository to start reviewing."),
+  placeholder: () =>
+    state.comparison ? "No differences." : state.repo ? (isBusy() ? "Loading the changes…" : "") : "Open a repository to start reviewing.",
 };
 
 /** Every file of the diff in one scrolling list, like the "all files" view of a pull request. */

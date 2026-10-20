@@ -1342,6 +1342,64 @@ button.primary:hover:not(:disabled) {
   flex: none;
 }
 
+/* While a slow action runs: its name in the status bar, and a bar sliding
+   along under the toolbar (taking no room, so nothing moves). */
+.activity-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  max-width: 280px;
+  color: var(--accent);
+}
+
+.activity-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-bar {
+  position: relative;
+  flex: none;
+  height: 2px;
+  margin-top: -2px;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.activity-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.app.busy .activity-bar::after {
+  opacity: 1;
+  animation: activity-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes activity-slide {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.app.busy {
+  cursor: progress;
+}
+
 /* --------------------------------------------------------------------- menu */
 
 .menu {
@@ -3503,6 +3561,11 @@ button.primary:hover:not(:disabled) {
 /* Arnold's own updates, at the right end of the status bar. */
 .update-status {
   margin-left: auto;
+}
+
+/* Beside the version, not halfway along. */
+.activity-status + .update-status {
+  margin-left: 0;
 }
 
 .update-button.ready {

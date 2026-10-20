@@ -1639,10 +1639,22 @@ function fakePairs(cwd: string, of: PatchOf): [string, string | null, string | n
   return pairs;
 }
 
+// `?slow` (or `?slow=3000`): every git and Azure DevOps command takes that
+// long (default 1500 ms), to see what the app shows while it waits.
+const slowMs = searchParams.has("slow") ? Number(searchParams.get("slow")) || 1500 : 0;
+const SLOW_SKIPS = /^(dev_trace|startup_path|plugin:|lsp_|ai_|save_worktree_file|updater_info|check_for_update|download_update)/;
+
+function slowed(handle: (command: string, payload: unknown) => unknown) {
+  return (command: string, payload: unknown) =>
+    slowMs && !SLOW_SKIPS.test(command)
+      ? new Promise((resolve) => setTimeout(resolve, slowMs)).then(() => handle(command, payload))
+      : handle(command, payload);
+}
+
 export function install() {
   mockWindows("main");
   mockIPC(
-    (command, payload) => {
+    slowed((command, payload) => {
       const args = (payload ?? {}) as Record<string, string>;
       switch (command) {
         case "startup_path":
@@ -2090,7 +2102,7 @@ export function install() {
           console.warn("devMock: unhandled command", command, payload);
           return null;
       }
-    },
+    }),
     { shouldMockEvents: true },
   );
 }

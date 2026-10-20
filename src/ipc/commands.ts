@@ -1,5 +1,6 @@
 import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { track } from "../state/activity";
 
 export interface Branch {
   name: string;
@@ -89,8 +90,67 @@ export interface FilePair {
   tooLarge: boolean;
 }
 
+/**
+ * What the status bar says while a command that can take a while runs (see
+ * `track`). Commands left out end quickly, run in the background without
+ * anyone waiting (autosave, watching, language servers), or show their own
+ * progress (Copilot, workspace setup, updates).
+ */
+const ACTIVITY: Record<string, string> = {
+  open_repo: "Opening the repository",
+  list_branches: "Reading branches",
+  compare_branches: "Comparing",
+  list_files: "Listing files",
+  read_file_pair: "Reading the file",
+  read_working_pair: "Reading the file",
+  working_status: "Reading the uncommitted changes",
+  worktree_files: "Listing files",
+  branch_worktree: "Checking out the branch",
+  pull_request_worktree: "Checking out the pull request",
+  undo_file_edits: "Undoing edits",
+  ignore_path: "Ignoring",
+  untrack_path: "Untracking",
+  stage_files: "Staging",
+  unstage_files: "Unstaging",
+  discard_files: "Resetting",
+  delete_files: "Deleting",
+  reset_files_to_head: "Resetting",
+  set_index_text: "Updating the index",
+  commit_staged: "Committing",
+  start_branch: "Creating the branch",
+  required_branch_policies: "Checking branch policies",
+  push_checkout_branch: "Pushing",
+  fetch_all: "Fetching",
+  pull_checkout_branch: "Pulling",
+  check_formatting: "Checking formatting",
+  format_and_stage: "Formatting",
+  pull_request_remotes: "Reading remotes",
+  list_pull_requests: "Loading pull requests",
+  set_pull_request_token: "Signing in to Azure DevOps",
+  remove_pull_request_token: "Removing the token",
+  open_pull_request: "Opening the pull request",
+  vote_on_pull_request: "Voting",
+  update_pull_request: "Updating the pull request",
+  completion_policies: "Checking policies",
+  work_item: "Looking up the work item",
+  plan_pull_request: "Preparing the pull request",
+  create_pull_request: "Creating the pull request",
+  pull_request_threads: "Loading comments",
+  create_pull_request_thread: "Posting the comment",
+  reply_to_pull_request_thread: "Posting the reply",
+  delete_pull_request_comment: "Deleting the comment",
+  review_patch: "Collecting the changes",
+  review_context: "Collecting the changes",
+};
+
 /** Calls the backend; in development each call and its outcome is echoed to the terminal. */
-async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const label = ACTIVITY[command];
+  const call = traced<T>(command, args);
+  return label ? track(label, call) : call;
+}
+
+async function traced<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!import.meta.env.DEV) return tauriInvoke<T>(command, args);
   const trace = (outcome: string) => void tauriInvoke("dev_trace", { message: `${command}: ${outcome}` });
   try {

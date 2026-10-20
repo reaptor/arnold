@@ -52,6 +52,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
 import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
 import { loadCreators } from "./branchInfo";
+import { track } from "./activity";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
@@ -1820,7 +1821,7 @@ export function removeUnusedOpensInFile() {
   setState("menu", null);
   const target = menuTarget;
   menuTarget = null;
-  if (target) void removeUnusedOpens(target.view);
+  if (target) void track("Removing unused opens", removeUnusedOpens(target.view));
 }
 
 export const nextChange = () => stepChange(1);
