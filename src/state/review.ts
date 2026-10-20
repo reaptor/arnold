@@ -2628,6 +2628,18 @@ export async function updatePullRequest(change: PrChange) {
   if (change.kind === "complete") window.setTimeout(() => void checkPullRequest(), 3000);
 }
 
+/** What the branch policies of its target branch allow when completing the pull request under review. */
+export async function completionPolicies(): Promise<ipc.CompletionPolicies> {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    return await ipc.completionPolicies(repo.root, pullRequest.remote, pullRequest.id, pullRequest.targetBranch);
+  } catch (error) {
+    throw pullRequests.prErrorText(error);
+  }
+}
+
 // ------------------------------------------------------------------ watching
 
 /** How often the open pull request is checked for new pushes while Arnold is shown. */

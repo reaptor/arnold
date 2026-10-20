@@ -1,6 +1,14 @@
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import type { MergeStrategy, Vote } from "../ipc/commands";
-import { setState, state, updatePullRequest, votePullRequest, yourVote, type ReviewedPullRequest } from "../state/review";
+import type { CompletionPolicies, MergeStrategy, UnmetPolicy, Vote } from "../ipc/commands";
+import {
+  completionPolicies,
+  setState,
+  state,
+  updatePullRequest,
+  votePullRequest,
+  yourVote,
+  type ReviewedPullRequest,
+} from "../state/review";
 import { CheckIcon, ChevronDownIcon, MergeIcon } from "./icons";
 
 /** Shows why a change from a menu did not go through, in the error banner. */
@@ -295,6 +303,16 @@ function holdingUp(pullRequest: ReviewedPullRequest): string | null {
   return parts.length ? `This pull request is ${parts.join(" and ")}.` : null;
 }
 
+/** The branch policies of the target branch, as far as completing goes. */
+type PolicyCheck = { state: "checking" } | { state: "read"; policies: CompletionPolicies } | { state: "failed"; error: string };
+
+const UNMET_STATUS: Record<UnmetPolicy["status"], string> = {
+  queued: "queued",
+  running: "running",
+  rejected: "not met",
+  broken: "broken",
+};
+
 /** Azure DevOps' "Complete pull request" dialog: how to merge and what to do afterwards. */
 function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): void }) {
   const initial = loadChoices();
@@ -303,17 +321,51 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
   const [workItems, setWorkItems] = createSignal(initial.completeWorkItems);
   const [message, setMessage] = createSignal(`Merged PR ${props.pullRequest.id}: ${props.pullRequest.title}`);
   const [error, setError] = createSignal<string | null>(null);
-  let first!: HTMLInputElement;
+  const [check, setCheck] = createSignal<PolicyCheck>({ state: "checking" });
+  const radios = new Map<MergeStrategy, HTMLInputElement>();
 
-  onMount(() => first.focus());
+  const read = () => {
+    const now = check();
+    return now.state === "read" ? now.policies : null;
+  };
+  /** Unknown policies allow everything: the host still checks them when completing. */
+  const allowed = (entry: MergeStrategy) => read()?.mergeStrategies.includes(entry) ?? true;
+  const unmet = () => read()?.unmet ?? [];
+  const failure = () => {
+    const now = check();
+    return now.state === "failed" ? now.error : null;
+  };
+
+  const checkPolicies = async () => {
+    setCheck({ state: "checking" });
+    try {
+      const policies = await completionPolicies();
+      setCheck({ state: "read", policies });
+      // The remembered merge type may not be allowed on this branch.
+      if (!policies.mergeStrategies.includes(strategy()) && policies.mergeStrategies.length > 0) {
+        const focused = document.activeElement === radios.get(strategy());
+        setStrategy(policies.mergeStrategies[0]);
+        if (focused) radios.get(strategy())?.focus();
+      }
+    } catch (text) {
+      setCheck({ state: "failed", error: String(text) });
+    }
+  };
+
+  onMount(() => {
+    radios.get(strategy())?.focus();
+    void checkPolicies();
+  });
 
   const busy = () => state.updatingPullRequest === "complete";
+  const canComplete = () =>
+    !busy() && !!props.pullRequest.sourceCommit && check().state !== "checking" && unmet().length === 0 && allowed(strategy());
   const close = () => !busy() && props.onClose();
 
   const submit = async (event: Event) => {
     event.preventDefault();
     const sourceCommit = props.pullRequest.sourceCommit;
-    if (!sourceCommit) return;
+    if (!sourceCommit || !canComplete()) return;
     const choices: CompleteChoices = {
       mergeStrategy: strategy(),
       deleteSourceBranch: deleteSource(),
@@ -352,22 +404,65 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
           </p>
         </Show>
         <Show when={holdingUp(props.pullRequest)}>{(text) => <p class="complete-warning">{text()}</p>}</Show>
+        <Show when={unmet().length > 0}>
+          <div class="complete-warning complete-unmet">
+            <p>
+              Required branch policies of {props.pullRequest.targetBranch} are not met yet, so Azure DevOps does not
+              complete the pull request:
+            </p>
+            <ul class="protected-policies">
+              <For each={unmet()}>
+                {(policy) => (
+                  <li>
+                    {policy.name} <span class="complete-policy-status">({UNMET_STATUS[policy.status] ?? policy.status})</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <button type="button" class="link-button" onClick={() => void checkPolicies()}>
+              Check again
+            </button>
+          </div>
+        </Show>
+        <Show when={failure()}>
+          {(text) => (
+            <p class="complete-warning">
+              Could not read the branch policies of {props.pullRequest.targetBranch} ({text()}); Azure DevOps checks
+              them when completing.
+            </p>
+          )}
+        </Show>
+        <Show when={read()?.mergeStrategies.length === 0}>
+          <p class="connect-problem">
+            The branch policies of {props.pullRequest.targetBranch} allow none of the merge types, so the pull request
+            cannot be completed.
+          </p>
+        </Show>
 
         <fieldset class="complete-strategies">
           <legend>Merge type</legend>
           <For each={STRATEGIES}>
             {(entry) => (
-              <label class="complete-option">
+              <label
+                class="complete-option"
+                classList={{ disabled: !allowed(entry.strategy) }}
+                title={allowed(entry.strategy) ? undefined : `Not allowed by the branch policies of ${props.pullRequest.targetBranch}`}
+              >
                 <input
-                  ref={(input) => entry.strategy === initial.mergeStrategy && (first = input)}
+                  ref={(input) => radios.set(entry.strategy, input)}
                   type="radio"
                   name="strategy"
                   checked={strategy() === entry.strategy}
+                  disabled={!allowed(entry.strategy)}
                   onChange={() => setStrategy(entry.strategy)}
                 />
                 <span>
                   {entry.label}
-                  <small>{entry.description}</small>
+                  <small>
+                    {allowed(entry.strategy)
+                      ? entry.description
+                      : `Not allowed by the branch policies of ${props.pullRequest.targetBranch}.`}
+                  </small>
                 </span>
               </label>
             )}
@@ -402,8 +497,8 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
           <button type="button" onClick={close} disabled={busy()}>
             Cancel
           </button>
-          <button type="submit" class="primary" disabled={busy() || !props.pullRequest.sourceCommit}>
-            {busy() ? "Completing…" : "Complete merge"}
+          <button type="submit" class="primary" disabled={!canComplete()}>
+            {busy() ? "Completing…" : check().state === "checking" ? "Checking policies…" : "Complete merge"}
           </button>
         </div>
       </form>

@@ -13,6 +13,7 @@ import type {
   Commit,
   CommitRange,
   Comparison,
+  CompletionPolicies,
   FilePair,
   LspEvent,
   NewPullRequest,
@@ -1398,6 +1399,22 @@ function planPullRequest(head: string, base: string, commit: string): NewPullReq
   };
 }
 
+// `?completepolicies`: the target branch allows squash and semi-linear merges
+// only, needs one approval, and !1270's build is still running
+// (`?completepolicies=fail`: they cannot be read, so nothing is limited).
+function completionPolicies(id: unknown): CompletionPolicies {
+  const found = findPullRequest(id);
+  const policies = searchParams.get("completepolicies");
+  if (policies === "fail") throw { kind: "network", message: "Could not reach Azure DevOps at dev.azure.com (dev mock)" };
+  if (policies === null) return { mergeStrategies: ["noFastForward", "squash", "rebase", "rebaseMerge"], unmet: [] };
+  const approved = found.reviewers.some((person) => person.vote === "approved" || person.vote === "approvedWithSuggestions");
+  const rejected = found.reviewers.some((person) => person.vote === "rejected");
+  const unmet: CompletionPolicies["unmet"] = [];
+  if (!approved || rejected) unmet.push({ name: "Minimum number of reviewers", status: "rejected" });
+  if (found.id === 1270) unmet.push({ name: "Build: Shop CI", status: "running" });
+  return { mergeStrategies: ["squash", "rebaseMerge"], unmet };
+}
+
 let nextThreadId = 100;
 
 // `?readonlytoken`: the token can read but not write, as with the Code (Read) scope.
@@ -1836,6 +1853,11 @@ export function install() {
             if (mine) mine.vote = vote;
             else found.reviewers.push({ ...reviewer(YOU.name, vote), id: YOU.id });
             return asSeenByYou(found);
+          }, 600);
+        case "completion_policies":
+          return slowly(() => {
+            checkToken();
+            return completionPolicies(args.id);
           }, 600);
         case "update_pull_request":
           return slowly(() => {

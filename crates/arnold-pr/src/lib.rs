@@ -149,6 +149,32 @@ pub enum MergeStrategy {
     RebaseMerge,
 }
 
+impl MergeStrategy {
+    /// Every one, in the order Azure DevOps lists them.
+    pub const ALL: [MergeStrategy; 4] = [Self::NoFastForward, Self::Squash, Self::Rebase, Self::RebaseMerge];
+}
+
+/// What the branch policies of a pull request's target branch allow when it
+/// is completed.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionPolicies {
+    /// The merge types allowed, in `MergeStrategy::ALL`'s order; all of them
+    /// unless a policy limits them.
+    pub merge_strategies: Vec<MergeStrategy>,
+    /// Required policies the pull request does not meet yet: the host does
+    /// not complete it until they are.
+    pub unmet: Vec<UnmetPolicy>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnmetPolicy {
+    pub name: String,
+    /// `queued`, `running`, `rejected` or `broken`, as the host has it.
+    pub status: String,
+}
+
 /// A discussion on a pull request: about lines of a file, or about the pull
 /// request as a whole.
 #[derive(Debug, Clone, Serialize, PartialEq)]

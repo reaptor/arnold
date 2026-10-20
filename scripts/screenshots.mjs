@@ -121,7 +121,8 @@ const shots = {
     await p.keyboard.press("Escape");
     await p.mouse.click(700, 500);
     await p.click(".pr-actions .complete-button .split-main");
-    await p.waitForTimeout(500);
+    // Until the branch policies are read.
+    await p.waitForTimeout(1200);
     await p.screenshot({ path: `${out}/complete.png`, clip: around(await p.locator(".complete-dialog").boundingBox(), 40) });
   },
   async commits() {

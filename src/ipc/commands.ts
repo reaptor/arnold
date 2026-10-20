@@ -495,6 +495,22 @@ export const voteOnPullRequest = (root: string, remote: string, id: number, vote
 export const updatePullRequest = (root: string, remote: string, id: number, change: PrChange) =>
   invoke<PullRequest>("update_pull_request", { root, remote, id, change });
 
+/** What the branch policies of a pull request's target branch allow when completing it. */
+export interface CompletionPolicies {
+  /** The merge types allowed; all of them unless a policy limits them. */
+  mergeStrategies: MergeStrategy[];
+  /** Required policies not met yet: the host does not complete the pull request until they are. */
+  unmet: UnmetPolicy[];
+}
+
+export interface UnmetPolicy {
+  name: string;
+  status: "queued" | "running" | "rejected" | "broken";
+}
+
+export const completionPolicies = (root: string, remote: string, id: number, targetBranch: string) =>
+  invoke<CompletionPolicies>("completion_policies", { root, remote, id, targetBranch });
+
 /** What creating a pull request from a reviewed branch would do; nothing is sent yet. */
 export interface NewPullRequestPlan {
   /** The branches on the host, without `refs/heads/`. */

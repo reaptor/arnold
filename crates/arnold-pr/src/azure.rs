@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::{
-    Comment, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side, Thread, ThreadPosition, Vote, WorkItem,
-    WorkItemLookup,
+    Comment, CompletionPolicies, MergeStrategy, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side,
+    Thread, ThreadPosition, UnmetPolicy, Vote, WorkItem, WorkItemLookup,
 };
 
 /// A repository hosted on Azure DevOps.
@@ -334,24 +334,120 @@ fn parse_work_item(body: &Value, repo: &AzureRepo, id: u64) -> WorkItem {
 /// `branch` (without `refs/heads/`). A branch with any of them takes changes
 /// only through pull requests: a push to it is refused.
 pub fn required_branch_policies(repo: &AzureRepo, token: &str, branch: &str) -> Result<Vec<String>, PrError> {
-    let about = get(&repo.api(&format!("?api-version={API_VERSION}")), token)?;
-    let id = about["id"]
-        .as_str()
+    let (repository, _) = repository_ids(repo, token)?;
+    Ok(blocking_branch_policies(&policy_configurations(repo, token, &repository, branch)?))
+}
+
+/// What the branch policies of `target_branch` allow when completing pull
+/// request `id`: the merge types, and which required policies it does not
+/// meet yet.
+pub fn completion_policies(repo: &AzureRepo, token: &str, id: u64, target_branch: &str) -> Result<CompletionPolicies, PrError> {
+    let (repository, project) = repository_ids(repo, token)?;
+    let configurations = policy_configurations(repo, token, &repository, target_branch)?;
+    let url = format!(
+        "{}/{}/_apis/policy/evaluations?artifactId={}&api-version=6.0-preview.1",
+        repo.collection_url,
+        repo.project,
+        query_encode(&format!("vstfs:///CodeReview/CodeReviewId/{project}/{id}")),
+    );
+    let body = get(&url, token)?;
+    let evaluations = body["value"]
+        .as_array()
         .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(CompletionPolicies {
+        merge_strategies: allowed_merge_strategies(&configurations),
+        unmet: unmet_policies(evaluations),
+    })
+}
+
+/// The ids of the repository and of its project, which policies go by.
+fn repository_ids(repo: &AzureRepo, token: &str) -> Result<(String, String), PrError> {
+    let about = get(&repo.api(&format!("?api-version={API_VERSION}")), token)?;
+    match (about["id"].as_str(), about["project"]["id"].as_str()) {
+        (Some(repository), Some(project)) => Ok((repository.to_string(), project.to_string())),
+        _ => Err(PrError::Other("Azure DevOps sent an unexpected answer".into())),
+    }
+}
+
+/// The policies set up for `branch` of the repository with id `repository`.
+fn policy_configurations(repo: &AzureRepo, token: &str, repository: &str, branch: &str) -> Result<Vec<Value>, PrError> {
     // Given the repository and the branch, the host works out which policies
     // apply: those set on the branch itself, on a folder of branches it is
     // in, and (for the default branch) across repositories.
     let url = format!(
-        "{}/{}/_apis/git/policy/configurations?repositoryId={id}&refName={}&$top=1000&api-version=6.0-preview.1",
+        "{}/{}/_apis/git/policy/configurations?repositoryId={repository}&refName={}&$top=1000&api-version=6.0-preview.1",
         repo.collection_url,
         repo.project,
         query_encode(&format!("refs/heads/{branch}")),
     );
-    let body = get(&url, token)?;
-    let list = body["value"]
-        .as_array()
-        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
-    Ok(blocking_branch_policies(list))
+    let mut body = get(&url, token)?;
+    match body["value"].take() {
+        Value::Array(list) => Ok(list),
+        _ => Err(PrError::Other("Azure DevOps sent an unexpected answer".into())),
+    }
+}
+
+/// Enabled, required and not deleted: the host enforces it.
+fn is_required(policy: &Value) -> bool {
+    policy["isEnabled"].as_bool() == Some(true)
+        && policy["isBlocking"].as_bool() == Some(true)
+        && policy["isDeleted"].as_bool() != Some(true)
+}
+
+/// The type of the "Limit merge types" policy.
+const MERGE_STRATEGY_POLICY: &str = "fa4e907d-c16b-4a4c-9dfa-4916e5d171ab";
+
+fn is_merge_strategy_policy(policy: &Value) -> bool {
+    policy["type"]["id"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(MERGE_STRATEGY_POLICY))
+}
+
+/// The merge types every required "Limit merge types" policy allows; all of
+/// them when there is none.
+fn allowed_merge_strategies(configurations: &[Value]) -> Vec<MergeStrategy> {
+    let mut allowed = MergeStrategy::ALL.to_vec();
+    for policy in configurations.iter().filter(|policy| is_required(policy) && is_merge_strategy_policy(policy)) {
+        let settings = &policy["settings"];
+        let flag = |strategy: MergeStrategy| match strategy {
+            MergeStrategy::NoFastForward => "allowNoFastForward",
+            MergeStrategy::Squash => "allowSquash",
+            MergeStrategy::Rebase => "allowRebase",
+            MergeStrategy::RebaseMerge => "allowRebaseMerge",
+        };
+        let limits = MergeStrategy::ALL.iter().any(|strategy| !settings[flag(*strategy)].is_null());
+        allowed.retain(|strategy| {
+            if limits {
+                settings[flag(*strategy)].as_bool() == Some(true)
+            } else {
+                // Set up before merge types could be picked one by one: squash only, or nothing limited.
+                settings["useSquashMerge"].as_bool() != Some(true) || *strategy == MergeStrategy::Squash
+            }
+        });
+    }
+    allowed
+}
+
+/// The required policies, from the pull request's policy evaluations, that
+/// it does not meet yet. The merge type is chosen when completing, so that
+/// one is left out.
+fn unmet_policies(evaluations: &[Value]) -> Vec<UnmetPolicy> {
+    let mut unmet: Vec<UnmetPolicy> = Vec::new();
+    for evaluation in evaluations {
+        let policy = &evaluation["configuration"];
+        let status = evaluation["status"].as_str().unwrap_or("queued");
+        if !is_required(policy) || is_merge_strategy_policy(policy) || matches!(status, "approved" | "notApplicable") {
+            continue;
+        }
+        let kind = policy["type"]["displayName"].as_str().unwrap_or("Branch policy");
+        // Build and status policies are told apart by their own names.
+        let name = match policy["settings"]["displayName"].as_str().filter(|name| !name.is_empty()) {
+            Some(own) => format!("{kind}: {own}"),
+            None => kind.to_string(),
+        };
+        if !unmet.iter().any(|known| known.name == name) {
+            unmet.push(UnmetPolicy { name, status: status.to_string() });
+        }
+    }
+    unmet
 }
 
 /// Names of the enabled, required policies set on branches. Those set on the
@@ -360,9 +456,7 @@ pub fn required_branch_policies(repo: &AzureRepo, token: &str, branch: &str) -> 
 fn blocking_branch_policies(list: &[Value]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for policy in list {
-        let required = policy["isEnabled"].as_bool() == Some(true)
-            && policy["isBlocking"].as_bool() == Some(true)
-            && policy["isDeleted"].as_bool() != Some(true);
+        let required = is_required(policy);
         let on_branches = policy["settings"]["scope"].as_array().is_some_and(|scopes| {
             scopes.iter().any(|scope| {
                 scope["refName"].is_string() || scope["matchKind"].as_str().is_some_and(|kind| kind.eq_ignore_ascii_case("defaultBranch"))
@@ -785,6 +879,75 @@ mod tests {
             json!({ "name": "refs/tags/v1", "objectId": "c", "creator": { "displayName": "Ada Lovelace" } }),
         ];
         assert_eq!(parse_creators(&list), vec![("feature/x".to_string(), "Ada Lovelace".to_string())]);
+    }
+
+    #[test]
+    fn merge_types_are_limited_by_every_required_policy() {
+        let policy = |enabled: bool, settings: Value| {
+            json!({
+                "isEnabled": enabled,
+                "isBlocking": true,
+                "type": { "id": MERGE_STRATEGY_POLICY, "displayName": "Require a merge strategy" },
+                "settings": settings,
+            })
+        };
+        let reviewers = json!({ "isEnabled": true, "isBlocking": true, "type": { "id": "fa4e907d-c16b-4a4c-9dfa-4916e5d171aa" }, "settings": {} });
+        assert_eq!(allowed_merge_strategies(&[reviewers.clone()]), MergeStrategy::ALL.to_vec());
+        let squash_or_semi_linear = policy(
+            true,
+            json!({ "allowNoFastForward": false, "allowSquash": true, "allowRebase": false, "allowRebaseMerge": true }),
+        );
+        assert_eq!(
+            allowed_merge_strategies(&[reviewers, squash_or_semi_linear.clone()]),
+            vec![MergeStrategy::Squash, MergeStrategy::RebaseMerge]
+        );
+        // A missing flag is not allowed once any is there.
+        let only_rebase_merge = policy(true, json!({ "allowRebaseMerge": true }));
+        assert_eq!(
+            allowed_merge_strategies(&[squash_or_semi_linear.clone(), only_rebase_merge]),
+            vec![MergeStrategy::RebaseMerge]
+        );
+        let disabled = policy(false, json!({ "allowSquash": true }));
+        assert_eq!(allowed_merge_strategies(&[disabled]), MergeStrategy::ALL.to_vec());
+        assert_eq!(allowed_merge_strategies(&[policy(true, json!({ "useSquashMerge": true }))]), vec![MergeStrategy::Squash]);
+        assert_eq!(
+            allowed_merge_strategies(&[policy(true, json!({ "useSquashMerge": false }))]),
+            MergeStrategy::ALL.to_vec()
+        );
+    }
+
+    #[test]
+    fn unmet_policies_are_the_required_ones_not_approved() {
+        let evaluation = |name: &str, settings: Value, blocking: bool, status: &str| {
+            json!({
+                "status": status,
+                "configuration": {
+                    "isEnabled": true,
+                    "isBlocking": blocking,
+                    "type": { "id": "x", "displayName": name },
+                    "settings": settings,
+                },
+            })
+        };
+        let merge_types = json!({
+            "status": "rejected",
+            "configuration": { "isEnabled": true, "isBlocking": true, "type": { "id": MERGE_STRATEGY_POLICY }, "settings": {} },
+        });
+        let list = [
+            evaluation("Minimum number of reviewers", json!({ "minimumApproverCount": 2 }), true, "rejected"),
+            evaluation("Build", json!({ "displayName": "CI" }), true, "running"),
+            evaluation("Build", json!({ "displayName": "Nightly" }), false, "queued"),
+            evaluation("Comment requirements", json!({}), true, "approved"),
+            evaluation("Work item linking", json!({}), true, "notApplicable"),
+            merge_types,
+        ];
+        assert_eq!(
+            unmet_policies(&list),
+            vec![
+                UnmetPolicy { name: "Minimum number of reviewers".into(), status: "rejected".into() },
+                UnmetPolicy { name: "Build: CI".into(), status: "running".into() },
+            ]
+        );
     }
 
     #[test]

@@ -228,7 +228,7 @@ A worktree without edits follows new pushes by itself. If the pull request gets 
 As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 - **Approve** votes in one click. Its menu has *Approve with suggestions*, *Wait for author*, *Reject* and *Reset feedback*, and the button then shows your vote.
-- **Complete** opens a dialog with the merge type (merge, squash, rebase and fast-forward, semi-linear), the commit message, and whether to complete the linked work items and delete the source branch. It warns about merge conflicts and reviewers who rejected or are waiting for the author. Arnold completes only the source commit you were shown, so a push you have not seen is refused.
+- **Complete** opens a dialog with the merge type (merge, squash, rebase and fast-forward, semi-linear), the commit message, and whether to complete the linked work items and delete the source branch. It reads the target branch's policies: merge types that "Limit merge types" does not allow are disabled, and while required policies (reviewers, builds, comments, ...) are not met, it lists them and does not complete. It warns about merge conflicts and reviewers who rejected or are waiting for the author. Arnold completes only the source commit you were shown, so a push you have not seen is refused.
 - Complete's menu has **Mark as draft** and **Abandon**. A draft shows *Publish* instead of *Complete*, an abandoned pull request *Reactivate*.
 
 ![The Approve menu: Approve, Approve with suggestions, Wait for author, Reject, Reset feedback](docs/screenshots/vote.png)

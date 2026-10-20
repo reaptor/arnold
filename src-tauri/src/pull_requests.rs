@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote, WorkItemLookup};
+use arnold_pr::{CompletionPolicies, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote, WorkItemLookup};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -302,6 +302,22 @@ pub async fn update_pull_request(
         blocking(move || azure::update(&repo, &token, id, &change)).await??
     };
     Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+/// What the branch policies of pull request `id`'s target branch allow when
+/// completing it, for the Complete dialog.
+#[tauri::command]
+pub async fn completion_policies(
+    root: String,
+    remote: String,
+    id: u64,
+    target_branch: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<CompletionPolicies, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::completion_policies(&repo, &token, id, &target_branch)).await?
 }
 
 /// The discussions of pull request `id`, with positions as of its latest push.

@@ -2938,6 +2938,25 @@ button.primary:hover:not(:disabled) {
   font-size: 12px;
 }
 
+.complete-option.disabled {
+  color: var(--muted);
+}
+
+.complete-unmet {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.complete-unmet .protected-policies {
+  margin: 0;
+}
+
+.complete-policy-status {
+  color: var(--muted);
+}
+
 .complete-message {
   display: flex;
   flex-direction: column;
