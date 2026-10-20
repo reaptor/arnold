@@ -634,3 +634,102 @@ export const onCheckForUpdates = (handler: () => void): Promise<UnlistenFn> =>
 /** macOS: Arnold → Open Source Licenses… */
 export const onShowLicenses = (handler: () => void): Promise<UnlistenFn> =>
   listen("show-licenses", () => handler());
+
+// AI: explaining code with the user's GitHub Copilot subscription.
+
+export interface AiStatus {
+  signedIn: boolean;
+  /** The GitHub account, when known. */
+  login: string | null;
+  source: { kind: "keychain" } | { kind: "environment"; name: string } | null;
+  /** The saved sign-in is no longer accepted by GitHub. */
+  expired: boolean;
+  /** The Copilot CLI is downloaded already. */
+  installed: boolean;
+}
+
+export interface DeviceCode {
+  userCode: string;
+  verificationUri: string;
+}
+
+export type AiEvent =
+  | { kind: "status"; text: string }
+  | { kind: "delta"; text: string }
+  | { kind: "reasoning"; text: string }
+  | { kind: "done"; model: string | null }
+  | { kind: "error"; message: string };
+
+export type ContextKind = "selection" | "file" | "diff" | "note";
+
+/** Code a question is about, as the model sees it. */
+export interface ContextItem {
+  label: string;
+  kind: ContextKind;
+  text: string;
+}
+
+export interface AskRequest {
+  conversation: string;
+  /** Null lets Copilot pick. */
+  model: string | null;
+  question: string;
+  context: ContextItem[];
+  cwd: string | null;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
+export type PatchOf =
+  | { kind: "commits"; from: string; to: string }
+  | { kind: "onDisk"; from: string }
+  | { kind: "unstaged" }
+  | { kind: "staged" };
+
+export interface Patch {
+  text: string;
+  /** Files whose changes are in `text`. */
+  files: string[];
+  omitted: { path: string; reason: "binary" | "lockFile" | "tooLarge" }[];
+}
+
+export const aiStatus = () => invoke<AiStatus>("ai_status");
+
+/** Signs in to GitHub with a device code (shown through `onCode`); resolves to the login name. */
+export function aiSignIn(onCode: (code: DeviceCode) => void) {
+  const channel = new Channel<{ kind: "code" } & DeviceCode>();
+  channel.onmessage = (event) => onCode(event);
+  return invoke<string>("ai_sign_in", { onEvent: channel });
+}
+
+export const aiCancelSignIn = () => invoke<void>("ai_cancel_sign_in");
+
+export const aiSignOut = () => invoke<void>("ai_sign_out");
+
+/** Downloads and starts Copilot ahead of the first question. */
+export function aiPrepare(onEvent: (event: AiEvent) => void) {
+  const channel = new Channel<AiEvent>();
+  channel.onmessage = onEvent;
+  return invoke<void>("ai_prepare", { onEvent: channel });
+}
+
+/** Asks a question; the answer streams through `onEvent`, and the promise settles once it is complete. */
+export function aiAsk(request: AskRequest, onEvent: (event: AiEvent) => void) {
+  const channel = new Channel<AiEvent>();
+  channel.onmessage = onEvent;
+  return invoke<void>("ai_ask", { request, onEvent: channel });
+}
+
+export const aiCancel = (conversation: string) => invoke<void>("ai_cancel", { conversation });
+
+export const aiEnd = (conversation: string) => invoke<void>("ai_end", { conversation });
+
+/** Models to pick from; empty when only Copilot's own choice is available. */
+export const aiModels = () => invoke<ModelInfo[]>("ai_models");
+
+/** The changes in `cwd` as unified-diff text (limited in size; see `omitted`). */
+export const reviewPatch = (cwd: string, of: PatchOf, paths: string[] = []) =>
+  invoke<Patch>("review_patch", { cwd, of, paths });

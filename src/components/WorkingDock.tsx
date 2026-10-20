@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show, untrack } from "soli
 import type { ChangedFile, WorkingSide } from "../ipc/commands";
 import { type FileAction, filesAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
 import { isMac } from "../platform";
-import { allFiles, ignoreTarget, noteDeparture, setState, state } from "../state/review";
+import { allFiles, explainFilesItem, ignoreTarget, noteDeparture, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree } from "./FileTree";
 
@@ -232,12 +232,14 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
                     pickOnly(side, file.path);
                     void selectWorkFile(side, file.path);
                   }
+                  const files = together ? pickedFiles(side).map((picked) => picked.path) : [file.path];
                   setState("menu", {
                     x: event.clientX,
                     y: event.clientY,
                     definition: false,
                     file: file.path,
-                    files: together ? pickedFiles(side).map((picked) => picked.path) : [file.path],
+                    files,
+                    explain: explainFilesItem(files, false, side),
                     side,
                     lines: side === "unstaged" ? ["stage", "reset"] : ["unstage", "reset"],
                     // Untracked, so ignoring takes it off the list.

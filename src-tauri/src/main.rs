@@ -1,6 +1,7 @@
 // No console window next to the app on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod commands;
 mod formatting;
 mod fsio;
@@ -66,6 +67,7 @@ fn main() {
         .manage(workspace::PrepareState::default())
         .manage(pull_requests::PrState::default())
         .manage(updates::UpdateState::default())
+        .manage(ai::AiState::default())
         .invoke_handler(tauri::generate_handler![
             commands::dev_trace,
             commands::startup_path,
@@ -120,6 +122,16 @@ fn main() {
             updates::check_for_update,
             updates::download_update,
             updates::install_update,
+            ai::ai_status,
+            ai::ai_sign_in,
+            ai::ai_cancel_sign_in,
+            ai::ai_sign_out,
+            ai::ai_prepare,
+            ai::ai_ask,
+            ai::ai_cancel,
+            ai::ai_end,
+            ai::ai_models,
+            ai::review_patch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arnold");

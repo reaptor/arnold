@@ -3356,3 +3356,350 @@ button.primary:hover:not(:disabled) {
   text-decoration: underline;
   background: none;
 }
+
+/* ----------------------------------------------------------------- AI panel */
+
+.toolbar .ai-toggle.on {
+  background: var(--pressed);
+}
+
+.toolbar .ai-toggle.on .icon {
+  stroke: var(--accent);
+}
+
+/* An island on the right of the diff; the splitter before it resizes it. */
+.ai-column {
+  flex: none;
+  min-width: 0;
+  /* The diff keeps most of a narrow window. */
+  max-width: 40%;
+  display: flex;
+}
+
+.ai-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
+}
+
+.ai-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-header > .icon {
+  stroke: var(--accent);
+}
+
+.ai-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-panel .icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.ai-model {
+  min-width: 0;
+  max-width: 160px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.ai-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.ai-empty p {
+  margin: 0;
+}
+
+.ai-empty button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+
+.ai-empty button .icon {
+  stroke: var(--accent);
+}
+
+.ai-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.ai-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--banner-error);
+  border-left: 3px solid var(--removed);
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-error p {
+  margin: 0;
+}
+
+/* The question: a bubble on the right, with what it is about above it. */
+.ai-question {
+  align-self: flex-end;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.ai-question-text {
+  background: var(--selected);
+  border-radius: 10px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.ai-chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-chip:disabled {
+  opacity: 1;
+}
+
+.ai-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-markdown {
+  line-height: 1.55;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-markdown:empty {
+  display: none;
+}
+
+.ai-markdown :is(p, ul, ol, pre, blockquote, table) {
+  margin: 0 0 8px;
+}
+
+.ai-markdown :is(h1, h2, h3, h4) {
+  margin: 12px 0 4px;
+}
+
+.ai-markdown li + li {
+  margin-top: 2px;
+}
+
+.ai-markdown code {
+  /* As in the editors. */
+  font-variant-ligatures: none;
+}
+
+.ai-markdown pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+
+.ai-markdown code.code-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.ai-markdown code.code-link:hover {
+  text-decoration: underline;
+}
+
+.ai-reasoning {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-reasoning > div {
+  white-space: pre-wrap;
+  padding: 4px 0 0 12px;
+}
+
+.ai-answer-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ai-input {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin: 0 8px;
+  padding: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+}
+
+.ai-input:focus-within {
+  border-color: var(--accent);
+}
+
+.ai-input textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  max-height: 160px;
+  field-sizing: content;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 2px 4px;
+}
+
+.ai-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.link-button {
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  background: none;
+}
+
+.link-button:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+.ai-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.ai-signin h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ai-signin p {
+  margin: 0;
+}
+
+.ai-signin .hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-signin .connect-problem {
+  background: var(--banner-error);
+  border-left: 3px solid var(--removed);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.ai-device {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ai-code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-code code {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", monospace;
+  font-size: 22px;
+  letter-spacing: 2px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--pressed);
+  user-select: text;
+  -webkit-user-select: text;
+}

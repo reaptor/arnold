@@ -26,6 +26,10 @@ import type {
   Vote,
   WorkingSide,
   WorkingStatus,
+  AiEvent,
+  AskRequest,
+  Patch,
+  PatchOf,
 } from "./commands";
 
 interface FakeFile {
@@ -1347,6 +1351,129 @@ async function fakeDownload(onProgress: Channel<{ downloaded: number; total: num
   }
 }
 
+// ------------------------------------------------------------------ AI (?ai)
+
+/**
+ * `?ai` (or `?ai=ready`): signed in to GitHub, Copilot downloaded; `?ai=new`:
+ * signed in, Copilot still to download; `?ai=signedout` (also without the
+ * flag): signing in shows a code and succeeds; `?ai=nosub`: Copilot cannot
+ * start; `?ai=error`: questions fail.
+ */
+const aiMode = searchParams.get("ai") ?? (searchParams.has("ai") ? "ready" : "signedout");
+let aiSignedIn = aiMode !== "signedout";
+let aiInstalled = aiMode === "ready" || aiMode === "error";
+const aiCancelled = new Set<string>();
+
+function fakeAiStatus() {
+  return {
+    signedIn: aiSignedIn,
+    login: aiSignedIn ? "octocat" : null,
+    source: aiSignedIn ? { kind: "keychain" } : null,
+    expired: false,
+    installed: aiInstalled,
+  };
+}
+
+async function fakeAiPrepare(onEvent: Channel<AiEvent>) {
+  if (!aiSignedIn) throw "Sign in to GitHub to use Copilot.";
+  if (!aiInstalled) {
+    for (let percent = 0; percent <= 100; percent += 10) {
+      onEvent.onmessage({ kind: "status", text: `Downloading GitHub Copilot CLI… ${percent}% of 114 MB` });
+      await pause(150);
+    }
+    aiInstalled = true;
+  }
+  onEvent.onmessage({ kind: "status", text: "Starting GitHub Copilot…" });
+  await pause(300);
+  if (aiMode === "nosub") throw "GitHub did not accept the sign-in for Copilot. Sign out and sign in again.";
+}
+
+/** A canned answer that names what it was asked about, so the preview shows what was sent. */
+function fakeAnswer(request: AskRequest): string {
+  const files = [...new Set(request.context.flatMap((item) => [...item.text.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((m) => m[1])))];
+  const selection = request.context.find((item) => item.kind === "selection");
+  const first = files[0] ?? selection?.label.split(",")[0] ?? "Orders.fs";
+  const sent = request.context.map((item) => `- **${item.kind}** · ${item.label} (${item.text.length.toLocaleString()} characters)`).join("\n");
+  return [
+    `This is the browser preview's stand-in for GitHub Copilot, answering **${request.question}**`,
+    "",
+    selection
+      ? `The selected code (\`${selection.label}\`) computes the order total and applies the discount from \`${first}:12\`.`
+      : `The changes touch ${files.length || "no"} file${files.length === 1 ? "" : "s"}${files.length ? `: ${files.map((file) => `\`${file}\``).join(", ")}` : ""}. The main change is in \`${first}:12\`.`,
+    "",
+    "```fsharp",
+    "let total (order: Order) =",
+    "    order.Lines |> List.sumBy (fun line -> line.Price * decimal line.Quantity)",
+    "```",
+    "",
+    "### Worth checking",
+    "- Rounding happens before the discount is applied.",
+    "",
+    "<details><summary>What was sent</summary>",
+    "",
+    sent || "- nothing but the question",
+    "",
+    "</details>",
+  ].join("\n");
+}
+
+async function fakeAiAsk(request: AskRequest, onEvent: Channel<AiEvent>) {
+  aiCancelled.delete(request.conversation);
+  await pause(400);
+  if (aiMode === "error") throw "The signed-in GitHub account may have no Copilot plan.";
+  onEvent.onmessage({ kind: "reasoning", text: "Reading the changes…" });
+  await pause(300);
+  const answer = fakeAnswer(request);
+  for (let at = 0; at < answer.length; at += 14) {
+    if (aiCancelled.has(request.conversation)) break;
+    onEvent.onmessage({ kind: "delta", text: answer.slice(at, at + 14) });
+    await pause(25);
+  }
+  onEvent.onmessage({ kind: "done", model: "GPT-6 Luna" });
+}
+
+/** A rough unified diff: the lines between the common start and end of the two texts. */
+function fakeFileDiff(path: string, before: string | null, after: string | null): string {
+  const a = before === null ? [] : before.split("\n");
+  const b = after === null ? [] : after.split("\n");
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let end = 0;
+  while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
+  const removed = a.slice(start, a.length - end);
+  const added = b.slice(start, b.length - end);
+  return [
+    `diff --git a/${path} b/${path}`,
+    `--- ${before === null ? "/dev/null" : `a/${path}`}`,
+    `+++ ${after === null ? "/dev/null" : `b/${path}`}`,
+    `@@ -${start + 1},${removed.length} +${start + 1},${added.length} @@`,
+    ...removed.map((line) => `-${line}`),
+    ...added.map((line) => `+${line}`),
+    "",
+  ].join("\n");
+}
+
+function fakePatch(cwd: string, of: PatchOf, paths: string[]): Patch {
+  let pairs: [string, string | null, string | null][];
+  if (of.kind === "commits" || of.kind === "onDisk") {
+    const set = ownDiffOf(of.kind === "commits" ? of.to : undefined)?.files ?? files;
+    const tree = of.kind === "onDisk" ? treeOf(cwd) : null;
+    const all = new Set([...set.keys(), ...(tree?.keys() ?? [])]);
+    pairs = [...all].map((path) => [path, set.get(path)?.base ?? null, tree ? (tree.get(path) ?? null) : (set.get(path)?.working ?? null)]);
+  } else {
+    checkoutState();
+    const [from, to] = of.kind === "unstaged" ? [index, worktree] : [head ?? new Map<string, string>(), index];
+    pairs = [...new Set([...from.keys(), ...to.keys()])].map((path) => [path, from.get(path) ?? null, to.get(path) ?? null]);
+  }
+  const wanted = (path: string) => paths.length === 0 || paths.some((p) => path === p || path.startsWith(`${p.replace(/\/$/, "")}/`));
+  const changed = pairs.filter(([path, before, after]) => before !== after && wanted(path)).sort(([a], [b]) => a.localeCompare(b));
+  return {
+    text: changed.map(([path, before, after]) => fakeFileDiff(path, before, after)).join(""),
+    files: changed.map(([path]) => path),
+    omitted: [],
+  };
+}
+
 export function install() {
   mockWindows("main");
   mockIPC(
@@ -1678,6 +1805,39 @@ export function install() {
           console.info("devMock: would open", args.url);
           return null;
         // Updates: ?update=none (up to date), ?update=offline (the check fails), else 0.1.80 is found.
+        case "ai_status":
+          return slowly(fakeAiStatus, 200);
+        case "ai_sign_in": {
+          const onEvent = (payload as { onEvent: Channel<{ kind: "code"; userCode: string; verificationUri: string }> }).onEvent;
+          return (async () => {
+            await pause(400);
+            onEvent.onmessage({ kind: "code", userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device" });
+            await pause(3000);
+            aiSignedIn = true;
+            return "octocat";
+          })();
+        }
+        case "ai_cancel_sign_in":
+          return null;
+        case "ai_sign_out":
+          aiSignedIn = false;
+          return null;
+        case "ai_prepare":
+          return fakeAiPrepare((payload as { onEvent: Channel<AiEvent> }).onEvent);
+        case "ai_ask":
+          return fakeAiAsk((payload as { request: AskRequest }).request, (payload as { onEvent: Channel<AiEvent> }).onEvent);
+        case "ai_cancel":
+          aiCancelled.add(args.conversation);
+          return null;
+        case "ai_end":
+          return null;
+        case "ai_models":
+          return [
+            { id: "gpt-6-luna", name: "GPT-6 Luna" },
+            { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+          ];
+        case "review_patch":
+          return slowly(() => fakePatch(args.cwd, (payload as { of: PatchOf }).of, (payload as { paths: string[] }).paths), 150);
         case "updater_info":
           return { version: "0.1.77", canInstall: true };
         case "check_for_update":

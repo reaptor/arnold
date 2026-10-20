@@ -230,7 +230,8 @@ function semanticRule(kind: string, style: Record<string, string>) {
   return { [`.cm-semantic-${kind}, .cm-semantic-${kind} span`]: style };
 }
 
-const highlight = HighlightStyle.define([
+/** Token colors; also used for code blocks outside editors (`highlightCode.ts`). */
+export const highlight = HighlightStyle.define([
   {
     tag: [
       t.keyword,

@@ -1,0 +1,24 @@
+[package]
+name = "arnold-ai"
+version.workspace = true
+edition.workspace = true
+description = "AI assistance for Arnold: explaining code with the user's GitHub Copilot subscription"
+
+[dependencies]
+async-trait = "0.1"
+flate2 = "1"
+# Without its default `bundled-cli` feature the SDK neither embeds nor
+# downloads the Copilot CLI: Arnold downloads it on first use (`cli.rs`) and
+# starts it itself (`copilot.rs`).
+github-copilot-sdk = { version = "=1.0.23", default-features = false }
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tar = "0.4"
+tokio.workspace = true
+ureq.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -156,3 +156,40 @@ export const CloseIcon = (props: IconProps) => (
     <path d="M4 4l8 8M12 4l-8 8" />
   </Icon>
 );
+
+/** AI: explaining code. */
+export const SparkleIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M7 2.5l1.2 3.3 3.3 1.2-3.3 1.2L7 11.5 5.8 8.2 2.5 7l3.3-1.2z" />
+    <path d="M12 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" />
+  </Icon>
+);
+
+/** Sending a question. */
+export const SendIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+  </Icon>
+);
+
+/** Stopping an answer. */
+export const StopIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+  </Icon>
+);
+
+/** Copying text. */
+export const CopyIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+    <path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" />
+  </Icon>
+);
+
+/** Starting over. */
+export const NewChatIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M13.5 8.5v3a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3M12 1.5v5M9.5 4h5" />
+  </Icon>
+);

@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { AiPanel } from "./components/AiPanel";
 import { AllFilesView } from "./components/AllFilesView";
 import { WorkingFilesView } from "./components/WorkingFilesView";
 import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
@@ -16,6 +17,7 @@ import { startupPath, type WorkingSide } from "./ipc/commands";
 import { isMac } from "./platform";
 import { prs } from "./state/pullRequests";
 import { licensesOpen } from "./state/licenses";
+import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
 import { startUpdateChecks } from "./state/updates";
 import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
@@ -61,6 +63,10 @@ const isDockShortcut = (event: KeyboardEvent) =>
   !event.altKey &&
   !event.shiftKey &&
   event.key.toLowerCase() === "b";
+
+/** Opens or closes the AI panel: Ctrl+Shift+A, and Cmd+Shift+A on macOS. */
+const isAiShortcut = (event: KeyboardEvent) =>
+  (event.ctrlKey || (isMac && event.metaKey)) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "a";
 
 /**
  * The webview's own context menu (Reload, Inspect, Back...) is not the app's.
@@ -137,6 +143,10 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
       toggleDock();
+    } else if (isAiShortcut(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleAi();
     }
   };
   const closeMenu = () => setState("menu", null);
@@ -177,6 +187,19 @@ export function App() {
     down.preventDefault();
   };
 
+  const startAiResize = (down: PointerEvent) => {
+    const startX = down.clientX;
+    const startWidth = ai.width;
+    const onMove = (move: PointerEvent) => setAiWidth(startWidth - (move.clientX - startX));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveAiWidth();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    down.preventDefault();
+  };
 
   return (
     <div class="app">
@@ -223,6 +246,12 @@ export function App() {
           </section>
         </Show>
         </div>
+        <Show when={ai.open && state.repo}>
+          <div class="splitter" onPointerDown={startAiResize} />
+          <div class="ai-column" style={{ width: `${ai.width}px` }}>
+            <AiPanel />
+          </div>
+        </Show>
       </div>
       <StatusBar />
       <Show when={prs.tokenDialog}>
@@ -252,6 +281,25 @@ export function App() {
             }
             onPointerDown={(event) => event.stopPropagation()}
           >
+            <Show when={menu().explain}>
+              {(explain) => (
+                <>
+                  <Show when={explain().code}>
+                    {(label) => (
+                      <li onClick={() => explainFromMenu("code")}>
+                        <span>{label()}</span>
+                      </li>
+                    )}
+                  </Show>
+                  <li onClick={() => explainFromMenu("files")}>
+                    <span>{explain().files}</span>
+                  </li>
+                  <Show when={hasOtherItems(menu())}>
+                    <li class="menu-separator" />
+                  </Show>
+                </>
+              )}
+            </Show>
             <Show when={!menu().file}>
               <li classList={{ disabled: !menu().definition }} onClick={() => menu().definition && goToDefinition()}>
                 <span>Go to definition</span>
@@ -378,6 +426,10 @@ export function App() {
     </div>
   );
 }
+
+/** Whether a context menu has items besides "Explain…". */
+const hasOtherItems = (menu: NonNullable<typeof state.menu>) =>
+  !menu.file || !!(menu.undo || menu.lines?.length || (menu.side && menu.files) || menu.ignore || menu.comment !== undefined);
 
 const ACTION_LABELS: Record<LineAction, string> = { stage: "Stage", unstage: "Unstage", reset: "Reset" };
 

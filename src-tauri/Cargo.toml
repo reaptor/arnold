@@ -8,6 +8,7 @@ description = "Commit, review and open pull requests for what AI agents wrote: g
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+arnold-ai = { path = "../crates/arnold-ai" }
 arnold-git = { path = "../crates/arnold-git" }
 arnold-lsp = { path = "../crates/arnold-lsp" }
 arnold-pr = { path = "../crates/arnold-pr" }

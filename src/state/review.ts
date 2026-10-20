@@ -209,8 +209,42 @@ interface State {
       /** Whether git tracks it (or files in the folder), for "Stop tracking"; undefined while asking. */
       tracked?: boolean;
     };
+    /**
+     * Asking the AI to explain: `code`, the label of the item for the
+     * selection or line of an editor ("Explain selection"); `files`, of the
+     * item for the file(s) or folder ("Explain changes"). What they act on is
+     * kept by `takeExplainTarget`.
+     */
+    explain?: { code?: string; files: string };
   } | null;
 }
+
+/** What an "Explain…" item of a context menu asks the AI about. */
+export type ExplainTarget =
+  | {
+      kind: "code";
+      path: string;
+      /** The version of the file the lines are of. */
+      side: "base" | "head";
+      /** Commit mode: the diff the editor shows (null: against the last commit). */
+      workSide: WorkingSide | null;
+      /** 1-based, inclusive. */
+      startLine: number;
+      endLine: number;
+      /** A selection, rather than the right-clicked line. */
+      selection: boolean;
+      text: string;
+      /** The whole text of that version of the file. */
+      fileText: string;
+    }
+  | {
+      kind: "files";
+      /** Files, or one folder. */
+      paths: string[];
+      folder: boolean;
+      /** Commit mode: the list the files were picked in (null: the explorer). */
+      workSide: WorkingSide | null;
+    };
 
 export const [state, setState] = createStore<State>({
   repo: null,
@@ -345,6 +379,31 @@ let focusedPath: string | null = null;
 let menuTarget: { view: EditorView; position: number } | null = null;
 /** Where a comment from the context menu would go. */
 let menuComment: NewThreadPlace | null = null;
+/** What the "Explain…" items of the open context menu act on. */
+let menuExplain: { code: ExplainTarget | null; files: ExplainTarget | null } = { code: null, files: null };
+
+/** What the "Explain…" item `which` of the context menu just clicked acts on; closes the menu. */
+export function takeExplainTarget(which: "code" | "files"): ExplainTarget | null {
+  const target = menuExplain[which];
+  menuExplain = { code: null, files: null };
+  setState("menu", null);
+  return target;
+}
+
+/**
+ * Explaining `paths` (files, or one folder) from a list's or the explorer's
+ * menu: what the menu item says, with the target kept for `takeExplainTarget`.
+ */
+export function explainFilesItem(paths: string[], folder: boolean, workSide: WorkingSide | null): { files: string } {
+  menuExplain = { code: null, files: { kind: "files", paths, folder, workSide } };
+  const changed =
+    state.source === "commit"
+      ? (path: string) => commitMode.listOf("unstaged").some((f) => f.path === path) || commitMode.listOf("staged").some((f) => f.path === path)
+      : isChanged;
+  if (folder) return { files: "Explain changes in folder" };
+  if (paths.length > 1) return { files: `Explain changes to ${paths.length} files` };
+  return { files: changed(paths[0]) ? "Explain changes" : "Explain file" };
+}
 /** Latest load per editor, so that a slower earlier load cannot win. */
 const loadTokens = new Map<string, number>();
 /** `loadTokens` key of the one-file editor; section editors use their path. */
@@ -423,6 +482,32 @@ function activePath(): string | null {
 
 const activeEditor = () => (state.source === "commit" ? commitMode.currentEditor() : editorFor(activePath()));
 
+/** The selection of `view` (else the line at `position`) of `path`, for the AI to explain. */
+function explainCodeTarget(
+  path: string,
+  view: EditorView,
+  position: number | null,
+  place: { side: "base" | "head"; startLine: number; endLine: number },
+  workSide: WorkingSide | null,
+): ExplainTarget | null {
+  const selection = view.state.selection.main;
+  const doc = view.state.doc;
+  if (selection.empty && position === null) return null;
+  const text = selection.empty ? doc.lineAt(position!).text : view.state.sliceDoc(selection.from, selection.to);
+  if (!text.trim()) return null;
+  return {
+    kind: "code",
+    path,
+    side: place.side,
+    workSide,
+    startLine: place.startLine,
+    endLine: place.endLine,
+    selection: !selection.empty,
+    text,
+    fileText: doc.toString(),
+  };
+}
+
 /**
  * What an editor reports back. `side`: a section of Commit mode's all-files
  * view, which becomes the file acted on once it is focused or clicked.
@@ -446,7 +531,18 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       const path = pathOf();
       menuComment = path !== null && comment && canComment(path) ? { path, lines: comment } : null;
       const undos = path !== null && editsUndoable(path) ? editorFor(path)?.editUndos() : undefined;
+      const workSide = state.source === "commit" ? (side ?? state.workSide) : null;
+      let explain: NonNullable<State["menu"]>["explain"];
+      if (path !== null) {
+        const files = explainFilesItem([path], false, workSide);
+        menuExplain.code = comment ? explainCodeTarget(path, view, position, comment, workSide) : null;
+        explain = {
+          code: menuExplain.code?.kind === "code" ? (menuExplain.code.selection ? "Explain selection" : "Explain this line") : undefined,
+          files: files.files === "Explain file" ? "Explain file" : "Explain file changes",
+        };
+      }
       setState("menu", {
+        explain,
         x,
         y,
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
@@ -2080,6 +2176,24 @@ async function showPlace(place: NavigationPlace): Promise<DiffEditor | null> {
   return editor;
 }
 
+/**
+ * Shows line `line` (1-based) of `path` as a jump "back" returns from (a
+ * link in an AI answer). Commit mode: of the diff of `side`, else of the
+ * file against the last commit.
+ */
+export async function goToLine(path: string, line: number, side: WorkingSide | null = null) {
+  noteDeparture();
+  setState("menu", null);
+  const target = await showPlace({ path, side, anchor: 0 });
+  const view = target?.working;
+  if (!view) return;
+  const doc = view.state.doc;
+  const anchor = doc.line(Math.min(Math.max(line, 1), doc.lines)).from;
+  view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+  view.focus();
+  requestAnimationFrame(() => target?.revealCursor());
+}
+
 // ---------------------------------------------------------------- discussions
 
 /** (Re-)reads the discussions of the pull request under review and shows them in the open files. */
@@ -2126,17 +2240,23 @@ function canComment(path: string): boolean {
 
 /** Right-click on a changed file of the dock: its menu, with commenting on the whole file. */
 export function openFileMenu(path: string, x: number, y: number): boolean {
+  menuTarget = null;
+  const explain = explainFilesItem([path], false, null);
   if (editsUndoable(path)) {
-    menuTarget = null;
     menuComment = null;
     const undo = { path, lines: false, file: !!fileAt(path)?.uncommitted };
-    setState("menu", { x, y, definition: false, file: path, undo });
+    setState("menu", { x, y, definition: false, file: path, undo, explain });
     return true;
   }
-  if (state.source !== "pullRequest") return false;
-  menuTarget = null;
-  menuComment = canComment(path) ? { path, lines: null } : null;
-  setState("menu", { x, y, definition: false, comment: menuComment && placeName(menuComment), file: path });
+  menuComment = state.source === "pullRequest" && canComment(path) ? { path, lines: null } : null;
+  setState("menu", {
+    x,
+    y,
+    definition: false,
+    comment: state.source === "pullRequest" ? menuComment && placeName(menuComment) : undefined,
+    file: path,
+    explain,
+  });
   return true;
 }
 
@@ -2150,14 +2270,15 @@ export function ignoreTarget(path: string, folder: boolean): NonNullable<State["
 /** Right-click on a row of the explorer: a file's menu (see `openFileMenu`) and adding it to `.gitignore`. */
 export function openTreeMenu(path: string, folder: boolean, x: number, y: number): boolean {
   const ignore = ignoreTarget(path, folder);
-  if (!ignore) return false;
-  if (!folder && state.source === "branches" && openFileMenu(path, x, y)) {
-    setState("menu", "ignore", ignore);
+  if (!folder && state.source !== "commit" && openFileMenu(path, x, y)) {
+    if (ignore) setState("menu", "ignore", ignore);
   } else {
     menuTarget = null;
     menuComment = null;
-    setState("menu", { x, y, definition: false, file: path, ignore });
+    const explain = explainFilesItem([path], folder, null);
+    setState("menu", { x, y, definition: false, file: path, ignore, explain });
   }
+  if (!ignore) return true;
   const checkout = ignore.checkout;
   if (checkout) {
     void ipc.pathTracked(checkout, path).then(

@@ -22,11 +22,13 @@ F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with 
 
 **F#, including Fantomas.** Errors, hover, go to definition, find references, completion and Rider's colors from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and keeps up to date itself. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
 
+**Explain with Copilot.** Select code, right-click a file or folder, or ask about all the changes, and GitHub Copilot explains them in a panel beside the diff, with follow-up questions. It uses your own Copilot subscription.
+
 **Safe by default.** Comparing and reviewing never touch the opened folder (other branches and pull requests are checked out in worktrees of their own); only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
 
 **Looks like Rider.** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
 
-**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
+**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Explaining code with AI](#explaining-code-with-ai) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
 ## Install
 
@@ -266,6 +268,20 @@ When the repository uses [Fantomas](https://fsprojects.github.io/fantomas/) (it 
 
 Files Fantomas cannot parse are listed separately; they are left as they are.
 
+## Explaining code with AI
+
+The ✦ button at the right of the toolbar (`Ctrl+Shift+A`, `Cmd+Shift+A` on macOS) opens a panel where GitHub Copilot explains the code under review. Ask about:
+
+- **a selection or a line**: right-click it in the diff, *Explain selection* / *Explain this line*. Copilot gets the lines, the file's changes and, for files up to 60 KB, the whole file, of the side you clicked (old or new);
+- **a file or folder**: *Explain changes* in the Changes list, the explorer, and Commit mode's Unstaged and Staged lists (several picked files at once there). A file without changes is explained whole;
+- **everything**: *Explain all changes* in the panel: the branch, the pull request (with its title, description and commits) or, in Commit mode, the uncommitted changes. Up to about 150 KB of diff is sent; binary files, lock files and whatever does not fit are named but left out.
+
+Then ask follow-up questions in the box below; *New chat* starts over. `path:line` references in answers open the code, and *Back* returns.
+
+**Signing in.** Arnold uses your own [GitHub Copilot](https://github.com/features/copilot/plans) subscription (the free plan works too). *Sign in with GitHub* shows a code and opens github.com/login/device, where you enter it and approve Arnold; the sign-in is kept in the macOS Keychain or Windows Credential Manager. Without one, a token in `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` is used.
+
+**How it works.** Answers come from GitHub's [Copilot SDK](https://github.com/github/copilot-sdk) and the GitHub Copilot CLI it drives, which Arnold downloads from GitHub the first time (about 115 MB) into its own data folder; its version comes with Arnold's updates. The CLI keeps its state in that folder too, not in `~/.copilot`. Copilot is given no tools: it cannot read other files or run anything, only answer from what Arnold sends. The code you ask about is sent to GitHub Copilot with your question; usage counts against your Copilot plan.
+
 ## Keyboard shortcuts
 
 | Keys | What they do |
@@ -277,6 +293,7 @@ Files Fantomas cannot parse are listed separately; they are left as they are.
 | `F2`, `Ctrl+R` `Ctrl+R` | Rename the symbol under the cursor in every file (F#, where the diff can be edited) |
 | `Ctrl+-` (macOS), `Alt+←` (Windows) | Back to where you jumped from |
 | `Ctrl+B` (on macOS also `Cmd+B`) | Hide or show the files dock |
+| `Ctrl+Shift+A` (on macOS also `Cmd+Shift+A`) | Open or close the AI panel |
 | `S` / `U` / `R` | Commit mode: stage / unstage / reset the file (lists) or the selected lines (diff; where text can be typed, plain keys need a selection and `Alt`/`⌥` acts on the cursor's line) |
 | `Del` (on macOS also `⌫`) | Commit mode: delete the picked files of Unstaged or Staged from disk, after asking |
 | `Tab` / `Shift+Tab` | Commit mode, where text can be typed: indent / outdent, in the file's own indentation (tabs, or its step of spaces); `Esc` then `Tab` leaves the editor |
@@ -295,6 +312,8 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
 - to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
 - when you open a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
+
+Outside the repository, explaining code with AI sends the code you ask about to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
 
 ## Status
 
@@ -367,6 +386,7 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | `npm test` | Frontend unit tests |
 | `cargo test --workspace` | Backend tests (create temporary git repositories) |
 | `cargo test -p arnold-lsp --test fsautocomplete_live -- --ignored --nocapture` | Downloads and runs the real FsAutoComplete on a small project |
+| `GH_TOKEN=$(gh auth token) cargo test -p arnold-ai --test copilot_live -- --ignored --nocapture` | Downloads the Copilot CLI into a temporary folder and asks real Copilot about a diff (needs an account with Copilot and no Arnold sign-in in the keychain) |
 | `cargo test -p arnold-pr -- --ignored` | Checks that dev.azure.com turns down a bogus token |
 | `npm run notices` | Collects the license texts of every crate and npm package built into Arnold into `public/third-party-notices.json` (shown under *Licenses*; `npm run build` runs it) |
 | `npm run screenshots` | Retakes the screenshots in `docs/screenshots/` from `npm run dev` (needs Google Chrome); `npm run screenshots -- review` takes one |
@@ -386,6 +406,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |
 | `lsp` | A stand-in language server that answers go-to-definition, hover, completion and rename, and reports unused `open`s with a *Remove unused open* fix; `projectfail` makes a project fail to load, `workspacefail` makes the whole workspace fail |
 | `setupslow`, `setupfail` | Preparing the language server's copy is slow, or fails |
+| `ai` | Signed in to GitHub with Copilot ready: answers are a stand-in that lists what was sent; `=new` downloads Copilot first, `=signedout` (also without the option) signs in with a code, `=nosub` cannot start Copilot, `=error` makes questions fail |
 | `files=40` | Adds that many changed files, for a large diff |
 | `platform=windows` | Shows the Windows title bar |
 
@@ -398,6 +419,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `src-tauri/installer/` | What the installers add: the `arnold` and `ace` commands and the PATH setup |
 | `crates/arnold-git/` | Git through the `git` CLI: reading for the review, worktrees for branches and pull requests (`worktree.rs`), copying a commit's files out, and staging and committing for Commit mode (`working.rs`) |
 | `crates/arnold-pr/` | Pull requests of code hosts: Azure DevOps remotes, its REST API, tokens in the system credential store |
+| `crates/arnold-ai/` | Explaining code with AI: the provider interface, GitHub sign-in (device flow), downloading the Copilot CLI and talking to it through the Copilot SDK, and the prompt |
 | `crates/arnold-lsp/` | Language servers: install/update, the minimal restore/build plan, and the proxy between editor and server; running Fantomas (`fantomas.rs`; formatting and staging before a commit is `src-tauri/src/formatting.rs`) |
 | `scripts/` | Taking the README's screenshots |
 | `docs/screenshots/` | The README's screenshots |

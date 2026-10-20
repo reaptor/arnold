@@ -34,9 +34,11 @@ import {
   FileIcon,
   FilesIcon,
   PullRequestIcon,
+  SparkleIcon,
   SplitIcon,
   UnifiedIcon,
 } from "./icons";
+import { ai, toggleOpen as toggleAi } from "../state/ai";
 import { RepoPicker } from "./RepoPicker";
 import { WindowControls } from "./WindowControls";
 
@@ -231,6 +233,19 @@ export function Toolbar() {
         </button>
         <button class="icon-button" onClick={nextChange} title="Next change (F7)">
           <ArrowDownIcon />
+        </button>
+      </Show>
+      <Show when={state.repo}>
+        <span class="toolbar-separator" />
+        <button
+          class="icon-button ai-toggle"
+          classList={{ on: ai.open }}
+          onClick={toggleAi}
+          title={`AI: explain code with GitHub Copilot (${isMac ? "⌘⇧A" : "Ctrl+Shift+A"})`}
+          aria-label="AI"
+          aria-pressed={ai.open}
+        >
+          <SparkleIcon />
         </button>
       </Show>
       <Show when={platform === "windows"}>

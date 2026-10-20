@@ -84,8 +84,12 @@ marked.use({
   ],
   renderer: {
     code({ text, lang }) {
-      if (lang?.trim() !== "suggestion") return false;
-      return `<div data-suggestion><div data-suggestion-title>Suggested change</div><pre><code>${escapeHtml(text)}</code></pre></div>`;
+      const name = lang?.trim().split(/\s+/)[0] ?? "";
+      if (name === "suggestion") {
+        return `<div data-suggestion><div data-suggestion-title>Suggested change</div><pre><code>${escapeHtml(text)}</code></pre></div>`;
+      }
+      // Kept for colors: classes do not survive sanitizing (see highlightCode.ts).
+      return name ? `<pre><code data-lang="${escapeHtml(name)}">${escapeHtml(text)}</code></pre>\n` : false;
     },
   },
 });
