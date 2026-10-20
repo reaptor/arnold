@@ -23,6 +23,7 @@
 
 mod cli;
 mod compare;
+mod context;
 mod export;
 mod files;
 mod patch;
@@ -35,6 +36,7 @@ mod worktree;
 
 pub use cli::GitError;
 pub use compare::{compare, read_blob, ChangedFile, Commit, CommitRange, Comparison, FileStatus};
+pub use context::{context_files, ContextFile, ContextLimits};
 pub use export::{app_folder, export_commit};
 pub use files::{list_files, tree_files, TreeFile};
 pub use patch::{patch, OmitReason, Omitted, Patch, PatchSource};

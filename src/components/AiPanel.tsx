@@ -20,6 +20,10 @@ import {
   stopAnswer,
 } from "../state/ai";
 import { state } from "../state/review";
+import { accept, canSuggest, discard, openCount, revealSuggestion, suggestImprovements, whyNotAccept } from "../state/aiReview";
+import { suggestionById } from "../state/aiSuggestions";
+import { BASIS_NAMES, BASIS_TITLES } from "../editor/aiSuggestions";
+import type { ReviewResult } from "../state/ai";
 import { isMac } from "../platform";
 import { openInBrowser } from "./DevOpsSetup";
 import { openClickedLink, renderMarkdown } from "./Markdown";
@@ -34,7 +38,7 @@ export function AiPanel() {
     <aside class="ai-panel" aria-label="AI">
       <header class="ai-header">
         <SparkleIcon />
-        <span class="ai-title">Explain with Copilot</span>
+        <span class="ai-title">Copilot</span>
         <span class="toolbar-space" />
         <Show when={ai.ready && ai.models.length > 0}>
           <select
@@ -189,6 +193,14 @@ function Conversation() {
                   ? "Explain this pull request"
                   : "Explain all changes"}
             </button>
+            <p>
+              Or have Copilot look for improvements. It suggests changes only where the code departs from the
+              repository's own patterns or there is a well-proven reason, and you accept or discard each one in the diff.
+            </p>
+            <button disabled={!canSuggest()} onClick={() => void suggestImprovements()}>
+              <SparkleIcon />
+              Suggest improvements
+            </button>
           </div>
         </Show>
         <For each={ai.messages}>{(message) => (message.role === "user" ? <Question message={message} /> : <Answer message={message} />)}</For>
@@ -240,6 +252,9 @@ function Conversation() {
           <button class="link-button" onClick={() => void explainAll()}>
             Explain all changes
           </button>
+          <button class="link-button" disabled={ai.busy || !canSuggest()} onClick={() => void suggestImprovements()}>
+            Suggest improvements
+          </button>
         </Show>
         <Show when={ai.status?.source?.kind === "keychain"}>
           <button class="link-button" onClick={() => void signOut()}>
@@ -287,10 +302,14 @@ function Answer(props: { message: Message }) {
   let copiedTimer = 0;
   onCleanup(() => clearTimeout(copiedTimer));
 
+  const isReview = () => props.message.kind === "review";
+  // A review's text is JSON: its summary shows once read, the raw text only when it could not be.
+  const shownText = () => (isReview() ? (props.message.review?.summary ?? (props.message.streaming ? "" : props.message.text)) : props.message.text);
+
   // Rendered at most once a frame (the text grows a frame at a time); code blocks
   // are colored once the answer is complete.
   createEffect(() => {
-    const text = props.message.text;
+    const text = shownText();
     const streaming = props.message.streaming;
     body.innerHTML = renderMarkdown(text);
     for (const code of body.querySelectorAll<HTMLElement>(":not(pre) > code")) {
@@ -317,7 +336,8 @@ function Answer(props: { message: Message }) {
   };
 
   const copy = () => {
-    void navigator.clipboard.writeText(props.message.text);
+    const review = props.message.review;
+    void navigator.clipboard.writeText(review ? reviewMarkdown(review) : props.message.text);
     setCopied(true);
     clearTimeout(copiedTimer);
     copiedTimer = window.setTimeout(() => setCopied(false), 1500);
@@ -331,13 +351,14 @@ function Answer(props: { message: Message }) {
           <div>{props.message.reasoning}</div>
         </details>
       </Show>
-      <Show when={props.message.streaming && !props.message.text}>
+      <Show when={props.message.streaming && (isReview() || !props.message.text)}>
         <div class="ai-status">
           <span class="spinner" />
-          {props.message.status ?? "Thinking…"}
+          {props.message.status ?? (isReview() ? "Looking for improvements…" : "Thinking…")}
         </div>
       </Show>
       <div class="markdown ai-markdown" ref={body} onClick={onClick} />
+      <Show when={props.message.review}>{(review) => <ReviewList review={review()} />}</Show>
       <Show when={props.message.error}>
         <div class="ai-error">
           <p>{props.message.error}</p>
@@ -358,6 +379,99 @@ function Answer(props: { message: Message }) {
             </button>
           </Show>
         </div>
+      </Show>
+    </div>
+  );
+}
+
+/** A review's summary and suggestions as Markdown, for copying. */
+function reviewMarkdown(review: ReviewResult): string {
+  const items = review.ids.flatMap((id) => {
+    const suggestion = suggestionById(id);
+    return suggestion ? [`- **${suggestion.title}** (\`${suggestion.path}:${suggestion.line}\`, ${BASIS_NAMES[suggestion.basis].toLowerCase()}): ${suggestion.why}`] : [];
+  });
+  return [review.summary, ...(items.length ? ["", ...items] : [])].join("\n");
+}
+
+const STATUS_NAMES = { accepted: "Accepted", discarded: "Discarded" } as const;
+
+/** The suggestions of a review: each links to its code, with Accept and Discard while open. */
+function ReviewList(props: { review: ReviewResult }) {
+  const open = () => openCount(props.review.ids);
+  return (
+    <div class="ai-review">
+      <Show
+        when={props.review.ids.length > 0}
+        fallback={
+          <p class="hint">
+            No suggestions: nothing departs from the repository's patterns, and Copilot found no well-proven problems.
+          </p>
+        }
+      >
+        <div class="ai-review-head">
+          <span>
+            {props.review.ids.length} suggestion{props.review.ids.length === 1 ? "" : "s"}
+          </span>
+          <Show when={open() < props.review.ids.length}>
+            <span class="hint">{open()} open</span>
+          </Show>
+        </div>
+        <ol class="ai-review-list">
+          <For each={props.review.ids}>
+            {(id) => (
+              <Show when={suggestionById(id)}>
+                {(suggestion) => {
+                  const blocked = () => whyNotAccept(suggestion());
+                  const [problem, setProblem] = createSignal<string | null>(null);
+                  return (
+                    <li class="ai-review-item" data-status={suggestion().status}>
+                      <button class="ai-review-title" onClick={() => revealSuggestion(id)} title="Show the code">
+                        {suggestion().title}
+                      </button>
+                      <div class="ai-review-meta">
+                        <code>
+                          {suggestion().path.slice(suggestion().path.lastIndexOf("/") + 1)}:{suggestion().line}
+                        </code>
+                        <span class={`ai-basis ${suggestion().basis}`} title={BASIS_TITLES[suggestion().basis]}>
+                          {BASIS_NAMES[suggestion().basis]}
+                        </span>
+                        <span class="toolbar-space" />
+                        <Show
+                          when={suggestion().status === "open"}
+                          fallback={<span class="hint">{STATUS_NAMES[suggestion().status as keyof typeof STATUS_NAMES]}</span>}
+                        >
+                          <button
+                            class="link-button"
+                            disabled={blocked() !== null}
+                            title={blocked() ?? "Replace the lines with the suggested code"}
+                            onClick={() => {
+                              setProblem(null);
+                              accept({ ...suggestion() }).catch((error) => setProblem(String(error)));
+                            }}
+                          >
+                            Accept
+                          </button>
+                          <button class="link-button" onClick={() => discard(suggestion())}>
+                            Discard
+                          </button>
+                        </Show>
+                      </div>
+                      <Show when={problem()}>
+                        <p class="connect-problem">{problem()}</p>
+                      </Show>
+                    </li>
+                  );
+                }}
+              </Show>
+            )}
+          </For>
+        </ol>
+      </Show>
+      <Show when={props.review.dropped > 0}>
+        <p class="hint">
+          {props.review.dropped} more suggestion{props.review.dropped === 1 ? " was" : "s were"} left out: the lines
+          {props.review.dropped === 1 ? " it names are" : " they name are"} not in the changed files.
+        </p>
       </Show>
     </div>
   );

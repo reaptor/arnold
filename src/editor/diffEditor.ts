@@ -40,6 +40,7 @@ import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRange
 import { matchingLine } from "./matchingLine";
 import { type LineSelection, resetEdits, type TextEdit } from "./resetLines";
 import { draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
+import { type AiSuggestion, locate, suggestionCardId } from "./aiSuggestions";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
 
 export type DiffMode = "split" | "unified";
@@ -73,6 +74,8 @@ export interface DiffDocument {
   threads?: readonly PrThread[];
   /** A new comment being written about lines of the file. */
   draft?: NewThreadPlace | null;
+  /** Copilot's open suggestions for the file; each shows where its lines are found in the working text. */
+  aiSuggestions?: readonly AiSuggestion[];
   /** The working text can be edited: a file of the working tree. */
   editable?: boolean;
   /**
@@ -235,6 +238,23 @@ export class DiffEditor {
     this.showThreads();
   }
 
+  /** Replaces Copilot's suggestions shown in the file. */
+  setAiSuggestions(suggestions: readonly AiSuggestion[]) {
+    if (!this.document || JSON.stringify(suggestions) === JSON.stringify(this.document.aiSuggestions ?? [])) return;
+    this.document = { ...this.document, aiSuggestions: suggestions };
+    this.showThreads();
+  }
+
+  /** Scrolls the card of `suggestion` into view; false when the file does not show it. */
+  revealSuggestion(suggestion: AiSuggestion): boolean {
+    const view = this.viewOf("head");
+    const lines = view && locate(view.state.doc.toString(), suggestion.original, suggestion.line);
+    if (!view || !lines) return false;
+    const line = view.state.doc.line(lines.to);
+    view.dispatch({ selection: { anchor: view.state.doc.line(lines.from).from }, effects: EditorView.scrollIntoView(line.from, { y: "center" }) });
+    return true;
+  }
+
   /** Shows (or with null removes) the card for writing a new comment. */
   setDraft(draft: NewThreadPlace | null) {
     if (!this.document || JSON.stringify(draft) === JSON.stringify(this.document.draft ?? null)) return;
@@ -324,6 +344,11 @@ export class DiffEditor {
     this.destroyViews();
     this.document = null;
     this.support = [];
+  }
+
+  /** The file shown, if any. */
+  get shownPath(): string | null {
+    return this.document?.path ?? null;
   }
 
   /** The editor of the text under review (the right side in split mode). */
@@ -768,6 +793,21 @@ export class DiffEditor {
         line,
         own: { kind: "thread", thread, line, lines },
       });
+    }
+    // Found in the working text as it is now; a suggestion whose lines changed is not shown.
+    const head = document.deleted ? null : this.viewOf("head");
+    if (head) {
+      const text = head.state.doc.toString();
+      for (const suggestion of document.aiSuggestions ?? []) {
+        const lines = locate(text, suggestion.original, suggestion.line);
+        if (!lines) continue;
+        cards.push({
+          id: suggestionCardId(suggestion),
+          side: "head",
+          line: lines.to,
+          own: { kind: "ai", suggestion, line: lines.to, lines },
+        });
+      }
     }
     const draft = document.draft;
     if (draft) {

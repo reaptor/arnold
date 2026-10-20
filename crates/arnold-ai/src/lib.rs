@@ -1,4 +1,5 @@
-//! AI assistance for Arnold: explaining code being reviewed.
+//! AI assistance for Arnold: explaining code being reviewed, and suggesting
+//! improvements to the changes.
 //!
 //! `provider` is what the app talks to, whoever runs the model. `copilot` is
 //! the first provider: the user's own GitHub Copilot subscription, through
@@ -15,7 +16,7 @@ mod prompt;
 pub mod provider;
 
 pub use copilot::Copilot;
-pub use provider::{AiEvent, AskRequest, ContextItem, ContextKind, Events, ModelInfo, Provider};
+pub use provider::{AiEvent, AskRequest, ContextItem, ContextKind, Events, ModelInfo, Provider, Purpose};
 
 pub(crate) fn network_error(url: &str, error: &ureq::Error) -> String {
     let host = url.split('/').nth(2).unwrap_or(url);

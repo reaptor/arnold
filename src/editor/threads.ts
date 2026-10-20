@@ -10,6 +10,7 @@ import type { NewThreadPlace, PrComment, PrThread } from "../ipc/commands";
 import { ago } from "../components/CommitPicker";
 import { openInBrowser } from "../components/DevOpsSetup";
 import { MARKDOWN_GUIDE, openClickedLink, renderMarkdown } from "../components/Markdown";
+import { type AiSuggestion, suggestionCardId, suggestionElement } from "./aiSuggestions";
 
 /** What goes under a line of an editor. */
 export type ThreadMark =
@@ -22,6 +23,8 @@ export type ThreadMark =
       lines: { from: number; to: number } | null;
     }
   | { kind: "draft"; draft: NewThreadPlace; line: number; lines: { from: number; to: number } | null }
+  /** Copilot's suggestion to replace `lines`. */
+  | { kind: "ai"; suggestion: AiSuggestion; line: number; lines: { from: number; to: number } | null }
   /** An empty block as high as the card `id` on the other side of the split view. */
   | { kind: "spacer"; id: string; line: number };
 
@@ -389,6 +392,10 @@ export const setThreadMarks = StateEffect.define<ThreadMark[]>();
 
 const commentedLine = Decoration.line({ class: "cm-thread-line" });
 
+/** The lines a Copilot suggestion would replace: framed in the accent color. */
+const aiLine = (first: boolean, last: boolean) =>
+  Decoration.line({ class: `cm-ai-line${first ? " cm-ai-first" : ""}${last ? " cm-ai-last" : ""}` });
+
 /** Whether `thread` suggests a change: its first comment holds a ```suggestion block. */
 export const isSuggestion = (thread: PrThread) => /^\s*(`{3,}|~{3,})\s*suggestion\b/m.test(thread.comments[0]?.content ?? "");
 
@@ -413,6 +420,8 @@ function widgetOf(mark: ThreadMark): WidgetType {
       return new CardWidget(threadCardId(mark.thread), JSON.stringify(mark.thread), (onResize) =>
         threadElement(mark.thread, onResize),
       );
+    case "ai":
+      return new CardWidget(suggestionCardId(mark.suggestion), JSON.stringify(mark.suggestion), () => suggestionElement(mark.suggestion));
   }
 }
 
@@ -431,7 +440,9 @@ function decorate(state: EditorState, marks: ThreadMark[]): DecorationSet {
       const [from, to] = [clamp(mark.lines.from), clamp(mark.lines.to)];
       const suggested = mark.kind === "thread" && isSuggestion(mark.thread) && isOpen(mark.thread);
       for (let line = from; line <= to; line++) {
-        ranges.push((suggested ? suggestedLine(line === from, line === to) : commentedLine).range(doc.line(line).from));
+        const decoration =
+          mark.kind === "ai" ? aiLine(line === from, line === to) : suggested ? suggestedLine(line === from, line === to) : commentedLine;
+        ranges.push(decoration.range(doc.line(line).from));
       }
     }
   }

@@ -28,7 +28,7 @@ use tokio::sync::Mutex;
 use crate::auth;
 use crate::cli;
 use crate::prompt;
-use crate::provider::{AiEvent, AskRequest, Events, ModelInfo, Provider};
+use crate::provider::{AiEvent, AskRequest, Events, ModelInfo, Provider, Purpose};
 
 const STDERR_LINES: usize = 30;
 
@@ -212,7 +212,10 @@ impl Copilot {
         config.system_message = Some(
             SystemMessageConfig::new()
                 .with_mode("replace")
-                .with_content(prompt::SYSTEM),
+                .with_content(match request.purpose {
+                    Purpose::Explain => prompt::SYSTEM,
+                    Purpose::Review => prompt::REVIEW,
+                }),
         );
         let session = Arc::new(
             running

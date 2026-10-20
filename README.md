@@ -22,13 +22,13 @@ Arnold is a desktop app for macOS and Windows, made for the work AI agents leave
 
 **Azure DevOps pull requests.** Create them with a Markdown description and a linked work item; then the active pull requests, their discussions in the diff, comments on lines and files, suggestions, votes, and completing with the merge type of your choice.
 
-**Explain with your organization's Copilot.** Select code, right-click a file or folder, or ask about all the changes, and GitHub Copilot explains them in a panel beside the diff, with follow-up questions. Arnold has no AI service of its own: it uses the Copilot your organization already provides, so code goes only to GitHub Copilot, under your organization's agreement and policies.
+**Explain and improve with your organization's Copilot.** Select code, right-click a file or folder, or ask about all the changes, and GitHub Copilot explains them in a panel beside the diff, with follow-up questions. *Suggest improvements* has Copilot review the changes: where they depart from the repository's own patterns, or there is a well-proven reason, a suggestion shows under the lines in the diff, saying why, for you to accept or discard. Arnold has no AI service of its own: it uses the Copilot your organization already provides, so code goes only to GitHub Copilot, under your organization's agreement and policies.
 
 **Safe by default.** Comparing and reviewing never touch the opened folder (other branches and pull requests are checked out in worktrees of their own); only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
 
 **Keyboard first.** `F7` for the next change across files, `S`/`U`/`R` to stage, unstage and reset, and the F# keys you know from Rider and Visual Studio.
 
-**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Explaining code with AI](#explaining-code-with-ai) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
+**Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Explaining and improving code with AI](#explaining-and-improving-code-with-ai) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
 ## Install
 
@@ -260,7 +260,7 @@ When the repository uses [Fantomas](https://fsprojects.github.io/fantomas/) (it 
 
 Files Fantomas cannot parse are listed separately; they are left as they are.
 
-## Explaining code with AI
+## Explaining and improving code with AI
 
 The ✦ button at the right of the toolbar (`Ctrl+Shift+A`, `Cmd+Shift+A` on macOS) opens a panel where GitHub Copilot explains the code under review. Ask about:
 
@@ -269,6 +269,19 @@ The ✦ button at the right of the toolbar (`Ctrl+Shift+A`, `Cmd+Shift+A` on mac
 - **everything**: *Explain all changes* in the panel: the branch, the pull request (with its title, description and commits) or, in Commit mode, the uncommitted changes. Up to about 150 KB of diff is sent; binary files, lock files and whatever does not fit are named but left out.
 
 Then ask follow-up questions in the box below; *New chat* starts over. `path:line` references in answers open the code, and *Back* returns.
+
+### Suggesting improvements
+
+*Suggest improvements* in the panel has Copilot review all the changes under review: the branch, the pull request or, in Commit mode, the uncommitted changes. It is told to suggest a change only where one of two things holds, and to say which:
+
+- **Repository pattern**: the change departs from a convention the existing code clearly follows (naming, error handling, structure, the helpers and libraries it uses), and Copilot names where the existing code does it;
+- **Proven practice**: a well-established reason that does not depend on taste, such as a bug, an unhandled error or edge case, a security problem, a resource leak, clearly worse performance, or a documented best practice of the language or library.
+
+Matters of taste, formatting and lines the change did not touch are left alone, and no suggestions is a fine answer. To judge the repository's patterns, Copilot gets the diff, the whole new version of each changed file and a few unchanged files with the same extension from the same folders (about 110 KB of files at most, besides the diff).
+
+Each suggestion shows in the diff as a card under the lines it would replace (framed in blue): why, the lines removed and added, and **Accept** and **Discard**. *Accept* replaces the lines like typing would, in the editor that shows the file or, when none does, in the file on disk in the checkout; the change is then an edit like any other, to review, undo or commit. Accepting needs the diff to be editable (a checkout of the branch or pull request, or Commit mode). A suggestion is placed by its text, not its line number, so edits above it move it along; once its lines are edited, it is no longer shown.
+
+The panel lists the suggestions under a short summary of the changes, as a starting point: a click on one shows its code, and each can be accepted or discarded there too. Suggestions whose lines Copilot got wrong are left out, and counted. Follow-up questions in the panel know what was suggested.
 
 **Your organization's Copilot.** Arnold has no AI service or account of its own. It signs in with your GitHub account and uses the [GitHub Copilot](https://github.com/features/copilot/plans) your organization already provides (Copilot Business or Enterprise), or your own plan if you have one (the free plan works too). That makes it as safe as Copilot already is for you:
 
@@ -300,7 +313,7 @@ Then ask follow-up questions in the box below; *New chat* starts over. `path:lin
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), deleting files (after asking), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout, and so is a Copilot suggestion you accept. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), deleting files (after asking), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
@@ -311,7 +324,7 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
 - when you open a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
 
-Outside the repository, explaining code with AI sends the code you ask about to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
+Outside the repository, explaining code and suggesting improvements with AI send the code you ask about (for suggestions, also a few unchanged files beside the changed ones) to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
 
 ## Status
 
@@ -384,7 +397,7 @@ The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/t
 | `npm test` | Frontend unit tests |
 | `cargo test --workspace` | Backend tests (create temporary git repositories) |
 | `cargo test -p arnold-lsp --test fsautocomplete_live -- --ignored --nocapture` | Downloads and runs the real FsAutoComplete on a small project |
-| `GH_TOKEN=$(gh auth token) cargo test -p arnold-ai --test copilot_live -- --ignored --nocapture` | Downloads the Copilot CLI into a temporary folder and asks real Copilot about a diff (needs an account with Copilot and no Arnold sign-in in the keychain) |
+| `GH_TOKEN=$(gh auth token) cargo test -p arnold-ai --test copilot_live -- --ignored --nocapture` | Downloads the Copilot CLI into a temporary folder and asks real Copilot about a diff, and for suggestions in the JSON the app reads (needs an account with Copilot and no Arnold sign-in in the keychain) |
 | `cargo test -p arnold-pr -- --ignored` | Checks that dev.azure.com turns down a bogus token |
 | `npm run notices` | Collects the license texts of every crate and npm package built into Arnold into `public/third-party-notices.json` (shown under *Licenses*; `npm run build` runs it) |
 | `npm run screenshots` | Retakes the screenshots in `docs/screenshots/` from `npm run dev` (needs Google Chrome); `npm run screenshots -- review` takes one |
@@ -404,7 +417,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |
 | `lsp` | A stand-in language server that answers go-to-definition, hover, completion and rename, and reports unused `open`s with a *Remove unused open* fix; `projectfail` makes a project fail to load, `workspacefail` makes the whole workspace fail |
 | `setupslow`, `setupfail` | Preparing the language server's copy is slow, or fails |
-| `ai` | Signed in to GitHub with Copilot ready: answers are a stand-in that lists what was sent; `=new` downloads Copilot first, `=signedout` (also without the option) signs in with a code, `=nosub` cannot start Copilot, `=error` makes questions fail |
+| `ai` | Signed in to GitHub with Copilot ready: answers are a stand-in that lists what was sent; `=new` downloads Copilot first, `=signedout` (also without the option) signs in with a code, `=nosub` cannot start Copilot, `=error` makes questions fail; *Suggest improvements* gets stand-in suggestions for the first changed files (and one whose lines are not there), `=noreview` none, `=badreview` an answer that is not JSON |
 | `files=40` | Adds that many changed files, for a large diff |
 | `platform=windows` | Shows the Windows title bar |
 

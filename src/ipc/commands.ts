@@ -676,6 +676,8 @@ export interface AskRequest {
   question: string;
   context: ContextItem[];
   cwd: string | null;
+  /** What the conversation is for (it keeps the first one): explaining code, or suggesting improvements as JSON. */
+  purpose?: "explain" | "review";
 }
 
 export interface ModelInfo {
@@ -733,3 +735,15 @@ export const aiModels = () => invoke<ModelInfo[]>("ai_models");
 /** The changes in `cwd` as unified-diff text (limited in size; see `omitted`). */
 export const reviewPatch = (cwd: string, of: PatchOf, paths: string[] = []) =>
   invoke<Patch>("review_patch", { cwd, of, paths });
+
+/** A whole file to go with a patch. */
+export interface ContextFile {
+  path: string;
+  text: string;
+  /** One of the changed files (its new version); else an unchanged file beside them. */
+  changed: boolean;
+}
+
+/** The new version of `changed`, and unchanged files from their folders, within a size limit. */
+export const reviewContext = (cwd: string, of: PatchOf, changed: string[]) =>
+  invoke<ContextFile[]>("review_context", { cwd, of, changed });

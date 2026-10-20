@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use arnold_git::{patch, PatchSource};
+use arnold_git::{context_files, patch, ContextLimits, PatchSource};
 
 fn git(cwd: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -83,4 +83,45 @@ async fn separates_staged_from_unstaged() {
     assert!(staged.text.contains("+staged\n"));
     assert_eq!(unstaged.files, ["a.txt", "new.txt"]);
     assert!(unstaged.text.contains("-staged\n+unstaged\n"));
+}
+
+#[tokio::test]
+async fn context_has_the_new_files_and_their_neighbours() {
+    let (dir, base, tip) = fixture();
+    let root = dir.path();
+    git(root, &["checkout", "--quiet", &base]);
+    write(root, "src/c.rs", "fn c() {}\n");
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "--quiet", "-m", "c"]);
+    let side = git(root, &["rev-parse", "HEAD"]);
+    git(root, &["checkout", "--quiet", &tip]);
+    // Not in any commit: neighbours of commits come from the commit compared, not the disk.
+    write(root, "src/later.rs", "fn later() {}\n");
+    let changed = ["a.txt".to_string(), "src/b.rs".to_string()];
+
+    let files = context_files(root, PatchSource::Commits { from: &base, to: &tip }, &changed, ContextLimits::default()).await.unwrap();
+    let names: Vec<(&str, bool)> = files.iter().map(|file| (file.path.as_str(), file.changed)).collect();
+    assert_eq!(names, [("a.txt", true), ("src/b.rs", true)]);
+    assert_eq!(files[0].text, "one\nTWO\nthree\n");
+
+    let files = context_files(root, PatchSource::Commits { from: &base, to: &side }, &["src/c.rs".to_string()], ContextLimits::default())
+        .await
+        .unwrap();
+    assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), ["src/c.rs"]);
+
+    let files = context_files(root, PatchSource::OnDisk { from: &base }, &changed, ContextLimits::default()).await.unwrap();
+    let names: Vec<(&str, bool)> = files.iter().map(|file| (file.path.as_str(), file.changed)).collect();
+    assert_eq!(names, [("a.txt", true), ("src/b.rs", true), ("src/later.rs", false)]);
+}
+
+#[tokio::test]
+async fn context_leaves_out_deleted_and_too_large_files() {
+    let (dir, base, _) = fixture();
+    let root = dir.path();
+    std::fs::remove_file(root.join("a.txt")).unwrap();
+    write(root, "big.txt", &"x".repeat(100));
+    let limits = ContextLimits { file: 50, ..ContextLimits::default() };
+    let changed = ["a.txt".to_string(), "big.txt".to_string(), "src/b.rs".to_string()];
+    let files = context_files(root, PatchSource::OnDisk { from: &base }, &changed, limits).await.unwrap();
+    assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), ["src/b.rs"]);
 }

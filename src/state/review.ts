@@ -49,6 +49,7 @@ import * as pullRequests from "./pullRequests";
 import * as commitMode from "./commitMode";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
+import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
@@ -463,7 +464,54 @@ function documentOf(
     suggest: editable && state.source === "pullRequest",
     threads: fileThreads(file.path),
     draft: drafts.get(file.path) ?? null,
+    aiSuggestions: deleted ? [] : openFor(file.path),
   };
+}
+
+/** Every editor on screen with a file: the one-file view's and the all-files view's sections, of either mode. */
+function editorsOnScreen(): DiffEditor[] {
+  const shown = [...sectionEditors.values()];
+  if (editor) shown.push(editor);
+  commitMode.forEachSection((target) => shown.push(target));
+  return shown.filter((target) => target.shownPath !== null);
+}
+
+/** An editor on screen where `path`'s working text can be typed in, if any. */
+export function editableViewFor(path: string): EditorView | null {
+  for (const target of editorsOnScreen()) {
+    const view = target.working;
+    if (target.shownPath === path && view && !view.state.readOnly) return view;
+  }
+  return null;
+}
+
+/** Scrolls an editor on screen to `reveal`'s place in `path`; false when none shows it there. */
+export function revealInEditor(path: string, reveal: (target: DiffEditor) => boolean): boolean {
+  return editorsOnScreen().some((target) => target.shownPath === path && reveal(target));
+}
+
+/** The checkout whose files the review's edits go to; null when they cannot be edited. */
+export function writableCheckout(): string | null {
+  if (state.source === "commit") return state.checkout;
+  return editBlocked() ? null : (state.comparison?.checkout ?? null);
+}
+
+/**
+ * Edits `path` on disk in `checkout` (for a file no editor can type in):
+ * `change` gets its text and returns the new one. The diff follows through
+ * the checkout's watch; the language server hears of it if it holds the file.
+ */
+export async function editOnDisk(checkout: string, path: string, change: (text: string) => string) {
+  if (isSaving(path)) await flushSave();
+  const text = await ipc.readWorktreeText(checkout, path);
+  if (text === null) throw new Error(`${path} is not in ${checkout}.`);
+  const edited = change(text);
+  await ipc.saveWorktreeFile(checkout, path, edited);
+  if (backgroundSent.has(path)) {
+    backgroundSent.set(path, edited);
+    const root = serverRoot();
+    if (root) await lsp.openInBackground(pathToUri(joinPath(root, path)), languageIdFor(path) ?? "fsharp", edited);
+  }
 }
 
 /** The editor showing `path`, if one does. */
@@ -615,6 +663,9 @@ export function attachEditor(host: HTMLElement) {
   lsp.onServerEvent(onServerEvent);
   onEditFile(editClosedFile);
   onRenameError(fail);
+  onSuggestionsChange(() => {
+    for (const target of editorsOnScreen()) target.setAiSuggestions(openFor(target.shownPath!));
+  });
 }
 
 /**
@@ -659,6 +710,7 @@ export async function openRepoAt(path: string) {
     const head = current ?? (has(remembered.head) && remembered.head !== base ? remembered.head : defaultHead(repo, base));
     if (state.source === "commit") commitMode.leave();
     resetSessions();
+    clearSuggestions();
     setState({ repo, base, head, source: "branches", pullRequest: null, prWorktree: null, range: null, comparison: null, selected: null });
     // The store's copy: a later repository replaces it.
     const opened = state.repo;

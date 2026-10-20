@@ -197,7 +197,7 @@ fn binary_file(path: &str) -> FileChunk {
     }
 }
 
-fn is_lock_file(path: &str) -> bool {
+pub(crate) fn is_lock_file(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     LOCK_FILES.contains(&name)
 }

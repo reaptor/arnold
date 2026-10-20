@@ -2381,6 +2381,203 @@ button.primary:hover:not(:disabled) {
   box-shadow: inset 0 0 0 1px var(--edited);
 }
 
+/* Copilot's suggestions in the diff (aiSuggestions.ts): the lines it would replace, framed in the accent color. */
+.cm-editor .cm-line.cm-ai-line {
+  box-shadow:
+    inset 1px 0 var(--accent),
+    inset -1px 0 var(--accent);
+}
+
+.cm-editor .cm-line.cm-ai-first {
+  box-shadow:
+    inset 1px 0 var(--accent),
+    inset -1px 0 var(--accent),
+    inset 0 1px var(--accent);
+}
+
+.cm-editor .cm-line.cm-ai-last {
+  box-shadow:
+    inset 1px 0 var(--accent),
+    inset -1px 0 var(--accent),
+    inset 0 -1px var(--accent);
+}
+
+.cm-editor .cm-line.cm-ai-first.cm-ai-last {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* As wide as a long title needs: a card fits its contents, which would squeeze the title. */
+.thread.ai-suggestion {
+  width: min(640px, calc(100cqw - 90px));
+}
+
+/* "Copilot suggests" and the basis, then the title on a line of its own. */
+.ai-suggestion .thread-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  cursor: default;
+}
+
+.ai-suggestion .thread-head:hover {
+  background: none;
+}
+
+.ai-suggestion-title {
+  order: 1;
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
+/* Why the suggestion is made: the repository's own pattern, or a well-proven reason. */
+.ai-basis {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.ai-basis.proven {
+  color: var(--added);
+  background: color-mix(in srgb, var(--added) 12%, transparent);
+}
+
+.ai-suggestion-why {
+  padding: 0 10px 6px;
+}
+
+.ai-suggestion-why > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-suggestion-code {
+  margin: 0 10px;
+  padding: 4px 0;
+  border: 1px solid var(--popup-border);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-variant-ligatures: none;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.ai-suggestion-code > div {
+  padding: 0 8px;
+}
+
+.ai-suggestion-code > .removed {
+  background: var(--diff-old-line);
+}
+
+.ai-suggestion-code > .added {
+  background: var(--diff-new-line);
+}
+
+.ai-suggestion-code > .removed::before,
+.ai-suggestion-code > .added::before {
+  display: inline-block;
+  width: 1.2em;
+  color: var(--muted);
+}
+
+.ai-suggestion-code > .removed::before {
+  content: "-";
+}
+
+.ai-suggestion-code > .added::before {
+  content: "+";
+}
+
+.ai-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.ai-suggestion-problem {
+  font-size: 11.5px;
+  color: var(--removed);
+}
+
+/* The suggestions of a review, in the AI panel. */
+.ai-review {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-review-head {
+  display: flex;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.ai-review-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ai-review-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.ai-review-item + .ai-review-item {
+  border-top: 1px solid var(--border);
+}
+
+.ai-review-item:not([data-status="open"]) .ai-review-title {
+  color: var(--muted);
+}
+
+.ai-review-item[data-status="discarded"] .ai-review-title {
+  text-decoration: line-through;
+}
+
+.ai-review-title {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ai-review-title:hover {
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.ai-review-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ai-review-meta code {
+  font-variant-ligatures: none;
+}
+
+.ai-review .connect-problem {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+}
+
 .markdown li:has(> input[type="checkbox"]) {
   list-style: none;
   margin-left: -18px;
@@ -3629,8 +3826,9 @@ button.primary:hover:not(:disabled) {
 .ai-footer {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   padding: 6px 12px 8px;
   font-size: 12px;
   color: var(--muted);

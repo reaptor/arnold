@@ -132,6 +132,7 @@ fn main() {
             ai::ai_end,
             ai::ai_models,
             ai::review_patch,
+            ai::review_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arnold");

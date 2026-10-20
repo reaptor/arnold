@@ -65,11 +65,23 @@ const fsharpFeatures = [
   },
 ];
 
-// What the AI panel does, and why it is safe to use at work (see README.md, Explaining code with AI).
+// What the AI panel does, and why it is safe to use at work (see README.md, Explaining and improving code with AI).
 const aiFeatures = [
   {
     name: 'Ask about anything',
     text: 'A selection, a line, a file or folder, or all the changes of the branch, the pull request or Commit mode. Then ask follow-up questions; path:line references open the code.',
+  },
+  {
+    name: 'Suggestions in the diff',
+    text: 'Copilot reviews the changes and suggests improvements under the lines they are about, each saying why, to accept or discard with a click.',
+  },
+  {
+    name: 'A list to start from',
+    text: 'The panel sums up the changes and lists every suggestion, with links to the code, so you can work through them in order.',
+  },
+  {
+    name: 'Only with good reason',
+    text: "A suggestion needs the repository's own pattern, which Copilot points to, or a well-proven reason: a bug, an unhandled case, security, a documented practice. No matters of taste.",
   },
   {
     name: "Your organization's Copilot",
@@ -286,11 +298,12 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
 
       <article id="ai" class="feature-wide">
         <div class="feature-text centered">
-          <p class="eyebrow ai">Explain with Copilot</p>
-          <h2>Ask about the code, with the Copilot you already have</h2>
+          <p class="eyebrow ai">Copilot</p>
+          <h2>Explain and improve the code, with the Copilot you already have</h2>
           <p>
             Right-click a selection, a file or a folder, or ask about all the changes, and GitHub Copilot explains
-            them in a panel beside the diff — with your organization's subscription, its policies and nothing else.
+            them in a panel beside the diff. Or have it review the changes: improvements show up in the diff, to
+            accept or discard — with your organization's subscription, its policies and nothing else.
           </p>
         </div>
         <ul class="ai-grid">

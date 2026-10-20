@@ -33,6 +33,7 @@ import {
   type ViewMode,
 } from "./review";
 import { holdPlaces } from "./places";
+import { openFor } from "./aiSuggestions";
 
 /** How long a notice stays in the status bar. */
 const NOTICE_TIME = 5000;
@@ -349,6 +350,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
       lineActions: [],
       collapseUnchanged: false,
       moves: { toWorking: "Revert this change to the last commit" },
+      aiSuggestions: deleted ? [] : openFor(file.path),
     };
   }
   const deleted = file.status === "deleted";
@@ -361,6 +363,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
     deleted,
     editable: side === "unstaged" && !deleted,
     lineActions: side === "unstaged" ? ["stage", "reset"] : ["unstage", "reset"],
+    aiSuggestions: deleted ? [] : openFor(file.path),
     // Left is the index (unstaged) or the last commit (staged): a change goes
     // into the index, or the side on the right takes the left one's text.
     moves:

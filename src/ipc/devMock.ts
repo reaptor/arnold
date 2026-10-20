@@ -29,6 +29,7 @@ import type {
   AiEvent,
   AskRequest,
   Patch,
+  ContextFile,
   PatchOf,
 } from "./commands";
 
@@ -1417,13 +1418,63 @@ function fakeAnswer(request: AskRequest): string {
   ].join("\n");
 }
 
+/**
+ * A stand-in review: suggestions for lines of the first changed files, and
+ * one whose lines are not in the code (left out by the app). `?ai=noreview`
+ * finds nothing, `?ai=badreview` answers with something that is not JSON.
+ */
+function fakeReview(request: AskRequest): string {
+  if (aiMode === "badreview") return "Here are my suggestions: rename things.";
+  if (aiMode === "noreview") return JSON.stringify({ summary: "The changes follow the repository's patterns.", suggestions: [] });
+  const files = request.context
+    .filter((item) => item.kind === "file" && item.label.endsWith("(new version, whole file)"))
+    .map((item) => ({ path: item.label.replace(/ \(new version, whole file\)$/, ""), lines: item.text.split("\n").map((line) => line.replace(/^ *\d+\| /, "")) }));
+  const suggestions = files.slice(0, 3).flatMap((file, index) => {
+    const at = file.lines.findIndex((line, number) => number >= 2 && line.trim().length >= 8);
+    if (at === -1) return [];
+    const original = file.lines[at];
+    const indent = /^\s*/.exec(original)![0];
+    const pattern = index % 2 === 0;
+    return [
+      {
+        path: file.path,
+        line: at + 1,
+        original,
+        replacement: pattern ? `${original.trimEnd()}\n${indent}// As the other files of this folder do it.` : `${indent}// Guarded, as an empty list would fail here.\n${original}`,
+        title: pattern ? "Follow the folder's naming pattern" : "Handle the empty case",
+        why: pattern
+          ? `The browser preview's stand-in: the other files of this folder name this the other way, as in \`${file.path}:1\`.`
+          : "The browser preview's stand-in: an empty list is a well-known edge case that fails here.",
+        basis: pattern ? "pattern" : "proven",
+      },
+    ];
+  });
+  suggestions.push({
+    path: files[0]?.path ?? "src/Orders.fs",
+    line: 3,
+    original: "this line is not in the file",
+    replacement: "nor is this",
+    title: "A suggestion whose lines are not there",
+    why: "Left out by the app.",
+    basis: "proven",
+  });
+  return JSON.stringify(
+    {
+      summary: `The browser preview's stand-in for a review of ${files.length} changed file${files.length === 1 ? "" : "s"}. The changes look sound; ${suggestions.length - 1} thing${suggestions.length === 2 ? "" : "s"} could follow the repository more closely.`,
+      suggestions,
+    },
+    null,
+    2,
+  );
+}
+
 async function fakeAiAsk(request: AskRequest, onEvent: Channel<AiEvent>) {
   aiCancelled.delete(request.conversation);
   await pause(400);
   if (aiMode === "error") throw "The signed-in GitHub account may have no Copilot plan.";
   onEvent.onmessage({ kind: "reasoning", text: "Reading the changes…" });
   await pause(300);
-  const answer = fakeAnswer(request);
+  const answer = request.purpose === "review" ? fakeReview(request) : fakeAnswer(request);
   for (let at = 0; at < answer.length; at += 14) {
     if (aiCancelled.has(request.conversation)) break;
     onEvent.onmessage({ kind: "delta", text: answer.slice(at, at + 14) });
@@ -1453,7 +1504,26 @@ function fakeFileDiff(path: string, before: string | null, after: string | null)
   ].join("\n");
 }
 
+/** The new version of `changed`, as `review_context` reads it; no neighbours. */
+function fakeReviewContext(cwd: string, of: PatchOf, changed: string[]): ContextFile[] {
+  return fakePairs(cwd, of)
+    .filter(([path, , after]) => changed.includes(path) && after !== null)
+    .map(([path, , after]) => ({ path, text: after!, changed: true }));
+}
+
 function fakePatch(cwd: string, of: PatchOf, paths: string[]): Patch {
+  const pairs = fakePairs(cwd, of);
+  const wanted = (path: string) => paths.length === 0 || paths.some((p) => path === p || path.startsWith(`${p.replace(/\/$/, "")}/`));
+  const changed = pairs.filter(([path, before, after]) => before !== after && wanted(path)).sort(([a], [b]) => a.localeCompare(b));
+  return {
+    text: changed.map(([path, before, after]) => fakeFileDiff(path, before, after)).join(""),
+    files: changed.map(([path]) => path),
+    omitted: [],
+  };
+}
+
+/** Each file's text before and after, as `of` compares them. */
+function fakePairs(cwd: string, of: PatchOf): [string, string | null, string | null][] {
   let pairs: [string, string | null, string | null][];
   if (of.kind === "commits" || of.kind === "onDisk") {
     const set = ownDiffOf(of.kind === "commits" ? of.to : undefined)?.files ?? files;
@@ -1465,13 +1535,7 @@ function fakePatch(cwd: string, of: PatchOf, paths: string[]): Patch {
     const [from, to] = of.kind === "unstaged" ? [index, worktree] : [head ?? new Map<string, string>(), index];
     pairs = [...new Set([...from.keys(), ...to.keys()])].map((path) => [path, from.get(path) ?? null, to.get(path) ?? null]);
   }
-  const wanted = (path: string) => paths.length === 0 || paths.some((p) => path === p || path.startsWith(`${p.replace(/\/$/, "")}/`));
-  const changed = pairs.filter(([path, before, after]) => before !== after && wanted(path)).sort(([a], [b]) => a.localeCompare(b));
-  return {
-    text: changed.map(([path, before, after]) => fakeFileDiff(path, before, after)).join(""),
-    files: changed.map(([path]) => path),
-    omitted: [],
-  };
+  return pairs;
 }
 
 export function install() {
@@ -1838,6 +1902,8 @@ export function install() {
           ];
         case "review_patch":
           return slowly(() => fakePatch(args.cwd, (payload as { of: PatchOf }).of, (payload as { paths: string[] }).paths), 150);
+        case "review_context":
+          return slowly(() => fakeReviewContext(args.cwd, (payload as { of: PatchOf }).of, (payload as { changed: string[] }).changed), 150);
         case "updater_info":
           return { version: "0.1.77", canInstall: true };
         case "check_for_update":

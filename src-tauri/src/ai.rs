@@ -203,13 +203,33 @@ pub async fn review_patch(
     app_state: State<'_, AppState>,
 ) -> Result<arnold_git::Patch, String> {
     let cwd = app_state.checked_root(&cwd)?;
-    let source = match &of {
-        PatchOf::Commits { from, to } => arnold_git::PatchSource::Commits { from, to },
-        PatchOf::OnDisk { from } => arnold_git::PatchSource::OnDisk { from },
-        PatchOf::Unstaged => arnold_git::PatchSource::Unstaged,
-        PatchOf::Staged => arnold_git::PatchSource::Staged,
-    };
-    arnold_git::patch(&cwd, source, &paths, PATCH_LIMIT)
+    arnold_git::patch(&cwd, of.source(), &paths, PATCH_LIMIT)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+impl PatchOf {
+    fn source(&self) -> arnold_git::PatchSource<'_> {
+        match self {
+            PatchOf::Commits { from, to } => arnold_git::PatchSource::Commits { from, to },
+            PatchOf::OnDisk { from } => arnold_git::PatchSource::OnDisk { from },
+            PatchOf::Unstaged => arnold_git::PatchSource::Unstaged,
+            PatchOf::Staged => arnold_git::PatchSource::Staged,
+        }
+    }
+}
+
+/// Whole files to go with `review_patch`'s patch when suggesting improvements:
+/// the new version of `changed`, and unchanged files from their folders.
+#[tauri::command]
+pub async fn review_context(
+    cwd: String,
+    of: PatchOf,
+    changed: Vec<String>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<arnold_git::ContextFile>, String> {
+    let cwd = app_state.checked_root(&cwd)?;
+    arnold_git::context_files(&cwd, of.source(), &changed, arnold_git::ContextLimits::default())
         .await
         .map_err(|e| e.to_string())
 }

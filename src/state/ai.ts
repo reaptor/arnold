@@ -1,6 +1,7 @@
 // Explaining code with AI: the AI panel's conversation, signing in to GitHub
 // for Copilot, and the code each question is about (a selection, files, or
-// all the changes under review).
+// all the changes under review). Suggesting improvements (aiReview.ts) asks
+// through here too, in a conversation of its own.
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { createStore, produce } from "solid-js/store";
@@ -35,6 +36,27 @@ export interface Message {
   error?: string;
   /** Stopped before it was complete. */
   stopped?: boolean;
+  /** An answer of "Suggest improvements": its text is JSON, shown as `review` once read. */
+  kind?: "review";
+  review?: ReviewResult;
+}
+
+/** What a review found, as the panel lists it. */
+export interface ReviewResult {
+  /** Markdown. */
+  summary: string;
+  /** The suggestions (aiSuggestions.ts), most important first. */
+  ids: string[];
+  /** Suggestions left out because their lines were not found in the code. */
+  dropped: number;
+}
+
+/** Extra options of a question. */
+export interface AskOptions {
+  /** Suggesting improvements: asked in a conversation of its own, with the review instructions. */
+  purpose?: "review";
+  /** Gets the complete answer text, once written; whatever it returns replaces the message. */
+  onAnswer?: (text: string) => Partial<Message>;
 }
 
 interface AiState {
@@ -210,16 +232,29 @@ export async function newChat() {
   if (ai.busy) await stop();
   const old = ai.conversation;
   setAi({ conversation: newConversation(), messages: [] });
+  if (reviewNote) reviewNote.sent = false;
   void ipc.aiEnd(old).catch(() => {});
 }
 
 /** The answer being written, if any, settles once stopped. */
 let answering: Promise<void> | null = null;
+/** The conversation of the answer being written (a review has its own). */
+let answeringIn: string | null = null;
 
 export async function stop() {
   if (!ai.busy) return;
-  await ipc.aiCancel(ai.conversation).catch(() => {});
+  await ipc.aiCancel(answeringIn ?? ai.conversation).catch(() => {});
   await answering;
+}
+
+/**
+ * What the last review suggested, for the chat: a review is a conversation
+ * of its own, so the next question of the chat is sent with this once.
+ */
+let reviewNote: { item: ContextItem; sent: boolean } | null = null;
+
+export function setReviewNote(item: ContextItem | null) {
+  reviewNote = item && { item, sent: false };
 }
 
 const lastAnswer = () => {
@@ -231,21 +266,26 @@ const lastAnswer = () => {
  * Asks `question` about `context`; the question shows in the panel with
  * `chips`, then the answer streams in under it.
  */
-export async function ask(question: string, context: ContextItem[] = [], chips: Chip[] = []) {
+export async function ask(question: string, context: ContextItem[] = [], chips: Chip[] = [], options: AskOptions = {}) {
   if (!question.trim()) return;
   if (ai.busy) await stop();
   if (!ai.open) setOpen(true);
   if (!ai.status?.signedIn || !ai.ready) {
     // Asked once Copilot is ready.
-    setAi("pending", () => () => ask(question, context, chips));
+    setAi("pending", () => () => ask(question, context, chips, options));
     if (!ai.status) await refresh();
     return;
+  }
+  const review = options.purpose === "review";
+  if (!review && reviewNote && !reviewNote.sent) {
+    context = [reviewNote.item, ...context];
+    reviewNote.sent = true;
   }
   const answerId = nextId + 1;
   setAi(
     produce((draft) => {
       draft.messages.push({ id: nextId++, role: "user", text: question, chips });
-      draft.messages.push({ id: nextId++, role: "assistant", text: "", streaming: true, status: null });
+      draft.messages.push({ id: nextId++, role: "assistant", text: "", streaming: true, status: null, ...(review && { kind: "review" as const }) });
       draft.busy = true;
     }),
   );
@@ -256,6 +296,7 @@ export async function ask(question: string, context: ContextItem[] = [], chips: 
       produce(change),
     );
   // Deltas arrive many per frame: appended once per frame.
+  let full = "";
   let buffered = "";
   let frame = 0;
   const flush = () => {
@@ -271,6 +312,7 @@ export async function ask(question: string, context: ContextItem[] = [], chips: 
   const onEvent = (event: AiEvent) => {
     switch (event.kind) {
       case "delta":
+        full += event.text;
         buffered += event.text;
         if (!frame) frame = requestAnimationFrame(flush);
         break;
@@ -297,29 +339,40 @@ export async function ask(question: string, context: ContextItem[] = [], chips: 
         break;
     }
   };
+  // A review's own conversation, forgotten once answered.
+  const asked = review ? newConversation() : ai.conversation;
   const request = {
-    conversation: ai.conversation,
+    conversation: asked,
     model: ai.model,
     question,
     context,
     cwd: state.source === "commit" ? state.checkout : (state.comparison?.checkout ?? state.repo?.root ?? null),
+    purpose: review ? ("review" as const) : ("explain" as const),
   };
   const conversation = ai.conversation;
+  answeringIn = asked;
   answering = (async () => {
+    let failed = false;
     try {
       await ipc.aiAsk(request, onEvent);
     } catch (error) {
+      failed = true;
       if (ai.conversation === conversation) update((message) => void (message.error = String(error)));
     } finally {
       if (frame) cancelAnimationFrame(frame);
       flush();
       if (ai.conversation === conversation) {
+        const stopped = ai.messages.find((message) => message.id === answerId)?.stopped;
+        const answered = !failed && !stopped && full && options.onAnswer ? options.onAnswer(full) : {};
         update((message) => {
           message.streaming = false;
           message.status = null;
           if (!message.text && !message.error) message.stopped = true;
+          Object.assign(message, answered);
         });
       }
+      if (review) void ipc.aiEnd(asked).catch(() => {});
+      answeringIn = null;
       setAi("busy", false);
       if (ai.models.length === 0) void loadModels();
     }
@@ -337,7 +390,7 @@ export async function stopAnswer() {
 // ---------------------------------------------------------------- what to explain
 
 /** The diff the review shows, as `review_patch` takes it. Commit mode: of list `side`, else against the last commit. */
-function patchSource(side: WorkingSide | null): { cwd: string; of: PatchOf } | null {
+export function patchSource(side: WorkingSide | null): { cwd: string; of: PatchOf } | null {
   if (state.source === "commit") {
     if (!state.checkout) return null;
     const of: PatchOf =
@@ -354,7 +407,7 @@ function patchSource(side: WorkingSide | null): { cwd: string; of: PatchOf } | n
 const OMIT_REASONS = { binary: "binary", lockFile: "lock file", tooLarge: "too large to include" } as const;
 
 /** The patch of `paths` (all changes when empty) as context, and a note of the files left out. */
-async function changesContext(paths: string[], side: WorkingSide | null, label: string): Promise<{ items: ContextItem[]; files: string[] }> {
+export async function changesContext(paths: string[], side: WorkingSide | null, label: string): Promise<{ items: ContextItem[]; files: string[] }> {
   const source = patchSource(side);
   if (!source) return { items: [], files: [] };
   const patch = await ipc.reviewPatch(source.cwd, source.of, paths);
@@ -371,7 +424,7 @@ async function changesContext(paths: string[], side: WorkingSide | null, label: 
 }
 
 /** What the review compares, for the model: branches, commits, the pull request. */
-function reviewNote(): ContextItem | null {
+export function reviewedNote(): ContextItem | null {
   if (state.source === "commit") {
     const branch = state.work?.branch;
     return { label: "What is reviewed", kind: "note", text: `Uncommitted changes${branch ? ` on branch ${branch}` : ""}.` };
@@ -458,7 +511,7 @@ async function explainFiles(target: Extract<ExplainTarget, { kind: "files" }>) {
   if (changes.files.length === 0) {
     return ask("Explain these changes.", [{ label, kind: "note", text: "There are no text changes here." }], chips);
   }
-  const note = reviewNote();
+  const note = reviewedNote();
   const question = target.folder
     ? `Explain the changes in ${target.paths[0]}/.`
     : target.paths.length === 1
@@ -483,7 +536,7 @@ export async function explainAll() {
   try {
     if (!ai.open) setOpen(true);
     const changes = await changesContext([], null, "All changes");
-    const note = reviewNote();
+    const note = reviewedNote();
     const count = changes.files.length;
     const chip: Chip = { label: `All changes · ${count} file${count === 1 ? "" : "s"}` };
     let question: string;
@@ -503,7 +556,7 @@ export async function explainAll() {
 export const canExplainAll = () =>
   state.source === "commit" ? !!state.checkout && !!state.work : !!state.comparison && !!state.repo;
 
-function failQuestion(text: string) {
+export function failQuestion(text: string) {
   setAi(
     produce((draft) => {
       draft.messages.push({ id: nextId++, role: "assistant", text: "", error: text });

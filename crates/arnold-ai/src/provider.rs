@@ -37,6 +37,20 @@ pub struct AskRequest {
     pub context: Vec<ContextItem>,
     /// The checkout being reviewed, if any.
     pub cwd: Option<PathBuf>,
+    /// What the conversation is for; it decides the instructions the model gets.
+    #[serde(default)]
+    pub purpose: Purpose,
+}
+
+/// What a conversation is for. A conversation keeps the purpose it started with.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Purpose {
+    /// Explaining code, in Markdown.
+    #[default]
+    Explain,
+    /// Suggesting improvements to the changes, as JSON (`prompt::REVIEW`).
+    Review,
 }
 
 /// Code the question is about.
