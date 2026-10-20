@@ -7,6 +7,8 @@ import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
   Branch,
+  Fetched,
+  PullOutcome,
   ChangedFile,
   Commit,
   CommitRange,
@@ -585,21 +587,43 @@ const notCheckedOut = searchParams.has("notcheckedout") || searchParams.has("dir
 const repo: RepoInfo = {
   root: ROOT,
   branches: [
-    { name: "feature/agent-work", isRemote: false, worktreePath: notCheckedOut ? null : ROOT, sync: null },
-    { name: "feature/agent-work-wt", isRemote: false, worktreePath: "/src/shop-api-agent-work", sync: null },
-    { name: "main", isRemote: false, worktreePath: notCheckedOut ? ROOT : null, sync: null },
-    { name: "origin/main", isRemote: true, worktreePath: null, sync: null },
+    branch("feature/agent-work", notCheckedOut ? null : ROOT, 0.1, "Copilot Agent"),
+    branch("feature/agent-work-wt", "/src/shop-api-agent-work", 3, "Copilot Agent"),
+    branch("main", notCheckedOut ? ROOT : null, 26, "Maria Svensson"),
+    branch("origin/main", null, 26, "Maria Svensson"),
+    branch("origin/feature/agent-work", null, 0.5, "Copilot Agent"),
+    branch("origin/feature/discounts", null, 50, "Jonas Berg"),
+    branch("origin/fix/round-totals", null, 7, "Ada Lindqvist"),
+    branch("origin/release/2026.10", null, 300, "Maria Svensson"),
   ],
   currentBranch: notCheckedOut ? "main" : "feature/agent-work",
   defaultBranch: "main",
   worktrees: [ROOT, "/src/shop-api-agent-work"],
 };
 
+/** A branch of the mock whose last commit was made `hoursAgo`. */
+function branch(name: string, worktreePath: string | null, hoursAgo: number, lastAuthor: string): Branch {
+  return {
+    name,
+    isRemote: name.startsWith("origin/"),
+    worktreePath,
+    sync: null,
+    updatedAt: Math.round(Date.now() / 1000 - hoursAgo * 3600),
+    lastAuthor,
+  };
+}
+
 // `?checkoutfail`: checking a branch out in a worktree fails.
-function branchWorktree(branch: string) {
+function branchWorktree(name: string) {
   if (searchParams.has("checkoutfail")) throw "git worktree add failed: fatal: could not create work tree dir (dev mock)";
-  const local = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === branch.replace(/^origin\//, ""));
-  if (!local) throw `not a branch: ${branch} (dev mock)`;
+  const localName = name.replace(/^origin\//, "");
+  let local = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === localName);
+  const remote = repo.branches.find((candidate) => candidate.isRemote && candidate.name === `origin/${localName}`);
+  if (!local && remote) {
+    local = { ...remote, name: localName, isRemote: false };
+    repo.branches.push(local);
+  }
+  if (!local) throw `not a branch: ${name} (dev mock)`;
   if (local.worktreePath) return { branch: local.name, path: local.worktreePath, created: false };
   // The mock's checkouts share one set of files.
   local.worktreePath = `${ROOT}/.arnold/worktrees/${local.name.replace(/[^\w.-]/g, "-")}`;
@@ -854,10 +878,33 @@ function diffOf(from: Map<string, string>, to: Map<string, string>): ChangedFile
   return result.sort((x, y) => x.path.localeCompare(y.path));
 }
 
+// `?policies`: Azure DevOps has required branch policies on the agent's
+// branch, so committing on it asks for a new branch (`?policies=fail`: the
+// check fails, and committing goes ahead). Committing then goes on the branch
+// made for it.
+let committedOn = "feature/agent-work";
+
+function requiredPolicies(branch: string): string[] {
+  const policies = searchParams.get("policies");
+  if (policies === "fail") throw { kind: "network", message: "Could not reach Azure DevOps at dev.azure.com (dev mock)" };
+  return policies !== null && branch === "feature/agent-work" ? ["Minimum number of reviewers", "Build"] : [];
+}
+
+function startBranch(name: string) {
+  if (!/^[\w./-]+$/.test(name) || name.startsWith("-") || name.endsWith("/")) throw `git: ${name} is not a valid branch name (dev mock)`;
+  if (repo.branches.some((branch) => branch.name === name)) throw `git: a branch named ${name} exists already (dev mock)`;
+  for (const branch of repo.branches) if (branch.worktreePath === ROOT) branch.worktreePath = null;
+  repo.branches.push(branch(name, ROOT, 0, "Test"));
+  repo.currentBranch = name;
+  committedOn = name;
+  setTimeout(() => void emit("refs-changed"), 50);
+  return checkoutChanged(undefined);
+}
+
 function workingStatus(): WorkingStatus {
   checkoutState();
   return {
-    branch: "feature/agent-work",
+    branch: committedOn,
     head: commits[0].sha,
     unstaged: diffOf(index, worktree).filter((file) => !isIgnored(file.path, worktree)),
     staged: diffOf(head!, index),
@@ -867,16 +914,53 @@ function workingStatus(): WorkingStatus {
 
 const agentWorkSync = () => ({
   remote: "origin",
-  remoteBranch: "feature/agent-work",
-  published: pushedCommits > 0,
+  remoteBranch: committedOn,
+  published: committedOn === "feature/agent-work" && (pushedCommits > 0 || searchParams.has("behind")),
   ahead: commits.length - pushedCommits,
-  behind: 0,
+  behind: committedOn === "feature/agent-work" ? behindCommits : 0,
 });
+
+// `?behind`: origin/feature/agent-work has two commits the agent's branch
+// lacks until it is pulled. `?failfetch` makes fetching fail. A fetch
+// brings a branch a teammate pushed, origin/agent/sql-open-orders.
+let behindCommits = searchParams.has("behind") ? 2 : 0;
+
+function fetchAll(): Fetched {
+  if (searchParams.has("failfetch")) throw "Fetching from origin failed: git fetch failed: fatal: unable to access 'https://example.com/repo.git/': Could not resolve host (dev mock)";
+  if (!repo.branches.some((candidate) => candidate.name === "origin/agent/sql-open-orders")) {
+    repo.branches.push(branch("origin/agent/sql-open-orders", null, 0.2, "Jonas Berg"));
+    setTimeout(() => void emit("refs-changed"), 50);
+  }
+  return { remotes: ["origin"], fastForwarded: [] };
+}
+
+function pullBranch(): PullOutcome {
+  const fetched = fetchAll();
+  const sync = agentWorkSync();
+  if (!sync.published) return { fetched, pulled: { kind: "notPublished" } };
+  if (behindCommits === 0) return { fetched, pulled: { kind: "upToDate" } };
+  const commits = behindCommits;
+  behindCommits = 0;
+  setTimeout(() => void emit("refs-changed"), 50);
+  return checkoutChanged({ fetched, pulled: sync.ahead > 0 ? { kind: "merged", commits } : { kind: "fastForwarded", commits } });
+}
+
+/** Who created the remote's branches, as Azure DevOps says. */
+const branchCreators = (): Record<string, string> =>
+  hasDevOpsRemote
+    ? {
+        "origin/main": "Maria Svensson",
+        "origin/feature/agent-work": "Kim Andersson",
+        "origin/feature/discounts": "Jonas Berg",
+        "origin/fix/round-totals": "Ada Lindqvist",
+        "origin/agent/sql-open-orders": "Kim Andersson",
+      }
+    : {};
 
 /** The branches with how each local one stands against origin: the agent's branch as pushed from Commit mode, the worktree one a commit ahead. */
 function branchesWithSync(): Branch[] {
   const syncs: Record<string, Branch["sync"]> = {
-    "feature/agent-work": agentWorkSync(),
+    [committedOn]: agentWorkSync(),
     "feature/agent-work-wt": { remote: "origin", remoteBranch: "feature/agent-work-wt", published: true, ahead: worktreeBranchPushed ? 0 : 1, behind: 0 },
     main: { remote: "origin", remoteBranch: "main", published: true, ahead: 0, behind: 0 },
   };
@@ -918,7 +1002,7 @@ function commitStaged(message: string) {
   }
   head = new Map(index);
   commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author: "You", date: new Date().toISOString(), paths: staged.map((file) => file.path) });
-  return checkoutChanged({ sha, subject, branch: "feature/agent-work" });
+  return checkoutChanged({ sha, subject, branch: committedOn });
 }
 
 // ------------------------------------------------------------ pull requests
@@ -1701,8 +1785,18 @@ export function install() {
           return checkoutChanged(null);
         case "commit_staged":
           return slowly(() => commitStaged(args.message), 500);
+        case "required_branch_policies":
+          return slowly(() => requiredPolicies(args.branch), 300);
+        case "start_branch":
+          return slowly(() => startBranch(args.name), 300);
         case "push_checkout_branch":
           return slowly(() => pushBranch(args.checkout), 700);
+        case "fetch_all":
+          return slowly(fetchAll, 900);
+        case "pull_checkout_branch":
+          return slowly(pullBranch, 1200);
+        case "branch_creators":
+          return slowly(branchCreators, 300);
         case "check_formatting":
           return slowly(formatCheck, 600);
         case "format_and_stage":

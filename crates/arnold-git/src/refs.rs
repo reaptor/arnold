@@ -20,6 +20,10 @@ pub struct Branch {
     /// the remote has no such branch. `None` for remote-tracking branches and
     /// in a repository without remotes.
     pub sync: Option<BranchSync>,
+    /// When the branch's last commit was made (committer date, Unix seconds).
+    pub updated_at: i64,
+    /// Who wrote the branch's last commit.
+    pub last_author: String,
 }
 
 /// A local branch's upstream as `for-each-ref` reports it.
@@ -84,7 +88,7 @@ pub async fn list_branches(root: &Path) -> Result<Vec<Branch>> {
         root,
         &[
             "for-each-ref",
-            "--format=%(refname)%09%(worktreepath)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream:track,nobracket)",
+            "--format=%(refname)%09%(worktreepath)%09%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream:track,nobracket)%09%(committerdate:unix)%09%(authorname)",
             "refs/heads",
             "refs/remotes",
         ],
@@ -175,11 +179,15 @@ fn parse_branch_line(line: &str) -> Option<(Branch, Option<Upstream>)> {
         }),
         _ => None,
     };
+    let updated_at = fields.next().and_then(|date| date.parse().ok()).unwrap_or(0);
+    let last_author = fields.next().unwrap_or("").to_string();
     let branch = Branch {
         name: name.to_string(),
         is_remote,
         worktree_path: (!worktree.is_empty()).then(|| PathBuf::from(worktree)),
         sync: None,
+        updated_at,
+        last_author,
     };
     Some((branch, upstream))
 }
@@ -245,13 +253,15 @@ mod tests {
     #[test]
     fn parses_local_remote_and_checked_out_branches() {
         assert_eq!(
-            parse_branch_line("refs/heads/feature/x\t/work/tree\t\t\t"),
+            parse_branch_line("refs/heads/feature/x\t/work/tree\t\t\t\t1760950000\tAda Lovelace"),
             Some((
                 Branch {
                     name: "feature/x".into(),
                     is_remote: false,
                     worktree_path: Some("/work/tree".into()),
                     sync: None,
+                    updated_at: 1760950000,
+                    last_author: "Ada Lovelace".into(),
                 },
                 None
             ))
@@ -264,6 +274,8 @@ mod tests {
                     is_remote: true,
                     worktree_path: None,
                     sync: None,
+                    updated_at: 0,
+                    last_author: String::new(),
                 },
                 None
             ))

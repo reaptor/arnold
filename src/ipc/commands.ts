@@ -8,6 +8,10 @@ export interface Branch {
   worktreePath: string | null;
   /** A local branch against where it is pushed; null for remote branches or without remotes. */
   sync: BranchSync | null;
+  /** When its last commit was made (committer date, Unix seconds). */
+  updatedAt: number;
+  /** Who wrote its last commit. */
+  lastAuthor: string;
 }
 
 export interface RepoInfo {
@@ -268,8 +272,56 @@ export const saveWorktreeFile = (checkout: string, path: string, text: string) =
 export const commitStaged = (checkout: string, message: string) =>
   invoke<NewCommit>("commit_staged", { checkout, message });
 
+/** Creates a branch at HEAD of the checkout and checks it out there, keeping the staged and unstaged changes. */
+export const startBranch = (checkout: string, name: string) => invoke<void>("start_branch", { checkout, name });
+
+/**
+ * The required Azure DevOps branch policies (their names) of `branch` on
+ * `remote`: a branch with any takes changes only through pull requests.
+ * Empty when the remote is not on Azure DevOps or has no token set up.
+ */
+export const requiredBranchPolicies = (checkout: string, remote: string, branch: string) =>
+  invoke<string[]>("required_branch_policies", { checkout, remote, branch });
+
 /** Pushes the checked-out branch to its upstream, or to `origin` as a new branch that becomes its upstream. Never forced. */
 export const pushCheckoutBranch = (checkout: string) => invoke<void>("push_checkout_branch", { checkout });
+
+/** What fetching from the remotes did. */
+export interface Fetched {
+  /** The remotes fetched from, every branch of each. */
+  remotes: string[];
+  /** Local branches checked out nowhere that only lagged behind their remote, moved up to it. */
+  fastForwarded: string[];
+}
+
+/** What became of the checked-out branch when pulling. */
+export type Pulled =
+  | { kind: "upToDate" }
+  | { kind: "fastForwarded"; commits: number }
+  | { kind: "merged"; commits: number }
+  | { kind: "notPublished" };
+
+export interface PullOutcome {
+  fetched: Fetched;
+  /** Null when the checkout is not on a branch or there is no remote. */
+  pulled: Pulled | null;
+}
+
+/**
+ * Fetches every branch of every remote, so each can be checked out, and
+ * moves local branches checked out nowhere that only lag behind up to their remote.
+ */
+export const fetchAll = (root: string) => invoke<Fetched>("fetch_all", { root });
+
+/**
+ * Fetches as `fetchAll`, then brings the branch checked out in `checkout` up
+ * to its remote branch: a fast-forward, or a merge in a clean checkout. A
+ * conflicting merge is undone.
+ */
+export const pullCheckoutBranch = (checkout: string) => invoke<PullOutcome>("pull_checkout_branch", { checkout });
+
+/** Who created each branch on the Azure DevOps remotes with a token, by remote-tracking name (`origin/x`). */
+export const branchCreators = (root: string) => invoke<Record<string, string>>("branch_creators", { root });
 
 /** What Fantomas found: files it would change, and files it could not format. */
 export interface FormatCheck {

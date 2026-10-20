@@ -607,6 +607,55 @@ pub async fn work_item(
     blocking(move || azure::work_item(&repo, &token, id)).await?
 }
 
+/// The required branch policies of `branch` on `remote` (names), checked
+/// before committing on it: a branch with any takes changes only through
+/// pull requests. Empty when `remote` is not on Azure DevOps or no token is
+/// set up, as nothing can be told then.
+#[tauri::command]
+pub async fn required_branch_policies(
+    checkout: String,
+    remote: String,
+    branch: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<Vec<String>, PrError> {
+    let checkout = app.checked_root(&checkout).map_err(PrError::Other)?;
+    // Any remote by its name, also a second one for a repository `azure_remotes` lists once.
+    let remotes = arnold_git::remotes(&checkout).await.map_err(other)?;
+    let Some(repo) = remotes
+        .iter()
+        .find(|known| known.name == remote)
+        .and_then(|known| azure::parse_remote_url(&known.url))
+    else {
+        return Ok(Vec::new());
+    };
+    let Some((token, _)) = prs.token(&repo).await? else {
+        return Ok(Vec::new());
+    };
+    blocking(move || azure::required_branch_policies(&repo, &token, &branch)).await?
+}
+
+/// Who created each branch on the Azure DevOps remotes that have a token
+/// set up, by remote-tracking name (`origin/feature/x`). Remotes that cannot
+/// be asked are left out: the branch list shows who committed last instead.
+#[tauri::command]
+pub async fn branch_creators(
+    root: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<HashMap<String, String>, PrError> {
+    let root = app.checked_root(&root).map_err(PrError::Other)?;
+    let mut creators = HashMap::new();
+    for (remote, repo) in azure_remotes(&root).await? {
+        let Ok(Some((token, _))) = prs.token(&repo).await else { continue };
+        match blocking(move || azure::branch_creators(&repo, &token)).await? {
+            Ok(list) => creators.extend(list.into_iter().map(|(branch, creator)| (format!("{remote}/{branch}"), creator))),
+            Err(error) => eprintln!("[arnold] branch creators of {remote}: {error}"),
+        }
+    }
+    Ok(creators)
+}
+
 fn conflict_text(plan: &NewPullRequestPlan) -> String {
     format!(
         "{} on Azure DevOps has commits that are not in what you reviewed. Fetch, review the branch as it is there, then create the pull request.",

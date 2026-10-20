@@ -15,10 +15,13 @@ import { carryOver, dropSelectedLines, type LineSelection, resetEdits, takeSelec
 import * as ipc from "../ipc/commands";
 import type { BranchSync, ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
+import { branchNameFor } from "./branchName";
 import { comparePaths } from "./pathOrder";
 import {
   attachLanguageServer,
   editorCallbacks,
+  fetchedText,
+  fetching,
   fileEditor,
   openPullRequest,
   restoreListPlace,
@@ -31,7 +34,9 @@ import {
   state,
   takePlace,
   type ViewMode,
+  whileFetching,
 } from "./review";
+import { relativeTo } from "../lsp/uri";
 import { holdPlaces } from "./places";
 import { openFor } from "./aiSuggestions";
 
@@ -937,8 +942,10 @@ export async function commit() {
   const checkout = state.checkout;
   if (!checkout || !canCommit()) return;
   await flushSave();
-  setState("committing", "Checking the formatting…");
+  setState("committing", "Checking the branch policies…");
   try {
+    if (!(await branchAllowed(checkout))) return;
+    setState("committing", "Checking the formatting…");
     const go = await formattingChecked(checkout);
     if (go.answer === "cancel") return;
     if (go.answer === "format") {
@@ -963,6 +970,53 @@ export async function commit() {
     setState("committing", null);
   }
   await refreshWork();
+}
+
+export type BranchAnswer = { kind: "branch"; name: string } | { kind: "cancel" };
+
+let answerBranch: ((answer: BranchAnswer) => void) | null = null;
+
+/**
+ * When the branch is pushed to Azure DevOps and has required policies there
+ * (so it takes changes only through pull requests and a push to it would be
+ * refused), asks for a new branch to commit on instead and checks it out.
+ * Resolves to whether to go on committing.
+ */
+async function branchAllowed(checkout: string): Promise<boolean> {
+  const work = state.work;
+  if (!work?.branch || !work.sync) return true;
+  const { remote, remoteBranch } = work.sync;
+  let policies: string[];
+  try {
+    policies = await ipc.requiredBranchPolicies(checkout, remote, remoteBranch);
+  } catch (error) {
+    // Not able to tell: committing goes ahead as usual.
+    console.warn("branch policies not checked", error);
+    return true;
+  }
+  if (policies.length === 0) return true;
+  setState("protectedBranch", { branch: work.branch, remote, remoteBranch, policies, suggested: branchNameFor(message()), error: null });
+  try {
+    for (;;) {
+      const answer = await new Promise<BranchAnswer>((resolve) => (answerBranch = resolve));
+      if (answer.kind === "cancel") return false;
+      setState("committing", `Creating ${answer.name}…`);
+      try {
+        await ipc.startBranch(checkout, answer.name);
+        return true;
+      } catch (error) {
+        setState("protectedBranch", "error", String(error));
+      }
+    }
+  } finally {
+    setState("protectedBranch", null);
+  }
+}
+
+/** The answer to the Branch takes pull requests dialog. */
+export function answerProtectedBranch(answer: BranchAnswer) {
+  answerBranch?.(answer);
+  answerBranch = null;
 }
 
 export type FormatAnswer = "format" | "commit" | "cancel";
@@ -1054,6 +1108,83 @@ export async function pushBranch(): Promise<boolean> {
   } finally {
     setState("committing", null);
     await refreshWork();
+  }
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** Why pulling into the checked-out branch cannot be done; else null. Fetching is done either way. */
+export function whyNoPull(): string | null {
+  const work = state.work;
+  if (!work?.branch) return "The checkout is not on a branch.";
+  if (!work.sync) return "The repository has no remote to pull from.";
+  return null;
+}
+
+/**
+ * Pull: fetches every branch of every remote, then brings the checked-out
+ * branch up to its remote branch (a fast-forward, or a merge when the
+ * checkout is clean; never forced, a conflicting merge undone).
+ */
+export async function pullBranch() {
+  const checkout = state.checkout;
+  const work = state.work;
+  if (!checkout || !work?.branch || state.committing || fetching()) return;
+  const branch = work.branch;
+  await flushSave();
+  setState("committing", `Pulling into ${branch}…`);
+  try {
+    const done = await whileFetching(() => ipc.pullCheckoutBranch(checkout));
+    if (!done) return;
+    const { fetched, pulled } = done.result;
+    const remote = work.sync ? `${work.sync.remote}/${work.sync.remoteBranch}` : "its remote";
+    const what = (() => {
+      switch (pulled?.kind) {
+        case "upToDate":
+          return `${branch} is up to date with ${remote}.`;
+        case "fastForwarded":
+          return `Pulled ${plural(pulled.commits, "commit")} of ${remote} into ${branch}.`;
+        case "merged":
+          return `Merged ${plural(pulled.commits, "commit")} of ${remote} into ${branch}.`;
+        case "notPublished":
+          return `${remote} does not exist yet: push ${branch} first.`;
+        default:
+          return "";
+      }
+    })();
+    notify(`${fetchedText(fetched, done.before, done.after)} ${what}`.trim());
+  } catch (error) {
+    fail(`Pulling into ${branch} failed`)(error);
+  } finally {
+    setState("committing", null);
+    await refreshWork();
+  }
+}
+
+/**
+ * Commit mode on branch `name` (local, or a remote branch such as
+ * `origin/x`): its checkout, or else a new worktree of it in
+ * `.arnold/worktrees`, a remote branch as a local branch tracking it.
+ */
+export async function commitOnBranch(name: string) {
+  const repo = state.repo;
+  if (!repo) return;
+  const local = repo.branches.find((branch) => !branch.isRemote && branch.name === name);
+  if (local?.worktreePath) return setCheckout(local.worktreePath);
+  await flushSave();
+  setState("committing", `Checking ${name} out…`);
+  try {
+    const checkout = await ipc.branchWorktree(repo.root, name);
+    const branches = await ipc.listBranches(repo.root);
+    if (state.repo !== repo) return;
+    setState("repo", "branches", reconcile(branches, { key: "name" }));
+    if (checkout.created) notify(`Checked ${checkout.branch} out in ${relativeTo(repo.root, checkout.path) ?? checkout.path}`);
+    setState("committing", null);
+    await setCheckout(checkout.path);
+  } catch (error) {
+    fail(`Checking ${name} out failed`)(error);
+  } finally {
+    setState("committing", null);
   }
 }
 

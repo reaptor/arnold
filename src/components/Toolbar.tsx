@@ -15,7 +15,8 @@ import {
   state,
 } from "../state/review";
 import { prs } from "../state/pullRequests";
-import { setCheckout, uncommittedCount } from "../state/commitMode";
+import { commitOnBranch, uncommittedCount } from "../state/commitMode";
+import { checkoutChoices } from "../state/branchInfo";
 import { isMac, platform } from "../platform";
 import { BranchActions, PushHeadButton } from "./BranchActions";
 import { BranchPicker, unpushedMark } from "./BranchPicker";
@@ -108,11 +109,8 @@ export function Toolbar() {
               <BranchPicker
                 label="Checkout to commit in"
                 value={state.work?.branch ?? (state.work ? "detached HEAD" : "")}
-                branches={repo().branches.filter((branch) => !branch.isRemote && branch.worktreePath)}
-                onChange={(name) => {
-                  const path = repo().branches.find((branch) => branch.name === name && !branch.isRemote)?.worktreePath;
-                  if (path) void setCheckout(path);
-                }}
+                branches={checkoutChoices(repo().branches)}
+                onChange={(name) => void commitOnBranch(name)}
               />
             </Show>
             <Show when={state.source === "pullRequest"}>

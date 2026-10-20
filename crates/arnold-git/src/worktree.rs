@@ -111,7 +111,7 @@ pub struct BranchCheckout {
 pub async fn branch_worktree(root: &Path, branch: &str) -> Result<BranchCheckout> {
     // Worktrees deleted by hand, whose branches git would still call checked out.
     run(root, &["worktree", "prune"]).await?;
-    let local = local_name(root, branch).await?;
+    let (local, remote) = local_name(root, branch).await?;
     let exists = has_branch(root, &local).await?;
     if exists {
         let listed = run_text(root, &["for-each-ref", "--format=%(worktreepath)", &format!("refs/heads/{local}")]).await?;
@@ -121,14 +121,21 @@ pub async fn branch_worktree(root: &Path, branch: &str) -> Result<BranchCheckout
     }
     let path = free_folder(root, &slug(&local)).await?;
     let target = path.to_string_lossy().into_owned();
+    // The upstream is set by hand: `--track` refuses a remote branch the
+    // remote's fetch setting does not cover (a single-branch clone, whose
+    // other branches Arnold fetches all the same).
     let args: Vec<&str> = if exists {
         vec!["worktree", "add", "--quiet", &target, &local]
     } else {
-        vec!["worktree", "add", "--quiet", "--track", "-b", &local, &target, branch]
+        vec!["worktree", "add", "--quiet", "--no-track", "-b", &local, &target, branch]
     };
     let out = run_raw(root, &args).await?;
     if !out.success {
         return Err(GitError::Failed { command: "worktree add".into(), stderr: out.stderr });
+    }
+    if let (false, Some(remote)) = (exists, remote) {
+        run(root, &["config", &format!("branch.{local}.remote"), &remote]).await?;
+        run(root, &["config", &format!("branch.{local}.merge"), &format!("refs/heads/{local}")]).await?;
     }
     Ok(BranchCheckout { branch: local, path, created: true })
 }
@@ -137,17 +144,18 @@ async fn has_branch(root: &Path, name: &str) -> Result<bool> {
     Ok(run_raw(root, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")]).await?.success)
 }
 
-/// The local branch for `branch`: itself unless it is only a remote branch.
-async fn local_name(root: &Path, branch: &str) -> Result<String> {
+/// The local branch for `branch`: itself unless it is only a remote branch,
+/// then with the remote it is on.
+async fn local_name(root: &Path, branch: &str) -> Result<(String, Option<String>)> {
     if has_branch(root, branch).await? {
-        return Ok(branch.to_string());
+        return Ok((branch.to_string(), None));
     }
     for remote in remotes(root).await? {
         if let Some(name) = branch.strip_prefix(&format!("{}/", remote.name)) {
-            return Ok(name.to_string());
+            return Ok((name.to_string(), Some(remote.name)));
         }
     }
-    Ok(branch.to_string())
+    Ok((branch.to_string(), None))
 }
 
 /// `<root>/.arnold/worktrees/<name>`, or `<name>-2`, `-3`… when that is taken

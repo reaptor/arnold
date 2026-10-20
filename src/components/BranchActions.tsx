@@ -1,16 +1,18 @@
 import { onMount, Show } from "solid-js";
 import {
+  pullBranch,
   pushAndCreatePullRequest,
   pushAndViewPullRequest,
   pushBranch,
   reviewBase,
   reviewBranch,
+  whyNoPull,
   whyNoPush,
   whyNoReview,
 } from "../state/commitMode";
 import { currentRemote, loadPullRequestsOnce, pullRequestFrom } from "../state/pullRequests";
-import { headBranch, pushHead, pushingHead, state, whyNoPushHead } from "../state/review";
-import { ArrowUpIcon, BranchIcon, PullRequestIcon } from "./icons";
+import { fetching, headBranch, pushHead, pushingHead, state, whyNoPushHead } from "../state/review";
+import { ArrowDownIcon, ArrowUpIcon, BranchIcon, PullRequestIcon } from "./icons";
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -25,6 +27,16 @@ export function BranchActions() {
     return current.published
       ? `${plural(current.ahead, "commit")} to ${current.remote}/${current.remoteBranch}`
       : `${branch()} to ${current.remote} as a new branch${current.ahead > 0 ? ` (${plural(current.ahead, "commit")})` : ""}`;
+  };
+  const pullTitle = () => {
+    const current = sync()!;
+    const remote = `${current.remote}/${current.remoteBranch}`;
+    const known = !current.published
+      ? `${remote} does not exist yet (as of the last fetch).`
+      : current.behind > 0
+        ? `${remote} has ${plural(current.behind, "commit")} that ${branch()} lacks (as of the last fetch).`
+        : `${branch()} has everything ${remote} had at the last fetch.`;
+    return `Pull: fetch every branch of every remote, then bring ${branch()} up to ${remote}\n${known}\nA merge is only made when there are no uncommitted changes; never forced.`;
   };
   const prBlocked = () => whyNoReview() ?? (sync()?.behind ? whyNoPush() : null);
   /** The branch's active pull request, if it has one: viewed rather than created again. */
@@ -52,6 +64,18 @@ export function BranchActions() {
       >
         <BranchIcon />
         <span class="action-label">Review against {base()}</span>
+      </button>
+      <button
+        type="button"
+        disabled={!!state.committing || fetching() || !!whyNoPull()}
+        onClick={() => void pullBranch()}
+        title={whyNoPull() ?? pullTitle()}
+      >
+        <ArrowDownIcon />
+        <span class="action-label">Pull</span>
+        <Show when={sync()?.behind}>
+          <span class="push-count">{sync()?.behind}</span>
+        </Show>
       </button>
       <button
         type="button"

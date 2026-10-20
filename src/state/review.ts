@@ -18,6 +18,7 @@ import {
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
 import type {
+  Branch,
   ChangedFile,
   CommitRange,
   Comparison,
@@ -50,6 +51,7 @@ import * as commitMode from "./commitMode";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
 import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
+import { loadCreators } from "./branchInfo";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
@@ -64,6 +66,19 @@ export type ReviewedPullRequest = PullRequest & { remote: string };
 
 /** One file at a time, or every file of the diff in one scrolling list. */
 export type ViewMode = "file" | "all";
+
+/** A branch with required branch policies on its remote, so pushing to it is refused. */
+export interface ProtectedBranch {
+  branch: string;
+  remote: string;
+  remoteBranch: string;
+  /** The required policies' names. */
+  policies: string[];
+  /** A name for the new branch, from the commit message. */
+  suggested: string;
+  /** Why creating the branch asked for failed. */
+  error: string | null;
+}
 
 /**
  * Getting F# language features for the reviewed commit: preparing a copy of
@@ -164,6 +179,11 @@ interface State {
    * it: `failure`), while asking whether to commit anyway.
    */
   unformatted: (FormatCheck & { failure?: string }) | null;
+  /**
+   * Commit mode: the branch committed on only takes pull requests, while
+   * asking for a new branch to commit on instead.
+   */
+  protectedBranch: ProtectedBranch | null;
   /** A short message in the status bar (Commit mode: what a key did or why not). */
   notice: string | null;
   /** Files folded away in the all-files view. */
@@ -277,6 +297,7 @@ export const [state, setState] = createStore<State>({
   workSide: null,
   committing: null,
   unformatted: null,
+  protectedBranch: null,
   notice: null,
 });
 
@@ -1434,6 +1455,53 @@ export async function pushHead() {
     setState("error", `Pushing ${branch.name} failed: ${String(error)}`);
   } finally {
     setPushingHead(false);
+  }
+}
+
+const [fetching, setFetching] = createSignal(false);
+/** Whether a fetch (or a pull, which fetches first) is under way. */
+export { fetching };
+
+/** What a fetch brought, for the status bar: `before` and `after` are the branches either side of it. */
+export function fetchedText(fetched: ipc.Fetched, before: Branch[], after: Branch[]): string {
+  if (fetched.remotes.length === 0) return "The repository has no remote to fetch from.";
+  const known = new Set(before.map((branch) => branch.name));
+  const fresh = after.filter((branch) => branch.isRemote && !known.has(branch.name)).length;
+  const gone = before.filter((branch) => branch.isRemote && !after.some((other) => other.name === branch.name)).length;
+  const news = [
+    fresh > 0 ? `${fresh} new branch${fresh === 1 ? "" : "es"}` : "",
+    gone > 0 ? `${gone} deleted on the remote` : "",
+    fetched.fastForwarded.length > 0 ? `${fetched.fastForwarded.join(", ")} brought up to date` : "",
+  ].filter(Boolean);
+  return `Fetched ${fetched.remotes.join(", ")}${news.length > 0 ? `: ${news.join("; ")}` : ""}.`;
+}
+
+/** Runs `work` (a fetch or a pull) as the one fetch under way, then reads the branches again. Null when one was under way already. */
+export async function whileFetching<T>(work: () => Promise<T>): Promise<{ result: T; before: Branch[]; after: Branch[] } | null> {
+  const repo = state.repo;
+  if (!repo || fetching()) return null;
+  setFetching(true);
+  try {
+    const before = [...repo.branches];
+    const result = await work();
+    const after = await ipc.listBranches(repo.root);
+    if (state.repo === repo) setState("repo", "branches", reconcile(after, { key: "name" }));
+    void loadCreators(repo.root, true);
+    return { result, before, after };
+  } finally {
+    setFetching(false);
+  }
+}
+
+/** Fetches every branch of every remote, so each can be checked out or compared. */
+export async function fetchRemotes() {
+  const repo = state.repo;
+  if (!repo) return;
+  try {
+    const done = await whileFetching(() => ipc.fetchAll(repo.root));
+    if (done && state.repo === repo) commitMode.notify(fetchedText(done.result, done.before, done.after));
+  } catch (error) {
+    if (state.repo === repo) setState("error", String(error));
   }
 }
 

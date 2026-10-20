@@ -426,6 +426,22 @@ pub async fn commit(checkout: &Path, message: &str) -> Result<NewCommit> {
     })
 }
 
+/// Creates branch `name` at HEAD of `checkout` and checks it out there,
+/// keeping what is staged and what is not, so it can be committed on the new
+/// branch instead.
+pub async fn start_branch(checkout: &Path, name: &str) -> Result<()> {
+    let valid = run_raw(checkout, &["check-ref-format", "--branch", name]).await?;
+    if !valid.success || name.starts_with('-') {
+        return Err(GitError::Parse(format!("{name} is not a valid branch name")));
+    }
+    let branch = format!("refs/heads/{name}");
+    if run_raw(checkout, &["rev-parse", "--verify", "--quiet", &branch]).await?.success {
+        return Err(GitError::Parse(format!("a branch named {name} exists already")));
+    }
+    run(checkout, &["checkout", "--quiet", "-b", name]).await?;
+    Ok(())
+}
+
 /// `text` with `\n` line endings, written the way `original` is: CRLF line
 /// endings if most of its lines have them, and its byte-order mark.
 pub fn encode_like(text: &str, original: &[u8]) -> Vec<u8> {

@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 
-use arnold_git::{Ignored, NewCommit, WorkingStatus};
-use serde::Deserialize;
+use arnold_git::{Ignored, NewCommit, Pulled, WorkingStatus};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::commands::{file_pair, text_error, AppState, FilePair};
@@ -205,6 +205,14 @@ pub async fn commit_staged(checkout: String, message: String, state: State<'_, A
 }
 
 
+/// Creates branch `name` at HEAD of `checkout` and checks it out there,
+/// keeping the staged and unstaged changes, to commit them on it.
+#[tauri::command]
+pub async fn start_branch(checkout: String, name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let checkout = state.checked_root(&checkout)?;
+    arnold_git::start_branch(&checkout, &name).await.map_err(text_error)
+}
+
 /// Pushes the branch checked out in `checkout` to its upstream, or to
 /// `origin` as a new branch that becomes its upstream. Never forced.
 #[tauri::command]
@@ -215,4 +223,61 @@ pub async fn push_checkout_branch(checkout: String, state: State<'_, AppState>, 
     let sync = status.sync.ok_or("The repository has no remote to push to.")?;
     let header = prs.push_header(&checkout, &sync.remote).await;
     arnold_git::push_branch(&checkout, &branch, &sync, header.as_deref()).await.map_err(text_error)
+}
+
+/// What fetching from the remotes did.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fetched {
+    /// The remotes fetched from, every branch of each.
+    pub remotes: Vec<String>,
+    /// Local branches checked out nowhere that only lagged behind their
+    /// remote, moved up to it.
+    pub fast_forwarded: Vec<String>,
+}
+
+/// Fetches every branch of every remote of the repository `root` is a
+/// checkout of, so each can be checked out, and moves local branches that
+/// are checked out nowhere and only lag behind up to their remote.
+#[tauri::command]
+pub async fn fetch_all(root: String, state: State<'_, AppState>, prs: State<'_, PrState>) -> Result<Fetched, String> {
+    let root = state.checked_root(&root)?;
+    fetch_from_remotes(&root, &prs).await
+}
+
+async fn fetch_from_remotes(root: &std::path::Path, prs: &PrState) -> Result<Fetched, String> {
+    let mut fetched = Vec::new();
+    for remote in arnold_git::remotes(root).await.map_err(text_error)? {
+        let header = prs.push_header(root, &remote.name).await;
+        arnold_git::fetch_remote(root, &remote.name, header.as_deref())
+            .await
+            .map_err(|error| format!("Fetching from {} failed: {error}", remote.name))?;
+        fetched.push(remote.name);
+    }
+    let fast_forwarded = arnold_git::fast_forward_branches(root).await.map_err(text_error)?;
+    Ok(Fetched { remotes: fetched, fast_forwarded })
+}
+
+/// What pulling did: the fetch, and what became of the checked-out branch
+/// (`None` when the checkout is not on a branch or there is no remote).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullOutcome {
+    pub fetched: Fetched,
+    pub pulled: Option<Pulled>,
+}
+
+/// Fetches from every remote (as `fetch_all`), then brings the branch
+/// checked out in `checkout` up to its remote branch: a fast-forward, or a
+/// merge in a clean checkout. Never forced; a conflicting merge is undone.
+#[tauri::command]
+pub async fn pull_checkout_branch(checkout: String, state: State<'_, AppState>, prs: State<'_, PrState>) -> Result<PullOutcome, String> {
+    let checkout = state.checked_root(&checkout)?;
+    let fetched = fetch_from_remotes(&checkout, &prs).await?;
+    let status = arnold_git::working_status(&checkout).await.map_err(text_error)?;
+    let pulled = match (status.branch, status.sync) {
+        (Some(branch), Some(sync)) => Some(arnold_git::pull_branch(&checkout, &branch, &sync).await.map_err(text_error)?),
+        _ => None,
+    };
+    Ok(PullOutcome { fetched, pulled })
 }

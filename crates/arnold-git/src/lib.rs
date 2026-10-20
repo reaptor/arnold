@@ -19,7 +19,8 @@
 //! `working` is the exception: it stages, unstages, puts files back and
 //! commits in the checkout it is given, for committing an agent's changes
 //! before they are reviewed; `publish` pushes the branch checked out there,
-//! when asked to, never forced.
+//! when asked to, never forced, and `pull` fetches from the remotes and
+//! brings branches up to them when asked to.
 
 mod cli;
 mod compare;
@@ -29,6 +30,7 @@ mod files;
 mod patch;
 mod refs;
 mod publish;
+mod pull;
 mod push;
 mod remotes;
 mod working;
@@ -42,11 +44,12 @@ pub use files::{list_files, tree_files, TreeFile};
 pub use patch::{patch, OmitReason, Omitted, Patch, PatchSource};
 pub use refs::{common_dir, git_dir, list_branches, open, Branch, RepoInfo};
 pub use publish::{branch_sync, push_branch, BranchSync};
+pub use pull::{fast_forward_branches, fetch_remote, pull_branch, Pulled};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
 pub use worktree::{branch_worktree, detached_worktree, find_worktree, BranchCheckout, Worktree};
 pub use working::{
-    commit, delete_files, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    commit, delete_files, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,
 };
 

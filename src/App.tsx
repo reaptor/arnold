@@ -2,7 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { AiPanel } from "./components/AiPanel";
 import { AllFilesView } from "./components/AllFilesView";
 import { WorkingFilesView } from "./components/WorkingFilesView";
-import { CommitBox, UnformattedDialog } from "./components/CommitPanel";
+import { CommitBox, ProtectedBranchDialog, UnformattedDialog } from "./components/CommitPanel";
 import { EditStatus } from "./components/EditStatus";
 import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
@@ -259,6 +259,9 @@ export function App() {
       </Show>
       <Show when={state.unformatted}>
         <UnformattedDialog />
+      </Show>
+      <Show when={state.protectedBranch}>
+        <ProtectedBranchDialog />
       </Show>
       <Show when={licensesOpen()}>
         <LicensesDialog />

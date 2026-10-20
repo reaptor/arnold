@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, delete_files, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, undo_edits, unstage, untrack,
+    commit, delete_files, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, FileStatus,
 };
 
@@ -191,6 +191,26 @@ async fn commits_what_is_staged() {
     assert!(status.staged.is_empty());
     assert_eq!(summary(&status.unstaged), vec![("b.txt", FileStatus::Modified)]);
     assert!(commit(root, "  ").await.is_err());
+}
+
+#[tokio::test]
+async fn starts_a_branch_keeping_staged_and_unstaged_changes() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, "a.txt", "staged\n");
+    write(root, "b.txt", "not staged\n");
+    stage(root, &["a.txt".into()]).await.unwrap();
+
+    start_branch(root, "feature/new").await.unwrap();
+    let status = working_status(root).await.unwrap();
+    assert_eq!(status.branch.as_deref(), Some("feature/new"));
+    assert_eq!(summary(&status.staged), vec![("a.txt", FileStatus::Modified)]);
+    assert_eq!(summary(&status.unstaged), vec![("b.txt", FileStatus::Modified)]);
+    assert_eq!(git(root, &["rev-parse", "main"]), git(root, &["rev-parse", "HEAD"]));
+
+    assert!(start_branch(root, "main").await.is_err());
+    assert!(start_branch(root, "bad name").await.is_err());
+    assert!(start_branch(root, "-x").await.is_err());
 }
 
 #[tokio::test]

@@ -1,8 +1,8 @@
-import { For, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { isMac } from "../platform";
-import { answerFormatCheck, canCommit, commit, message, setCommitMessage } from "../state/commitMode";
+import { answerFormatCheck, answerProtectedBranch, canCommit, commit, message, setCommitMessage } from "../state/commitMode";
 import { state } from "../state/review";
-import { CloseIcon, CommitIcon, FormatIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommitIcon, FormatIcon } from "./icons";
 
 const COMMIT_KEY = isMac ? "⌘Enter" : "Ctrl+Enter";
 
@@ -125,6 +125,84 @@ export function UnformattedDialog() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Before a commit, when Azure DevOps has required policies on the branch, so
+ * it takes changes only through pull requests: commit on a new branch
+ * instead, or stop.
+ */
+export function ProtectedBranchDialog() {
+  const asked = () => state.protectedBranch!;
+  const [name, setName] = createSignal(asked().suggested);
+  const busy = () => state.committing?.startsWith("Creating ") ?? false;
+  const taken = () => state.repo?.branches.some((branch) => !branch.isRemote && branch.name === name().trim()) ?? false;
+  const problem = () => (taken() ? `A branch named ${name().trim()} exists already.` : asked().error);
+  const cancel = () => !busy() && answerProtectedBranch({ kind: "cancel" });
+  let input: HTMLInputElement | undefined;
+  onMount(() => input?.select());
+  return (
+    <div
+      class="modal-backdrop"
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => event.target === event.currentTarget && cancel()}
+      onKeyDown={(event) => event.key === "Escape" && cancel()}
+    >
+      <form
+        class="modal complete-dialog protected-dialog"
+        role="dialog"
+        aria-label="Branch takes pull requests only"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy() && name().trim() && !taken()) answerProtectedBranch({ kind: "branch", name: name().trim() });
+        }}
+      >
+        <h2>{asked().branch} takes pull requests only</h2>
+        <p>
+          Azure DevOps has required branch policies on {asked().remote}/{asked().remoteBranch}, so pushing commits to it is
+          refused:
+        </p>
+        <ul class="protected-policies">
+          <For each={asked().policies}>{(policy) => <li>{policy}</li>}</For>
+        </ul>
+        <p>Commit on a new branch instead, and open a pull request from it. The staged and unstaged changes come along.</p>
+        <label class="complete-message">
+          <span>New branch</span>
+          <input
+            ref={input}
+            type="text"
+            value={name()}
+            placeholder="Name of the branch to commit on"
+            spellcheck={false}
+            autocapitalize="off"
+            onInput={(event) => setName(event.currentTarget.value)}
+            required
+          />
+        </label>
+        <Show when={problem()}>
+          <p class="connect-problem">{problem()}</p>
+        </Show>
+        <div class="committed-choices">
+          <button type="submit" class="committed-choice primary" disabled={busy() || !name().trim() || taken()}>
+            <BranchIcon />
+            <span>
+              {busy() ? state.committing : "Create branch and commit"}
+              <small>
+                Check out {name().trim() || "the new branch"} from {asked().branch} and commit the staged changes there
+              </small>
+            </span>
+          </button>
+          <button type="button" class="committed-choice" disabled={busy()} onClick={cancel}>
+            <CloseIcon />
+            <span>
+              Cancel
+              <small>Nothing is committed</small>
+            </span>
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

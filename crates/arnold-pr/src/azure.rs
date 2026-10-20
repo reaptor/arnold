@@ -252,6 +252,27 @@ pub fn branch_commit(repo: &AzureRepo, token: &str, branch: &str) -> Result<Opti
     Ok(exact_ref(list, &name))
 }
 
+/// Who created each branch of `repo`: (branch without `refs/heads/`,
+/// creator's display name). Git itself does not record it.
+pub fn branch_creators(repo: &AzureRepo, token: &str) -> Result<Vec<(String, String)>, PrError> {
+    let url = repo.api(&format!("/refs?filter=heads/&api-version={API_VERSION}"));
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(parse_creators(list))
+}
+
+fn parse_creators(list: &[Value]) -> Vec<(String, String)> {
+    list.iter()
+        .filter_map(|entry| {
+            let branch = entry["name"].as_str()?.strip_prefix("refs/heads/")?;
+            let creator = entry["creator"]["displayName"].as_str().filter(|name| !name.is_empty())?;
+            Some((branch.to_string(), creator.to_string()))
+        })
+        .collect()
+}
+
 fn exact_ref(list: &[Value], name: &str) -> Option<String> {
     list.iter()
         .find(|entry| entry["name"].as_str() == Some(name))
@@ -307,6 +328,52 @@ fn parse_work_item(body: &Value, repo: &AzureRepo, id: u64) -> WorkItem {
         state: field("System.State"),
         url: format!("{}/{}/_workitems/edit/{id}", repo.collection_url, repo.project),
     }
+}
+
+/// The names of the required branch policies of `repo` that apply to
+/// `branch` (without `refs/heads/`). A branch with any of them takes changes
+/// only through pull requests: a push to it is refused.
+pub fn required_branch_policies(repo: &AzureRepo, token: &str, branch: &str) -> Result<Vec<String>, PrError> {
+    let about = get(&repo.api(&format!("?api-version={API_VERSION}")), token)?;
+    let id = about["id"]
+        .as_str()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    // Given the repository and the branch, the host works out which policies
+    // apply: those set on the branch itself, on a folder of branches it is
+    // in, and (for the default branch) across repositories.
+    let url = format!(
+        "{}/{}/_apis/git/policy/configurations?repositoryId={id}&refName={}&$top=1000&api-version=6.0-preview.1",
+        repo.collection_url,
+        repo.project,
+        query_encode(&format!("refs/heads/{branch}")),
+    );
+    let body = get(&url, token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(blocking_branch_policies(list))
+}
+
+/// Names of the enabled, required policies set on branches. Those set on the
+/// repository as a whole (file size, path length, ...) only check what is
+/// pushed, so they are left out.
+fn blocking_branch_policies(list: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for policy in list {
+        let required = policy["isEnabled"].as_bool() == Some(true)
+            && policy["isBlocking"].as_bool() == Some(true)
+            && policy["isDeleted"].as_bool() != Some(true);
+        let on_branches = policy["settings"]["scope"].as_array().is_some_and(|scopes| {
+            scopes.iter().any(|scope| {
+                scope["refName"].is_string() || scope["matchKind"].as_str().is_some_and(|kind| kind.eq_ignore_ascii_case("defaultBranch"))
+            })
+        });
+        let name = policy["type"]["displayName"].as_str().unwrap_or("Branch policy");
+        if required && on_branches && !names.iter().any(|known| known == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
 }
 
 /// Percent-encodes a query parameter's value; `/` is left as it is.
@@ -708,6 +775,47 @@ mod tests {
             project: project.into(),
             repository: repository.into(),
         })
+    }
+
+    #[test]
+    fn reads_branch_creators() {
+        let list = [
+            json!({ "name": "refs/heads/feature/x", "objectId": "a", "creator": { "displayName": "Ada Lovelace", "uniqueName": "ada@x" } }),
+            json!({ "name": "refs/heads/old", "objectId": "b" }),
+            json!({ "name": "refs/tags/v1", "objectId": "c", "creator": { "displayName": "Ada Lovelace" } }),
+        ];
+        assert_eq!(parse_creators(&list), vec![("feature/x".to_string(), "Ada Lovelace".to_string())]);
+    }
+
+    #[test]
+    fn required_branch_policies_leave_out_optional_disabled_and_repository_wide_ones() {
+        let policy = |name: &str, enabled: bool, blocking: bool, scope: Value| {
+            json!({
+                "isEnabled": enabled,
+                "isBlocking": blocking,
+                "isDeleted": false,
+                "type": { "displayName": name },
+                "settings": { "scope": [scope] },
+            })
+        };
+        let branch = json!({ "refName": "refs/heads/main", "matchKind": "Exact", "repositoryId": "r" });
+        let folder = json!({ "refName": "refs/heads/release/", "matchKind": "Prefix", "repositoryId": "r" });
+        let default_branch = json!({ "matchKind": "DefaultBranch", "repositoryId": null });
+        let repository = json!({ "repositoryId": "r" });
+        let list = [
+            policy("Minimum number of reviewers", true, true, branch.clone()),
+            policy("Build", true, true, folder),
+            policy("Minimum number of reviewers", true, true, default_branch.clone()),
+            policy("Comment requirements", true, false, branch.clone()),
+            policy("Work item linking", false, true, branch),
+            policy("File size restriction", true, true, repository),
+            policy("Required reviewers", true, true, default_branch),
+        ];
+        assert_eq!(
+            blocking_branch_policies(&list),
+            vec!["Minimum number of reviewers", "Build", "Required reviewers"]
+        );
+        assert!(blocking_branch_policies(&[]).is_empty());
     }
 
     #[test]

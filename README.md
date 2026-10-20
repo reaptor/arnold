@@ -77,7 +77,9 @@ A repository with uncommitted changes opens in *Commit*. Otherwise it opens on t
 
 ## Committing
 
-An agent usually leaves its work uncommitted. *Commit*, the first mode in the toolbar, is where it is gone through, fixed and committed, like the commit dialog of [Git Extensions](https://gitextensions.github.io/). The picker next to it chooses the checkout: the opened folder or any other worktree of the repository with a branch checked out (such as an agent's `.claude/worktrees/…`).
+An agent usually leaves its work uncommitted. *Commit*, the first mode in the toolbar, is where it is gone through, fixed and committed, like the commit dialog of [Git Extensions](https://gitextensions.github.io/). The picker next to it chooses the checkout: the opened folder or any other worktree of the repository with a branch checked out (such as an agent's `.claude/worktrees/…`). It lists every other branch too, local and remote: picking one checked out nowhere checks it out in a worktree of its own, `.arnold/worktrees/<branch>` (a remote branch `origin/x` as a local branch `x` that tracks it).
+
+Every branch picker says who made each branch and when it last changed: the creator Azure DevOps records (with a token set up), else who wrote its last commit, and how long ago. *Recent* lists the branches with the latest commits first, *A–Z* by name; the search also finds people. *Fetch* at the bottom fetches every branch of every remote, also in a clone made with `--single-branch`, so new branches can be picked, and brings local branches that are checked out nowhere and only behind their remote up to it.
 
 The files dock has three parts:
 
@@ -106,13 +108,16 @@ Within a change, lines work one by one: selecting some of a change stages or res
 
 Write the message under the diff (drag the gap above it to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
 
+When the branch is pushed to Azure DevOps and has required branch policies there (reviewers, a build, linked work items…), a push to it would be refused: such a branch takes changes only through pull requests. With a token set up, Arnold checks this before it commits and, if so, offers to *Create branch and commit*, with a name taken from the commit message, or *Cancel*. The new branch starts from the current one and keeps the staged and unstaged changes. If the policies cannot be read (no token, no network), the commit goes ahead as usual.
+
 When the repository uses Fantomas, Arnold checks the formatting before it commits and, if the code base is not formatted, asks whether to format first (see [Fantomas](#fantomas)).
 
 ![The code base is not formatted: Fantomas would reformat four files; Run Fantomas and commit, Commit without formatting, or Cancel](docs/screenshots/fantomas.png)
 
-Arnold says what it committed in the status bar and stays in Commit mode. On the right of the toolbar are three buttons for the branch checked out:
+Arnold says what it committed in the status bar and stays in Commit mode. On the right of the toolbar are four buttons for the branch checked out:
 
 - **Review against main** (the repository's default branch): reviews the branch in *Branches*.
+- **Pull**, with the number of commits the remote's branch had that the local one lacks at the last fetch: fetches as *Fetch* in the picker does, then brings the branch up to its remote branch. With no commits of its own the branch is fast-forwarded, keeping uncommitted changes in other files; with commits of its own the remote's are merged in, only when nothing is uncommitted, and a merge that conflicts is undone, so nothing changes. Never forced or rebased.
 - **Push**, with the number of commits it would send: pushes the branch to its upstream, or to `origin` as a new branch that then becomes its upstream. Never forced: when the remote's branch has commits the local one lacks, the button is off and says to pull first. To an Azure DevOps remote Arnold sends the personal access token it has; otherwise git's own credentials are used.
 - **Push & create PR** (with an Azure DevOps remote): pushes as *Push* does, then reviews the branch in *Branches* with the *Create pull request* dialog open. With nothing to push it reads *Create PR*. When the branch has an active pull request already, it reads *Push & view PR* (or *View PR*) and opens that pull request in *Pull request* instead.
 
@@ -313,14 +318,15 @@ The panel lists the suggestions under a short summary of the changes, as a start
 
 ## What Arnold writes
 
-Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout, and so is a Copilot suggestion you accept. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), deleting files (after asking), formatting with Fantomas and staging the formatting (after asking), committing, and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
+Reviewing writes nothing to the repository's files until you edit. Edits you make while comparing a branch are saved to its checkout, and so is a Copilot suggestion you accept. *Commit* mode changes the checkout picked there, and only when you ask: saving edits, staging and unstaging, resetting files or lines (after asking, except for undoable line resets), deleting files (after asking), formatting with Fantomas and staging the formatting (after asking), creating a branch to commit on when the checked-out one takes pull requests only (after asking), committing, and pulling and pushing the branch. *Add to .gitignore* in the explorer (and on untracked files in *Unstaged*) appends a line to the checkout's root `.gitignore`, and *Stop tracking…* stages the removal of files from the repository (`git rm --cached`), keeping them on disk. Otherwise Arnold writes only:
 
 - the objects of a pull request it fetched;
 - when you create a pull request from a branch Azure DevOps does not have (or has an older commit of): the reviewed commit, pushed to that branch without forcing, and the remote-tracking branch moved to it;
-- when you compare a branch checked out nowhere: a registered git worktree of it, `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`), and for a remote branch `origin/x` without a local branch, a local branch `x` that tracks it;
+- when you compare a branch checked out nowhere, or pick one in *Commit*: a registered git worktree of it, `.arnold/worktrees/<branch>` inside the repository folder (like Claude Code's `.claude/worktrees`; a `.gitignore` there keeps it out of `git status`), and for a remote branch `origin/x` without a local branch, a local branch `x` that tracks it;
 - for the language server: the output of `dotnet restore` (and of building referenced non-F# projects, when needed) in the `obj` and `bin` folders of the checkout it runs in, as building it yourself would; only when no checkout can be had, a copy of the reviewed commit in `.arnold/worktrees/<branch>-<hash>` (not a registered worktree);
 - while running *Run Fantomas and commit* on a file that also has unstaged changes: a short-lived copy of its staged text beside it (`<name>.arnold-staged.fs`), deleted as soon as Fantomas has formatted it;
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
+- from the remotes, when you select *Fetch* in a branch picker or *Pull* in *Commit*: every branch into the remote-tracking branches (deleted ones dropped), and local branches checked out nowhere that are only behind moved up to their remote; *Pull* also fast-forwards or merges the branch checked out;
 - to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
 - when you open a pull request: a registered git worktree, `.arnold/worktrees/pr-<id>`, detached at its latest push, holding your edits until you suggest or undo them.
 
@@ -412,6 +418,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is checked out in a worktree of its own when compared; `dirtyfolder` also gives `main` uncommitted changes; `checkoutfail` makes the worktree fail, so the comparison is read-only |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |
 | `failpush` | Pushing the branch from *Commit* fails |
+| `policies` | `feature/agent-work` has required branch policies on Azure DevOps, so committing asks for a new branch; `=fail` makes the check fail, and committing goes ahead |
 | `readonlytoken` | Writing to pull requests fails, as with a Code (Read) token |
 | `workitems=noaccess` | The token may not read work items. Otherwise work items below 90000 exist (1234 has a real title) and higher numbers do not |
 | `serverbranch` | For *Create pull request* from `feature/agent-work-wt` (not on the server otherwise): `=behind` one commit behind, `=ahead` with a commit that was not reviewed. `feature/agent-work` has !1287 open already |

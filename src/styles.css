@@ -438,6 +438,52 @@ button.primary:hover:not(:disabled) {
   color: var(--muted);
 }
 
+/* Branch lists say who and when, so they are wider. */
+.branch-popup {
+  width: 540px;
+  max-width: calc(100vw - 24px);
+}
+
+/* The name gives way last. */
+.branch-popup .picker-name {
+  flex: 1 0 auto;
+  max-width: 60%;
+}
+
+.branch-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.branch-person {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-when {
+  flex: none;
+}
+
+.branch-popup-footer {
+  margin-top: 6px;
+}
+
+.branch-popup-footer .segmented {
+  margin: 0;
+}
+
+.toolbar .branch-popup-footer .segmented button {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .picker-heading {
   margin: 8px 6px 0;
   color: var(--muted);
@@ -2728,7 +2774,8 @@ button.primary:hover:not(:disabled) {
   stroke: var(--accent-text);
 }
 
-.create-dialog input[type="text"] {
+.create-dialog input[type="text"],
+.protected-dialog input[type="text"] {
   font: inherit;
   font-weight: normal;
   color: inherit;
@@ -2740,7 +2787,8 @@ button.primary:hover:not(:disabled) {
   -webkit-user-select: text;
 }
 
-.create-dialog input[type="text"]:focus {
+.create-dialog input[type="text"]:focus,
+.protected-dialog input[type="text"]:focus {
   border-color: var(--accent);
   outline: none;
 }
@@ -2796,10 +2844,16 @@ button.primary:hover:not(:disabled) {
   font-weight: normal;
 }
 
+/* Commit mode's Pull, Push and Review buttons leave the branch name room. */
+@media (max-width: 1440px) {
+  .branch-actions .action-label {
+    display: none;
+  }
+}
+
 @media (max-width: 1280px) {
   .create-pr-button .action-label,
   .pr-actions .action-label,
-  .branch-actions .action-label,
   .source-switch span:not(.mode-count),
   .toolbar-word {
     display: none;
@@ -3049,6 +3103,18 @@ button.primary:hover:not(:disabled) {
   line-height: 1.6;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.protected-policies {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+.protected-dialog .committed-choice span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .unformatted-output {

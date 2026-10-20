@@ -1,6 +1,9 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Branch } from "../ipc/commands";
-import { ArrowUpIcon, BranchIcon, ChevronDownIcon } from "./icons";
+import { branchOrder, creatorOf, loadCreators, setBranchOrder, sortBranches } from "../state/branchInfo";
+import { fetching, fetchRemotes, state } from "../state/review";
+import { ago } from "./CommitPicker";
+import { ArrowUpIcon, BranchIcon, ChevronDownIcon, RefreshIcon } from "./icons";
 
 interface Props {
   label: string;
@@ -41,6 +44,26 @@ export function unpushedMark(branches: Branch[], name: string): PickerMark | nul
   return mark && { text: mark.count > 0 ? String(mark.count) : mark.label, title: mark.title };
 }
 
+/** Who to show with `branch`: its creator when Azure DevOps says, else who committed last. */
+function who(branch: Branch): { name: string; created: boolean } | null {
+  const creator = state.repo ? creatorOf(state.repo.root, branch) : null;
+  if (creator) return { name: creator, created: true };
+  return branch.lastAuthor ? { name: branch.lastAuthor, created: false } : null;
+}
+
+/** The tooltip of `branch`'s line: who created it, and its last commit. */
+function aboutBranch(branch: Branch): string {
+  const person = who(branch);
+  const lines = [branch.name];
+  if (person?.created) lines.push(`Created by ${person.name}`);
+  if (branch.updatedAt > 0) {
+    const when = new Date(branch.updatedAt * 1000);
+    lines.push(`Last commit ${ago(when.toISOString())} by ${branch.lastAuthor || "someone"} (${when.toLocaleString()})`);
+  }
+  if (branch.worktreePath) lines.push(`Checked out at ${branch.worktreePath}`);
+  return lines.join("\n");
+}
+
 /** Button that opens a searchable list of branches. */
 export function BranchPicker(props: Props) {
   const [open, setOpen] = createSignal(false);
@@ -51,15 +74,23 @@ export function BranchPicker(props: Props) {
 
   const matches = createMemo(() => {
     const needle = query().toLowerCase();
-    return props.branches.filter((branch) => branch.name.toLowerCase().includes(needle));
+    const found = props.branches.filter(
+      (branch) => branch.name.toLowerCase().includes(needle) || (who(branch)?.name.toLowerCase().includes(needle) ?? false),
+    );
+    return sortBranches(found, branchOrder());
   });
+  /** Whether the repository has a remote to fetch from. */
+  const hasRemote = () => state.repo?.branches.some((branch) => branch.isRemote || branch.sync) ?? false;
 
   const close = () => setOpen(false);
   const toggle = () => {
     setOpen(!open());
     setQuery("");
     setActive(0);
-    if (open()) queueMicrotask(() => input.focus());
+    if (open()) {
+      queueMicrotask(() => input.focus());
+      if (state.repo) void loadCreators(state.repo.root);
+    }
   };
   const choose = (branch: Branch | undefined) => {
     if (!branch) return;
@@ -102,11 +133,11 @@ export function BranchPicker(props: Props) {
         <ChevronDownIcon />
       </button>
       <Show when={open()}>
-        <div class="picker-popup" data-tauri-drag-region="false">
+        <div class="picker-popup branch-popup" data-tauri-drag-region="false">
           <input
             ref={input}
             class="picker-search"
-            placeholder="Find branch"
+            placeholder="Find branch or person"
             value={query()}
             onInput={(event) => {
               setQuery(event.currentTarget.value);
@@ -121,12 +152,11 @@ export function BranchPicker(props: Props) {
                   classList={{ active: index() === active(), current: branch.name === props.value }}
                   onPointerEnter={() => setActive(index())}
                   onClick={() => choose(branch)}
+                  title={aboutBranch(branch)}
                 >
                   <span class="picker-name">{branch.name}</span>
                   <Show when={branch.worktreePath}>
-                    <span class="tag" title={`Checked out at ${branch.worktreePath}`}>
-                      checked out
-                    </span>
+                    <span class="tag">checked out</span>
                   </Show>
                   <Show when={branch.isRemote}>
                     <span class="tag">remote</span>
@@ -138,10 +168,46 @@ export function BranchPicker(props: Props) {
                       </span>
                     )}
                   </Show>
+                  <span class="branch-meta">
+                    <Show when={who(branch)}>{(person) => <span class="branch-person">{person().name}</span>}</Show>
+                    <Show when={branch.updatedAt > 0}>
+                      <span class="branch-when">{ago(new Date(branch.updatedAt * 1000).toISOString())}</span>
+                    </Show>
+                  </span>
                 </li>
               )}
             </For>
           </ul>
+          <div class="pr-popup-footer branch-popup-footer">
+            <div class="segmented" role="group" aria-label="Order of the branches">
+              <button
+                classList={{ on: branchOrder() === "recent" }}
+                onClick={() => setBranchOrder("recent")}
+                title="Branches with the latest commits first"
+              >
+                Recent
+              </button>
+              <button
+                classList={{ on: branchOrder() === "name" }}
+                onClick={() => setBranchOrder("name")}
+                title="Branches by name"
+              >
+                A–Z
+              </button>
+            </div>
+            <span class="toolbar-space" />
+            <Show when={hasRemote()}>
+              <button
+                classList={{ "pr-reload": true, busy: fetching() }}
+                disabled={fetching()}
+                onClick={() => void fetchRemotes()}
+                title="Fetch every branch of every remote, so new branches can be picked and checked out; local branches checked out nowhere that are only behind are brought up to date"
+              >
+                <RefreshIcon />
+                {fetching() ? "Fetching…" : "Fetch"}
+              </button>
+            </Show>
+          </div>
         </div>
       </Show>
     </div>
