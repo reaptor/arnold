@@ -37,8 +37,9 @@ pub struct Plan {
     /// manifest): its generated projects (`.elmish-land/`, ignored by git)
     /// come from `dotnet elmish-land restore`, before restoring.
     pub elmish_land: bool,
-    /// Packages come from Paket (`paket.dependencies` at the top): its
-    /// `restore` writes `.paket/Paket.Restore.targets`, which the projects
+    /// A project gets packages from Paket (`paket.dependencies` at the top,
+    /// and a `paket.references` file or a project importing Paket's
+    /// targets): its `restore` writes `.paket/Paket.Restore.targets`, which the projects
     /// import and which repositories often leave out of git.
     pub paket: bool,
     /// Changes when anything Elmish Land generates from changes.
@@ -119,7 +120,11 @@ pub fn plan(files: &[(String, String)], projects: &HashMap<String, String>) -> O
 
     let tool_restore = exists(".config/dotnet-tools.json") || exists("dotnet-tools.json");
     let elmish_land = tool_restore && exists("elmish-land.json");
-    let paket = exists("paket.dependencies");
+    let paket = exists("paket.dependencies")
+        && (files.iter().any(|(path, _)| {
+            let lower = path.to_ascii_lowercase();
+            lower.rsplit('/').next().is_some_and(|name| name.ends_with("paket.references"))
+        }) || projects.values().any(|text| text.contains("Paket.Restore.targets")));
     let solution = files
         .iter()
         .map(|(path, _)| path.as_str())
@@ -362,11 +367,22 @@ mod tests {
     }
 
     #[test]
-    fn paket_repositories_restore_with_paket() {
-        let files = files(&["paket.dependencies", "paket.lock", ".config/dotnet-tools.json", "src/App/App.fsproj"]);
-        let plan = plan(&files, &HashMap::new()).unwrap();
-        assert!(plan.paket);
-        assert!(plan.tool_restore);
+    fn restores_with_paket_only_when_a_project_uses_it() {
+        let paths = ["paket.dependencies", "paket.lock", ".config/dotnet-tools.json", "src/App/App.fsproj"];
+        let none = HashMap::new();
+        assert!(!plan(&files(&paths), &none).unwrap().paket);
+
+        let mut with_references = paths.to_vec();
+        with_references.push("src/App/paket.references");
+        let with_references = plan(&files(&with_references), &none).unwrap();
+        assert!(with_references.paket);
+        assert!(with_references.tool_restore);
+
+        let import = r#"<Import Project="..\..\.paket\Paket.Restore.targets" />"#;
+        assert!(plan(&files(&paths), &projects(&[("src/App/App.fsproj", import)])).unwrap().paket);
+
+        let without_dependencies = files(&["src/App/App.fsproj", "src/App/paket.references"]);
+        assert!(!plan(&without_dependencies, &none).unwrap().paket);
     }
 
     #[test]
