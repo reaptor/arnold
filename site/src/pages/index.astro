@@ -49,19 +49,35 @@ const fsharpFeatures = [
   {
     name: 'Quick fixes',
     keys: ['Alt', 'Enter'],
-    text: 'As in Rider, or Ctrl+. — FsAutoComplete\'s fixes and refactorings for the line or the selection. Remove unused opens takes them all out at once.',
+    text: 'Or Ctrl+. — FsAutoComplete\'s fixes and refactorings for the line or the selection. Remove unused opens takes them all out at once.',
   },
   {
     name: 'Completion',
     text: 'The list comes up as a name starts or after a dot, with the signature and docs beside it, and signature help inside calls.',
   },
   {
-    name: "Rider's colors",
-    text: "Semantic highlighting from the language server in Rider's Islands Dark palette, with unused opens faded out.",
+    name: 'Semantic colors',
+    text: 'Highlighting from the language server, which knows a type from a function from a module, with unused opens faded out.',
   },
   {
     name: 'Fantomas before commit',
     text: 'In repositories that use Fantomas, committing checks the formatting first and can format exactly what is committed — staged lines only.',
+  },
+];
+
+// What the AI panel does, and why it is safe to use at work (see README.md, Explaining code with AI).
+const aiFeatures = [
+  {
+    name: 'Ask about anything',
+    text: 'A selection, a line, a file or folder, or all the changes of the branch, the pull request or Commit mode. Then ask follow-up questions; path:line references open the code.',
+  },
+  {
+    name: "Your organization's Copilot",
+    text: 'Arnold has no AI service of its own. It uses the GitHub Copilot your organization already provides, so code goes only to Copilot, under the agreement your organization has with GitHub.',
+  },
+  {
+    name: 'Only what is allowed',
+    text: "Your organization's Copilot policies apply, such as whether Copilot CLI may be used and which models. Copilot gets no tools: it cannot read other files or run anything.",
   },
 ];
 
@@ -84,6 +100,7 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
       <div class="topbar-links">
         <a href="#fsharp">F#</a>
         <a href="#features">Features</a>
+        <a href="#ai">AI</a>
         <a href="#install">Install</a>
         <a href={repo}>GitHub</a>
       </div>
@@ -98,7 +115,8 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
       <p class="lede">
         Arnold is a desktop app for the work AI agents leave behind. Every diff is a real F# editor — errors,
         hover, go to definition, rename, quick fixes and Fantomas — while you commit the agent's changes line by
-        line, review the branch and see its Azure DevOps pull request through to completion.
+        line, review the branch and see its Azure DevOps pull request through to completion. GitHub Copilot,
+        through your organization's own subscription, explains any of it on request.
       </p>
       <div class="downloads" data-downloads>
         <a class="button primary" href={releases} data-asset="pkg" data-os="mac">
@@ -266,6 +284,25 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
         </figure>
       </article>
 
+      <article id="ai" class="feature-wide">
+        <div class="feature-text centered">
+          <p class="eyebrow ai">Explain with Copilot</p>
+          <h2>Ask about the code, with the Copilot you already have</h2>
+          <p>
+            Right-click a selection, a file or a folder, or ask about all the changes, and GitHub Copilot explains
+            them in a panel beside the diff — with your organization's subscription, its policies and nothing else.
+          </p>
+        </div>
+        <ul class="ai-grid">
+          {aiFeatures.map((feature) => (
+            <li class="card">
+              <h3>{feature.name}</h3>
+              <p>{feature.text}</p>
+            </li>
+          ))}
+        </ul>
+      </article>
+
       <div class="cards">
         <article class="card">
           <h3>Safe by default</h3>
@@ -275,9 +312,9 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
           </p>
         </article>
         <article class="card">
-          <h3>Looks like Rider</h3>
+          <h3>Live</h3>
           <p>
-            JetBrains Rider's <em>Islands Dark</em> theme, with the toolbar as the title bar, on macOS and Windows.
+            Changes made by the agent, an editor or a terminal show up in Commit mode as they happen.
           </p>
         </article>
         <article class="card">
@@ -288,10 +325,9 @@ const halfSizes = '(min-width: 1180px) 540px, (min-width: 860px) 50vw, calc(100v
           </p>
         </article>
         <article class="card">
-          <h3>Updates itself</h3>
+          <h3>Free and open source</h3>
           <p>
-            Arnold checks for a new release when it starts and every hour, downloads it in the background, and
-            offers to restart.
+            MIT licensed, on <a href={repo}>GitHub</a>, for macOS and Windows.
           </p>
         </article>
       </div>

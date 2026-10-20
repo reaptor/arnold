@@ -1,4 +1,4 @@
-/* Rider's Islands Dark, as in the app (src/styles.css): a dark frame with rounded islands on it. */
+/* The app's dark theme (src/styles.css): a dark frame with rounded islands on it. */
 :root {
   --bg: #191a1c;
   --frame: #1e1f22;
@@ -405,6 +405,11 @@ em {
   color: var(--fsharp);
 }
 
+/* Blue, as the AI panel's icon in the app. */
+.eyebrow.ai {
+  color: var(--link);
+}
+
 .feature {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -512,7 +517,14 @@ em {
 
 /* Install */
 
-.install {
+.ai-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.install,
+.ai-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
@@ -628,7 +640,8 @@ em {
     margin-bottom: 88px;
   }
 
-  .install {
+  .install,
+  .ai-grid {
     grid-template-columns: 1fr;
   }
 

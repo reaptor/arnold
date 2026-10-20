@@ -2,31 +2,31 @@
 
 # Arnold
 
-**From an agent's uncommitted changes to a merged pull request, in one app.**
+**Review your agent's F# with the compiler at your side.**
 
-Arnold is a desktop app for macOS and Windows that takes code changes the whole way: commit them, compare branches, push, open a pull request and review it until it is completed. It is built for the work AI agents leave behind. Their uncommitted changes are gone through, fixed and committed line by line as in Git Extensions; the branch is reviewed the way its pull request will show it; and Azure DevOps pull requests are created, linked to work items, discussed, voted on and completed without leaving the app.
-
-F# is a first-class citizen throughout: FsAutoComplete runs in every diff, with errors, hover, go to definition and completion while you edit, and in repositories that use Fantomas, an unformatted code base is caught before it is committed.
+Arnold is a desktop app for macOS and Windows, made for the work AI agents leave behind. Every diff is a real F# editor (errors, hover, go to definition, rename, quick fixes and Fantomas) while you commit the agent's changes line by line, review the branch and see its Azure DevOps pull request through to completion. GitHub Copilot, through your organization's own subscription, explains any of it on request.
 
 ![Arnold in Commit mode: the Unstaged and Staged lists on the left, the side-by-side diff of an F# file with the agent's fix, the commit message, and Review against main, Push and Push & create PR in the toolbar](docs/screenshots/commit.png)
 
 ## Highlights
 
-**Commit.** An agent's uncommitted changes in Unstaged and Staged lists, editable in the diff, with `S`, `U` and `R` to stage, unstage and reset files or single lines, as in Git Extensions. Changes made by the agent, an editor or a terminal show up as they happen.
+**F#, first class.** Most diff viewers show F# as colored text. Arnold runs [FsAutoComplete](https://github.com/ionide/FsAutoComplete), the language server behind Ionide, in every diff: in Commit mode, in a branch review and in a pull request. Errors as you read, hover, go to definition, find references, rename everywhere, quick fixes, completion and semantic colors. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
 
-**Compare branches.** Any branch against the branch it goes into, as a pull request shows it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files. A branch checked out nowhere else gets a git worktree of its own, so you can always fix things right in the diff: edits are saved to its checkout and marked until you commit them.
+**Zero setup.** Nothing to install but the .NET SDK. Arnold downloads FsAutoComplete itself, and branches and pull requests get a real checkout (a worktree of their own when they need one), with tools and packages restored, so the language server sees your projects as they are.
 
-**Push and open the pull request.** *Review against main*, *Push* and *Push & create PR* sit in the toolbar after committing. A new pull request gets a Markdown description and, if you like, a linked work item; once the branch has one, the button opens it instead.
+**The whole way, in one window.** Commit what the agent left uncommitted, review the branch, push, open the pull request and review it until it is completed.
 
-**Review pull requests.** The active Azure DevOps pull requests, their discussions in the diff, comments on lines and files, votes, and completing with the merge type of your choice.
+**Commit, line by line.** An agent's uncommitted changes in Unstaged and Staged lists, editable in the diff, with `S`, `U` and `R` to stage, unstage and reset files or single lines, as in Git Extensions. Changes made by the agent, an editor or a terminal show up as they happen.
 
-**F#, including Fantomas.** Errors, hover, go to definition, find references, completion and Rider's colors from [FsAutoComplete](https://github.com/ionide/FsAutoComplete), which Arnold installs and keeps up to date itself. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
+**Compare branches.** Any branch against the branch it goes into, as its pull request will show it: merge-base → the branch's last commit, one file at a time or every file in one scrolling list, narrowed to some of its commits if you like, with `F7` to step from change to change across files. A branch checked out nowhere else gets a git worktree of its own, so you can always fix things right in the diff.
 
-**Explain with Copilot.** Select code, right-click a file or folder, or ask about all the changes, and GitHub Copilot explains them in a panel beside the diff, with follow-up questions. It uses your own Copilot subscription.
+**Azure DevOps pull requests.** Create them with a Markdown description and a linked work item; then the active pull requests, their discussions in the diff, comments on lines and files, suggestions, votes, and completing with the merge type of your choice.
+
+**Explain with your organization's Copilot.** Select code, right-click a file or folder, or ask about all the changes, and GitHub Copilot explains them in a panel beside the diff, with follow-up questions. Arnold has no AI service of its own: it uses the Copilot your organization already provides, so code goes only to GitHub Copilot, under your organization's agreement and policies.
 
 **Safe by default.** Comparing and reviewing never touch the opened folder (other branches and pull requests are checked out in worktrees of their own); only Commit mode writes, and only when you ask. Nothing is ever force-pushed.
 
-**Looks like Rider.** JetBrains Rider's *Islands Dark* theme, with the toolbar as the title bar.
+**Keyboard first.** `F7` for the next change across files, `S`/`U`/`R` to stage, unstage and reset, and the F# keys you know from Rider and Visual Studio.
 
 **Contents:** [Install](#install) · [Getting started](#getting-started) · [Committing](#committing) · [Comparing branches](#comparing-branches) · [Azure DevOps pull requests](#azure-devops-pull-requests) · [F#](#f) · [Explaining code with AI](#explaining-code-with-ai) · [Keyboard shortcuts](#keyboard-shortcuts) · [What Arnold writes](#what-arnold-writes) · [Status](#status) · [License](#license) · [Development](#development)
 
@@ -36,12 +36,6 @@ Download the installer from [arnoldapp.dev](https://arnoldapp.dev) or [Releases]
 
 - **macOS:** the build is not signed with a developer certificate yet. Try to open the `.pkg` once, then choose *Open Anyway* under *System Settings → Privacy & Security*.
 - **Windows:** the installers are signed by Reaptor AB. While Arnold is new, SmartScreen may still show *Windows protected your PC*; choose *More info → Run anyway*.
-
-### Updates
-
-Arnold updates itself. It looks for a newer release when it starts and then once an hour, downloads it in the background, and shows *Restart to update to …* at the right end of the status bar. Restarting installs it and reopens the repository where you were; edits are saved first. On Windows the installer closes Arnold, updates it and starts it again; on macOS it may ask for an administrator password, since the `.pkg` installs `Arnold.app` as the system.
-
-To check right away, click the version at the right end of the status bar and choose *Check for updates* (on macOS also *Arnold → Check for Updates…*).
 
 ### Start from a terminal
 
@@ -240,7 +234,7 @@ As in Azure DevOps, the toolbar has *Approve* and *Complete*:
 
 ### Language features
 
-In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors as in Rider, and unused `open`s faded out. Where the diff can be edited (everywhere but a picked run of commits) there are FsAutoComplete's quick fixes and refactorings, such as *Remove unused open*: `Alt+Enter` (as in Rider) or `Ctrl+.` / `Cmd+.` lists those for the cursor's line or the selection, as do *Quick fixes…* in the right-click menu and the hover card of an error or hint; `↑`/`↓` and `Enter` pick one, which edits the file like typing would (in a pull request, into a suggestion). *Remove unused opens* in the right-click menu removes every unused `open` of the file at once. *Rename…* (`F2`, or `Ctrl+R` `Ctrl+R` as in Visual Studio) renames the symbol under the cursor everywhere FsAutoComplete finds it: type the new name in the box on the symbol and press `Enter`. Files on screen change like typing would; the others are changed on disk in the checkout and show up as edited. There is completion and signature help too: the list comes up as a name starts or after a dot (`Ctrl+Space` asks anywhere), narrows as you type, shows the highlighted item's signature and documentation beside it, and `Tab` or `Enter` takes it. The file headers of the all-files view count the errors of every changed F# file.
+In F# files the diff has errors and warnings, hover, go to definition (`F12`, `Ctrl`/`Cmd`+click or the context menu; *Back* returns), find references (`Shift+F12`), semantic colors, and unused `open`s faded out. Where the diff can be edited (everywhere but a picked run of commits) there are FsAutoComplete's quick fixes and refactorings, such as *Remove unused open*: `Alt+Enter` or `Ctrl+.` / `Cmd+.` lists those for the cursor's line or the selection, as do *Quick fixes…* in the right-click menu and the hover card of an error or hint; `↑`/`↓` and `Enter` pick one, which edits the file like typing would (in a pull request, into a suggestion). *Remove unused opens* in the right-click menu removes every unused `open` of the file at once. *Rename…* (`F2`, or `Ctrl+R` `Ctrl+R` as in Visual Studio) renames the symbol under the cursor everywhere FsAutoComplete finds it: type the new name in the box on the symbol and press `Enter`. Files on screen change like typing would; the others are changed on disk in the checkout and show up as edited. There is completion and signature help too: the list comes up as a name starts or after a dot (`Ctrl+Space` asks anywhere), narrows as you type, shows the highlighted item's signature and documentation beside it, and `Tab` or `Enter` takes it. The file headers of the all-files view count the errors of every changed F# file.
 
 ![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
 
@@ -276,9 +270,15 @@ The ✦ button at the right of the toolbar (`Ctrl+Shift+A`, `Cmd+Shift+A` on mac
 
 Then ask follow-up questions in the box below; *New chat* starts over. `path:line` references in answers open the code, and *Back* returns.
 
-**Signing in.** Arnold uses your own [GitHub Copilot](https://github.com/features/copilot/plans) subscription (the free plan works too). *Sign in with GitHub* shows a code and opens github.com/login/device, where you enter it and approve Arnold; the sign-in is kept in the macOS Keychain or Windows Credential Manager. Without one, a token in `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` is used.
+**Your organization's Copilot.** Arnold has no AI service or account of its own. It signs in with your GitHub account and uses the [GitHub Copilot](https://github.com/features/copilot/plans) your organization already provides (Copilot Business or Enterprise), or your own plan if you have one (the free plan works too). That makes it as safe as Copilot already is for you:
 
-**How it works.** Answers come from GitHub's [Copilot SDK](https://github.com/github/copilot-sdk) and the GitHub Copilot CLI it drives, which Arnold downloads from GitHub the first time (about 115 MB) into its own data folder; its version comes with Arnold's updates. The CLI keeps its state in that folder too, not in `~/.copilot`. Copilot is given no tools: it cannot read other files or run anything, only answer from what Arnold sends. The code you ask about is sent to GitHub Copilot with your question; usage counts against your Copilot plan.
+- the code you ask about goes only to GitHub Copilot, under the agreement your organization has with GitHub; Arnold has no server of its own and sees nothing;
+- your organization's Copilot policies apply, as GitHub enforces them: whether Copilot CLI may be used at all, and which models are allowed. The model menu at the top of the panel lists the models your plan offers; *Auto* lets Copilot pick;
+- usage counts against your Copilot seat, like any other Copilot use.
+
+**Signing in.** *Sign in with GitHub* shows a code and opens github.com/login/device, where you enter it and approve Arnold; the sign-in is kept in the macOS Keychain or Windows Credential Manager. Without one, a token in `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN` is used.
+
+**How it works.** Answers come from GitHub's [Copilot SDK](https://github.com/github/copilot-sdk) and the GitHub Copilot CLI it drives, which Arnold downloads from GitHub the first time (about 115 MB) into its own data folder; each Arnold release pins its version. The CLI keeps its state in that folder too, not in `~/.copilot`. Copilot is given no tools: it cannot read other files or run anything, only answer from what Arnold sends. The code you ask about is sent to GitHub Copilot with your question; usage counts against your Copilot plan.
 
 ## Keyboard shortcuts
 
