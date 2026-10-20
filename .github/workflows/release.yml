@@ -116,6 +116,9 @@ jobs:
           SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
           $ErrorActionPreference = 'Stop'
           $ProgressPreference = 'SilentlyContinue'
@@ -140,7 +143,7 @@ jobs:
           # straight away instead of trying every other Azure login.
           $metadata = Join-Path $dir metadata.json
           @{
-            Endpoint = $env:SIGNING_ENDPOINT
+            Endpoint = $env:SIGNING_ENDPOINT.TrimEnd('/')
             CodeSigningAccountName = $env:SIGNING_ACCOUNT
             CertificateProfileName = $env:SIGNING_PROFILE
             CorrelationId = "$env:GITHUB_REPOSITORY run $env:GITHUB_RUN_ID"
@@ -150,6 +153,14 @@ jobs:
               'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential'
             )
           } | ConvertTo-Json | Set-Content $metadata
+
+          # Sign a copy of SignTool once, before the build. Tauri hides SignTool's output when
+          # signing fails, so a wrong secret, role or profile shows its error here instead.
+          $check = Join-Path $dir signing-check.exe
+          Copy-Item $signtool.FullName $check
+          & $signtool.FullName sign /v /debug /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 `
+            /dlib $dlib /dmdf $metadata $check
+          if ($LASTEXITCODE) { throw "SignTool couldn't sign a test file (exit code $LASTEXITCODE)" }
 
           # /d names the MSI in the UAC prompt; without it the prompt shows a random name.
           $file = 'src-tauri/tauri.windows.conf.json'
