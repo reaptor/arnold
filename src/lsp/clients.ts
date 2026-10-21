@@ -14,6 +14,7 @@ import {
 import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
+import { atPointer } from "./atPointer";
 import { codeActionCapabilities, codeActions } from "./codeActions";
 import { serverCompletion } from "./completion";
 import { rename } from "./rename";
@@ -178,6 +179,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
           serverCompletion,
           signatureHelp(),
           hoverTooltips(),
+          atPointer,
           keymap.of([...jumpToDefinitionKeymap, ...findReferencesKeymap]),
           // Before diagnostics: its publishDiagnostics hook only refreshes
           // and lets the notification through.

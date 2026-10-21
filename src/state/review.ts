@@ -1792,8 +1792,11 @@ export function goToDefinition() {
   menuTarget = null;
 }
 
-/** "Quick fixes" in the context menu: the fixes for the selection, or for the right-clicked line when that is outside it. */
-export function showQuickFixes() {
+/**
+ * "Quick fixes" in the context menu: the fixes for the selection, or for the
+ * right-clicked line when that is outside it, at `pointer`, where the item was clicked.
+ */
+export function showQuickFixes(pointer: { x: number; y: number }) {
   setState("menu", null);
   const target = menuTarget;
   menuTarget = null;
@@ -1802,7 +1805,7 @@ export function showQuickFixes() {
   const selection = view.state.selection.main;
   if (position < selection.from || position > selection.to) view.dispatch({ selection: { anchor: position } });
   view.focus();
-  showFixes(view);
+  showFixes(view, pointer);
 }
 
 /** "Rename…" in the context menu: the right-clicked symbol. */

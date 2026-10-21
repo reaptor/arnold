@@ -11,6 +11,7 @@ import { type Diagnostic, forEachDiagnostic, setDiagnostics, setDiagnosticsEffec
 import { type LSPClient, type LSPClientExtension, LSPPlugin } from "@codemirror/lsp-client";
 import type { Range, Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { lastPointer } from "./atPointer";
 import { type FromServer, type ServerDiagnostic, showFixes } from "./codeActions";
 
 const enum Tag {
@@ -25,13 +26,14 @@ const UNUSED_OPEN = "FSAC0001";
 /** FsAutoComplete's code for "Parentheses can be removed"; its range covers the parentheses too. */
 const REMOVABLE_PARENS = "FSAC0004";
 
-/** "Quick fixes" in a diagnostic's hover card: the fixes menu for where it starts. */
+/** "Quick fixes" in a diagnostic's hover card: the fixes menu for where it starts, where the button was clicked. */
 const quickFixes = {
   name: "Quick fixes",
   apply(view: EditorView, from: number) {
+    const pointer = lastPointer(view);
     view.dispatch({ selection: { anchor: from } });
     view.focus();
-    showFixes(view);
+    showFixes(view, pointer);
   },
 };
 

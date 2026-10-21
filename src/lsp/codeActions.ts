@@ -3,14 +3,15 @@
 // none, so they are asked for here: `Alt+Enter` (as in Rider) or `Mod-.`
 // (as in VS Code) lists the actions for the selection in a menu at the
 // cursor, and the editor's context menu and the hover card of a diagnostic
-// open the same menu. Only actions that come with their edits are offered
+// open the same menu where they are clicked (atPointer.ts). Only actions that come with their edits are offered
 // (the client answers no server requests, so commands could not edit), and
 // only in editors that can be typed in.
 
 import { forEachDiagnostic } from "@codemirror/lint";
 import { LSPPlugin } from "@codemirror/lsp-client";
 import { type Extension, Prec, StateEffect, StateField } from "@codemirror/state";
-import { EditorView, keymap, showTooltip, type Tooltip } from "@codemirror/view";
+import { closeHoverTooltips, EditorView, keymap, showTooltip, type Tooltip } from "@codemirror/view";
+import { type DocPoint, docPoint, pointCoords } from "./atPointer";
 import { canonicalUri } from "./uri";
 
 interface Position {
@@ -225,6 +226,8 @@ export async function removeUnusedOpens(view: EditorView): Promise<number> {
 
 interface Menu {
   pos: number;
+  /** Where the pointer opened it; at `pos` when the keyboard did. */
+  at?: DocPoint;
   /** null while the server is asked. */
   fixes: Fix[] | null;
 }
@@ -249,12 +252,14 @@ function menuView(view: EditorView, menu: Menu) {
   const dom = document.createElement("ul");
   dom.className = "cm-fixMenu";
   dom.setAttribute("role", "menu");
+  const at = menu.at;
+  const getCoords = at && (() => pointCoords(view, at));
   const fixes = menu.fixes;
   if (fixes === null || fixes.length === 0) {
     const row = dom.appendChild(document.createElement("li"));
     row.className = "cm-fixMenu-empty";
     row.textContent = fixes === null ? "Looking for fixes…" : "No quick fixes here";
-    return { dom };
+    return { dom, getCoords };
   }
   const rows = fixes.map((fix, index) => {
     const row = dom.appendChild(document.createElement("li"));
@@ -275,6 +280,7 @@ function menuView(view: EditorView, menu: Menu) {
   highlight(highlighted.get(menu) ?? 0);
   return {
     dom,
+    getCoords,
     update() {
       highlight(highlighted.get(menu) ?? 0);
     },
@@ -298,16 +304,20 @@ function move(view: EditorView, by: number): boolean {
   return true;
 }
 
-/** Shows the fixes for the selection in a menu at the cursor. False (nothing done) where there is no server or the editor is read-only. */
-export function showFixes(view: EditorView): boolean {
+/**
+ * Shows the fixes for the selection in a menu at the cursor, or at `pointer`
+ * (window coordinates) when the mouse opened it; a hover card gives way to
+ * it. False (nothing done) where there is no server or the editor is read-only.
+ */
+export function showFixes(view: EditorView, pointer?: { x: number; y: number }): boolean {
   if (!LSPPlugin.get(view) || view.state.readOnly) return false;
   const pos = view.state.selection.main.head;
-  const asking: Menu = { pos, fixes: null };
-  view.dispatch({ effects: setMenu.of(asking) });
+  const asking: Menu = { pos, at: pointer && docPoint(view, pointer), fixes: null };
+  view.dispatch({ effects: [setMenu.of(asking), closeHoverTooltips] });
   void fixesAt(view).then((fixes) => {
     // Still open, and for the same place.
     if (view.state.field(menuField, false) !== asking) return;
-    view.dispatch({ effects: setMenu.of({ pos, fixes: fixes ?? [] }) });
+    view.dispatch({ effects: setMenu.of({ ...asking, fixes: fixes ?? [] }) });
   });
   return true;
 }
@@ -341,8 +351,8 @@ export const codeActions: Extension = [
   menuField,
   menuKeys,
   keymap.of([
-    { key: "Alt-Enter", run: showFixes, preventDefault: true },
-    { key: "Mod-.", run: showFixes, preventDefault: true },
+    { key: "Alt-Enter", run: (view) => showFixes(view), preventDefault: true },
+    { key: "Mod-.", run: (view) => showFixes(view), preventDefault: true },
   ]),
   EditorView.focusChangeEffect.of((state, focusing) => (!focusing && state.field(menuField, false) ? setMenu.of(null) : null)),
 ];

@@ -313,7 +313,7 @@ export function App() {
                 <kbd>F12</kbd>
               </li>
               <Show when={menu().fixes}>
-                <li onClick={() => showQuickFixes()}>
+                <li onClick={(event) => showQuickFixes({ x: event.clientX, y: event.clientY })}>
                   <span>Quick fixes…</span>
                   <kbd>{isMac ? "⌥↩" : "Alt+Enter"}</kbd>
                 </li>
