@@ -59,7 +59,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
   let changesList!: HTMLUListElement;
   let explorer!: HTMLElement;
   const [filter, setFilter] = createSignal("");
-  let treeControls: TreeControls | undefined;
+  const [treeControls, setTreeControls] = createSignal<TreeControls>();
   /** "3 commits" when only some of the branch's commits are shown. */
   const picked = () => {
     if (!state.range) return null;
@@ -236,11 +236,11 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
           explanation={`File explorer: every file in ${state.range ? `commit ${state.range.newest.slice(0, 7)}, the newest one picked` : `the last commit of ${branchNames().head}`}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
         >
           <Show when={explorerOpen()}>
-            <TreeButtons controls={() => treeControls} filtering={!!filter()} />
+            <TreeButtons controls={treeControls} filtering={!!filter()} />
           </Show>
         </DockHeading>
         <Show when={explorerOpen()}>
-          <FileTree filter={filter()} controls={(controls) => (treeControls = controls)} />
+          <FileTree filter={filter()} controls={setTreeControls} />
         </Show>
       </section>
     </aside>

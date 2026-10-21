@@ -93,6 +93,8 @@ function eachFolder(folder: Folder, visit: (folder: Folder) => void) {
 
 /** What the buttons in the explorer's heading do to the tree. */
 export interface TreeControls {
+  /** What Expand selected opens: the folder or file picked, or null for the whole tree. */
+  selected(): string | null;
   expandSelected(): void;
   collapseAll(): void;
 }
@@ -183,27 +185,32 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
 
   const toggle = (path: string) => setExpanded(path, !expanded[path]);
 
+  const inTree = (path: string | null): path is string => !!path && (fileSet().has(path) || !!folderAt(tree(), path));
+  /** The row under the cursor, or else the file shown, if it is in the tree. */
+  const selected = () => [cursor(), explorerSelection()].find(inTree) ?? null;
+
   /**
    * Opens the folder under the cursor and every folder in it. With a file
    * there (or nothing picked, the file shown), opens the folders down to it.
+   * With nothing selected, opens every folder.
    */
   const expandSelected = () => {
-    const path = cursor() ?? explorerSelection();
-    if (!path) return;
-    const folder = fileSet().has(path) ? undefined : folderAt(tree(), path);
+    const path = selected();
+    const folder = path === null ? tree() : fileSet().has(path) ? undefined : folderAt(tree(), path);
     setExpanded(
       produce((open) => {
-        for (const above of ancestors(path)) open[above] = true;
-        if (folder) eachFolder(folder, (inner) => (open[inner.path] = true));
+        if (path) for (const above of ancestors(path)) open[above] = true;
+        // The root (path "") has no row to open.
+        if (folder) eachFolder(folder, (inner) => inner.path && (open[inner.path] = true));
       }),
     );
-    scrollToRow(indexOf(path));
+    if (path) scrollToRow(indexOf(path));
   };
 
   /** Closes every folder; the cursor stays, so Expand selected finds its way back. */
   const collapseAll = () => setExpanded(reconcile({}));
 
-  props.controls?.({ expandSelected, collapseAll });
+  props.controls?.({ selected, expandSelected, collapseAll });
 
   const activate = (row: Row) => {
     setCursor(row.path);
@@ -341,7 +348,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
   );
 }
 
-/** "Expand selected" and "Collapse all" at the end of the All files heading. */
+/** "Expand selected" (or "Expand all", with nothing selected) and "Collapse all" at the end of the All files heading. */
 export function TreeButtons(props: { controls: () => TreeControls | undefined; filtering: boolean }) {
   const run = (event: MouseEvent, action: (controls: TreeControls) => void) => {
     event.stopPropagation();
@@ -349,13 +356,18 @@ export function TreeButtons(props: { controls: () => TreeControls | undefined; f
     if (controls) action(controls);
   };
   const off = () => (props.filtering ? " (not while filtering: the files are listed flat)" : "");
+  const all = () => props.controls()?.selected() === null;
   return (
     <>
       <button
         class="dock-action dock-icon-action"
         disabled={props.filtering}
-        title={`Expand selected: open the selected folder and every folder in it, or the folders down to the selected file (*)${off()}`}
-        aria-label="Expand selected"
+        title={
+          all()
+            ? `Expand all: open every folder (*)${off()}`
+            : `Expand selected: open the selected folder and every folder in it, or the folders down to the selected file (*)${off()}`
+        }
+        aria-label={all() ? "Expand all" : "Expand selected"}
         onClick={(event) => run(event, (controls) => controls.expandSelected())}
       >
         <ExpandIcon />

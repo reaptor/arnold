@@ -29,7 +29,7 @@ function fileTitle(side: WorkingSide, file: ChangedFile): string {
  */
 export function WorkingDock(props: { width: number; hidden?: boolean }) {
   const [filter, setFilter] = createSignal("");
-  let treeControls: TreeControls | undefined;
+  const [treeControls, setTreeControls] = createSignal<TreeControls>();
   const [open, setOpen] = createSignal({
     unstaged: remembered("unstagedOpen") !== "false",
     staged: remembered("stagedOpen") !== "false",
@@ -384,11 +384,11 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
           explanation="File explorer: every file of the checkout as it is on disk, tracked or not (ignored files left out). Files with uncommitted changes are marked with their status letter. Click a file to open it; it can be edited."
         >
           <Show when={open().explorer}>
-            <TreeButtons controls={() => treeControls} filtering={!!filter()} />
+            <TreeButtons controls={treeControls} filtering={!!filter()} />
           </Show>
         </DockHeading>
         <Show when={open().explorer}>
-          <FileTree filter={filter()} controls={(controls) => (treeControls = controls)} />
+          <FileTree filter={filter()} controls={setTreeControls} />
         </Show>
       </section>
     </aside>
