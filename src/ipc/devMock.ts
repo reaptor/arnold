@@ -21,6 +21,7 @@ import type {
   NewThreadPlace,
   PrChange,
   PrRemote,
+  Placement,
   PrThread,
   PullRequest,
   RepoInfo,
@@ -600,8 +601,9 @@ function changedFiles(picked: readonly Commit[], set = files, list: readonly Moc
 }
 
 // `?notcheckedout`: the folder is on main, so the agent's branch is checked
-// out in a worktree of its own when compared. `?dirtyfolder`: the same, and
-// main has uncommitted changes (those of `?uncommitted`), which stay.
+// out there when compared. `?dirtyfolder`: the same, and main has
+// uncommitted changes (those of `?uncommitted`), so Arnold asks whether to
+// check out in a worktree or throw them away.
 const notCheckedOut = searchParams.has("notcheckedout") || searchParams.has("dirtyfolder");
 
 const repo: RepoInfo = {
@@ -633,9 +635,49 @@ function branch(name: string, worktreePath: string | null, hoursAgo: number, las
   };
 }
 
-// `?checkoutfail`: checking a branch out in a worktree fails.
-function branchWorktree(name: string) {
-  if (searchParams.has("checkoutfail")) throw "git worktree add failed: fatal: could not create work tree dir (dev mock)";
+/** The opened folder's uncommitted changes, as `branch_checkout` counts them. */
+function folderChanges() {
+  checkoutState();
+  const entry = prTrees.get(ROOT);
+  const changed = entry ? diffOf(entry.tip, entry.tree) : [...diffOf(index, worktree), ...diffOf(headMap(), index)];
+  const paths = new Set(changed.map((file) => file.path));
+  const untracked = changed.filter((file) => file.status === "added" && !headMap().has(file.path)).length;
+  return paths.size === 0 ? null : { kind: "changes" as const, files: paths.size, untracked: Math.min(untracked, paths.size) };
+}
+
+/** Throws the opened folder's uncommitted changes away. */
+function discardFolder() {
+  const entry = prTrees.get(ROOT);
+  if (entry) entry.tree = new Map(entry.tip);
+  index = new Map(headMap());
+  worktree = new Map(headMap());
+}
+
+/** The pull request detached in the opened folder, if any. */
+let folderPullRequest: number | null = null;
+
+/** `branch_checkout`: in the opened folder unless it has changes (`here`), after throwing them away, or in a worktree. */
+function branchCheckout(name: string, placement: Placement) {
+  if (searchParams.has("checkoutfail")) throw "git switch failed: fatal: could not lock HEAD (dev mock)";
+  if (placement === "worktree") return { kind: "done", ...branchWorktree(name) };
+  const local = localBranch(name);
+  if (local.worktreePath) return { kind: "done", branch: local.name, path: local.worktreePath, created: false };
+  const changes = folderChanges();
+  if (changes && placement === "here") return changes;
+  // The mock keeps no stash: stashed changes are gone from it as discarded ones are.
+  if (changes) discardFolder();
+  for (const other of repo.branches) if (other.worktreePath === ROOT) other.worktreePath = null;
+  prTrees.delete(ROOT);
+  folderPullRequest = null;
+  local.worktreePath = ROOT;
+  repo.currentBranch = local.name;
+  committedOn = local.name;
+  setTimeout(() => void emit("refs-changed"), 50);
+  return { kind: "done", branch: local.name, path: ROOT, created: true };
+}
+
+/** The local branch for `name`, made from the remote branch when there is none. */
+function localBranch(name: string) {
   const localName = name.replace(/^origin\//, "");
   let local = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === localName);
   const remote = repo.branches.find((candidate) => candidate.isRemote && candidate.name === `origin/${localName}`);
@@ -644,6 +686,13 @@ function branchWorktree(name: string) {
     repo.branches.push(local);
   }
   if (!local) throw `not a branch: ${name} (dev mock)`;
+  return local;
+}
+
+// `?checkoutfail`: checking a branch out fails.
+function branchWorktree(name: string) {
+  if (searchParams.has("checkoutfail")) throw "git worktree add failed: fatal: could not create work tree dir (dev mock)";
+  const local = localBranch(name);
   if (local.worktreePath) return { branch: local.name, path: local.worktreePath, created: false };
   // The mock's checkouts share one set of files.
   local.worktreePath = `${ROOT}/.arnold/worktrees/${local.name.replace(/[^\w.-]/g, "-")}`;
@@ -697,9 +746,28 @@ function filesAt(commit: string) {
   return own ? tipOf(own) : new Map(headMap());
 }
 
-function pullRequestWorktree(root: string, id: number, commit: string, create: boolean, discard: boolean) {
+/** `pull_request_checkout`: the opened folder or the pull request's worktree, as `placement` says when it has none. */
+function pullRequestCheckout(root: string, id: number, commit: string, create: boolean, placement: Placement) {
   checkoutState();
-  const path = `${root}/.arnold/worktrees/pr-${id}`;
+  const inFolder = folderPullRequest === id && prTrees.has(ROOT);
+  const own = prTrees.has(`${root}/.arnold/worktrees/pr-${id}`);
+  if (inFolder || own || (create && placement === "worktree")) {
+    const found = pullRequestWorktree(inFolder ? ROOT : `${root}/.arnold/worktrees/pr-${id}`, commit, true, placement === "discard");
+    return { kind: "done", ...found };
+  }
+  if (!create) return null;
+  const changes = folderChanges();
+  if (changes && placement === "here") return changes;
+  if (changes) discardFolder();
+  for (const other of repo.branches) if (other.worktreePath === ROOT) other.worktreePath = null;
+  repo.currentBranch = null;
+  prTrees.delete(ROOT);
+  folderPullRequest = id;
+  setTimeout(() => void emit("refs-changed"), 50);
+  return { kind: "done", ...pullRequestWorktree(ROOT, commit, true, false) };
+}
+
+function pullRequestWorktree(path: string, commit: string, create: boolean, discard: boolean) {
   let entry = prTrees.get(path);
   if (!entry && !create) return null;
   const edited = () => !!entry && diffOf(entry.tip, entry.tree).length > 0;
@@ -1770,12 +1838,12 @@ export function install() {
             ...(range ? null : comparedOnDisk(args.head, args.checkout ?? null)),
           } satisfies Comparison;
         }
-        case "pull_request_worktree": {
-          const { id, create, discard } = payload as { id: number; create: boolean; discard?: boolean };
-          return slowly(() => pullRequestWorktree(args.root, id, args.commit, create, !!discard), 400);
+        case "pull_request_checkout": {
+          const { id, create, placement } = payload as { id: number; create: boolean; placement: Placement };
+          return slowly(() => pullRequestCheckout(args.root, id, args.commit, create, placement), 400);
         }
-        case "branch_worktree":
-          return slowly(() => branchWorktree(args.branch), 300);
+        case "branch_checkout":
+          return slowly(() => branchCheckout(args.branch, (payload as { placement: Placement }).placement), 300);
         case "list_files": {
           if (args.checkout) {
             checkoutState();

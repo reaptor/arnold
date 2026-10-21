@@ -105,8 +105,8 @@ const ACTIVITY: Record<string, string> = {
   read_working_pair: "Reading the file",
   working_status: "Reading the uncommitted changes",
   worktree_files: "Listing files",
-  branch_worktree: "Checking out the branch",
-  pull_request_worktree: "Checking out the pull request",
+  branch_checkout: "Checking out the branch",
+  pull_request_checkout: "Checking out the pull request",
   undo_file_edits: "Undoing edits",
   ignore_path: "Ignoring",
   untrack_path: "Untracking",
@@ -185,7 +185,7 @@ export const compareBranches = (
   checkout: string | null = null,
 ) => invoke<Comparison>("compare_branches", { root, base, head, range, checkout });
 
-/** A worktree of Arnold's own in `.arnold/worktrees`, detached at a commit. */
+/** A detached checkout of a pull request: the opened folder, or a worktree of Arnold's own in `.arnold/worktrees`. */
 export interface Worktree {
   path: string;
   /** The commit checked out there. */
@@ -195,12 +195,26 @@ export interface Worktree {
 }
 
 /**
- * The worktree pull request `id` is edited in, moved to `commit` when it has
- * no edits (or with `discard`, after throwing them away). `create` makes it
- * when there is none; otherwise that resolves to null.
+ * Where a branch or pull request checked out nowhere yet is checked out: in
+ * the opened folder (`here`, refused while it has uncommitted changes), in
+ * the opened folder after stashing its uncommitted changes (`stash`) or
+ * throwing them away (`discard`), or in a worktree of its own in
+ * `.arnold/worktrees`.
  */
-export const pullRequestWorktree = (root: string, id: number, commit: string, create: boolean, discard = false) =>
-  invoke<Worktree | null>("pull_request_worktree", { root, id, commit, create, discard });
+export type Placement = "here" | "stash" | "discard" | "worktree";
+
+/** What came of checking out: done, or refused since the opened folder has uncommitted changes. */
+export type CheckedOut<T> = ({ kind: "done" } & T) | { kind: "changes"; files: number; untracked: number };
+
+/**
+ * Where pull request `id` is checked out to be edited (the opened folder,
+ * detached, or `.arnold/worktrees/pr-<id>`), moved to `commit` when it has
+ * no edits (or with `discard`, after throwing them away). Checked out
+ * nowhere, `create` checks it out as `placement` says; otherwise that
+ * resolves to null.
+ */
+export const pullRequestCheckout = (root: string, id: number, commit: string, create: boolean, placement: Placement) =>
+  invoke<CheckedOut<Worktree> | null>("pull_request_checkout", { root, id, commit, create, placement });
 
 /** Every file of the compared commit, or of the checkout the comparison reads. */
 export const listFiles = (root: string, comparison: Comparison) =>
@@ -245,16 +259,16 @@ export interface BranchCheckout {
   /** The local branch checked out: the one asked for, or `x` for a remote branch `origin/x`. */
   branch: string;
   path: string;
-  /** Whether it was checked out just now, in a new worktree. */
+  /** Whether it was checked out just now. */
   created: boolean;
 }
 
 /**
- * Where `branch` is checked out; checked out in a worktree of its own
- * (`.arnold/worktrees/<branch>`) when it is checked out nowhere. The opened
- * folder is never switched.
+ * Where `branch` is checked out; when it is checked out nowhere, checked
+ * out as `placement` says (in the opened folder by default).
  */
-export const branchWorktree = (root: string, branch: string) => invoke<BranchCheckout>("branch_worktree", { root, branch });
+export const branchCheckout = (root: string, branch: string, placement: Placement) =>
+  invoke<CheckedOut<BranchCheckout>>("branch_checkout", { root, branch, placement });
 
 // ------------------------------------------------------- uncommitted changes
 

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use arnold_git::{Branch, BranchCheckout, CommitRange, Comparison, RepoInfo, Worktree};
+use arnold_git::{Branch, BranchCheckout, CheckedOut, CommitRange, Comparison, Placement, RepoInfo, Worktree};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
@@ -141,42 +141,47 @@ pub async fn compare_branches(
     Ok(comparison)
 }
 
-/// The worktree pull request `id` is edited in (`.arnold/worktrees/pr-<id>`),
-/// moved to `commit` when it has no edits (or with `discard`, after throwing
-/// them away). With `create` it is made if need be; without, `None` when
-/// there is none yet.
+/// Where pull request `id` is checked out to be edited in (the opened folder
+/// or `.arnold/worktrees/pr-<id>`), moved to `commit` when it has no edits
+/// (or with `discard` placement, after throwing them away). With `create`
+/// it is checked out as `placement` says when it is nowhere; without,
+/// `None` then.
 #[tauri::command]
-pub async fn pull_request_worktree(
+pub async fn pull_request_checkout(
     root: String,
     id: u64,
     commit: String,
     create: bool,
-    discard: bool,
+    placement: Placement,
     state: State<'_, AppState>,
-) -> Result<Option<Worktree>, String> {
+) -> Result<Option<CheckedOut<Worktree>>, String> {
     let root = state.checked_root(&root)?;
     if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("not a commit id: {commit}"));
     }
-    let name = format!("pr-{id}");
-    let found = arnold_git::find_worktree(&root, &name).await.map_err(text_error)?;
-    if found.is_none() && !create {
-        return Ok(None);
+    let checkout = arnold_git::pull_request_checkout(&root, id, &commit, create, placement).await.map_err(text_error)?;
+    if let Some(CheckedOut::Done(worktree)) = &checkout {
+        state.allow_root(&worktree.path);
     }
-    let worktree = arnold_git::detached_worktree(&root, &name, &commit, discard).await.map_err(text_error)?;
-    state.allow_root(&worktree.path);
-    Ok(Some(worktree))
+    Ok(checkout)
 }
 
-/// Where `branch` is checked out, checking it out in a worktree of its own
-/// (`.arnold/worktrees/<branch>`) when it is checked out nowhere, so it can be
-/// edited and the language server runs on its files. The opened folder is
-/// never switched.
+/// Where `branch` is checked out, checking it out when it is checked out
+/// nowhere, so it can be edited and the language server runs on its files:
+/// in the opened folder (refused while that has uncommitted changes, unless
+/// `placement` throws them away), or in a worktree of its own.
 #[tauri::command]
-pub async fn branch_worktree(root: String, branch: String, state: State<'_, AppState>) -> Result<BranchCheckout, String> {
+pub async fn branch_checkout(
+    root: String,
+    branch: String,
+    placement: Placement,
+    state: State<'_, AppState>,
+) -> Result<CheckedOut<BranchCheckout>, String> {
     let root = state.checked_root(&root)?;
-    let checkout = arnold_git::branch_worktree(&root, &branch).await.map_err(text_error)?;
-    state.allow_root(&checkout.path);
+    let checkout = arnold_git::branch_checkout(&root, &branch, placement).await.map_err(text_error)?;
+    if let CheckedOut::Done(done) = &checkout {
+        state.allow_root(&done.path);
+    }
     Ok(checkout)
 }
 

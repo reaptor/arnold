@@ -8,10 +8,11 @@
 //! is `push_commit`, when a pull request is created from a reviewed branch
 //! that is not on the server yet; it never forces.
 //!
-//! `branch_worktree` and `detached_worktree` make registered worktrees in
-//! `.arnold/worktrees`, so a branch or a pull request checked out nowhere
-//! else can be edited (and the language server run on its files) without
-//! touching the opened folder.
+//! `branch_checkout` and `pull_request_checkout` check a branch or a pull
+//! request checked out nowhere out, so it can be edited (and the language
+//! server run on its files): in the opened folder by default, or, to leave
+//! the uncommitted changes there untouched, in a registered worktree in
+//! `.arnold/worktrees` (`branch_worktree`, `detached_worktree`).
 //!
 //! A comparison whose branch is checked out reads that checkout's files, so
 //! they can be edited (saved through `working`).
@@ -47,7 +48,9 @@ pub use publish::{branch_sync, push_branch, BranchSync};
 pub use pull::{fast_forward_branches, fetch_remote, pull_branch, Pulled};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote};
-pub use worktree::{branch_worktree, detached_worktree, find_worktree, BranchCheckout, Worktree};
+pub use worktree::{
+    branch_checkout, branch_worktree, detached_worktree, find_worktree, pull_request_checkout, BranchCheckout, CheckedOut, Placement, Worktree,
+};
 pub use working::{
     commit, delete_files, discard, encode_like, ignore, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,

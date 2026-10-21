@@ -16,9 +16,11 @@ import * as ipc from "../ipc/commands";
 import type { BranchSync, ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
 import { branchNameFor } from "./branchName";
+import { checkOutAsking } from "./checkoutChoice";
 import { clearSolution, fileOrder, loadSolution } from "./solutionView";
 import {
   attachLanguageServer,
+  checkedOutText,
   editorCallbacks,
   fetchedText,
   fetching,
@@ -36,7 +38,6 @@ import {
   type ViewMode,
   whileFetching,
 } from "./review";
-import { relativeTo } from "../lsp/uri";
 import { holdPlaces } from "./places";
 import { openFor } from "./aiSuggestions";
 
@@ -1175,24 +1176,31 @@ export async function pullBranch() {
 
 /**
  * Commit mode on branch `name` (local, or a remote branch such as
- * `origin/x`): its checkout, or else a new worktree of it in
- * `.arnold/worktrees`, a remote branch as a local branch tracking it.
+ * `origin/x`, as a local branch tracking it): its checkout, or else checked
+ * out in the opened folder, or when that has uncommitted changes, where the
+ * user picks (a new worktree in `.arnold/worktrees`, or the folder after
+ * throwing the changes away).
  */
 export async function commitOnBranch(name: string) {
   const repo = state.repo;
   if (!repo) return;
   const local = repo.branches.find((branch) => !branch.isRemote && branch.name === name);
   if (local?.worktreePath) return setCheckout(local.worktreePath);
-  await flushSave();
   setState("committing", `Checking ${name} out…`);
   try {
-    const checkout = await ipc.branchWorktree(repo.root, name);
+    const checkout = await checkOutAsking(
+      { what: name, folder: repo.root, cancelNote: "Nothing is checked out." },
+      (placement) => ipc.branchCheckout(repo.root, name, placement),
+    );
+    if (!checkout) return;
     const branches = await ipc.listBranches(repo.root);
     if (state.repo !== repo) return;
     setState("repo", "branches", reconcile(branches, { key: "name" }));
-    if (checkout.created) notify(`Checked ${checkout.branch} out in ${relativeTo(repo.root, checkout.path) ?? checkout.path}`);
+    if (checkout.created) notify(checkedOutText(repo.root, checkout.branch, checkout.path, checkout.stashed));
     setState("committing", null);
-    await setCheckout(checkout.path);
+    // The folder shown switched branches: read again.
+    if (state.checkout !== null && samePath(checkout.path, state.checkout)) await openCheckout(checkout.path);
+    else await setCheckout(checkout.path);
   } catch (error) {
     fail(`Checking ${name} out failed`)(error);
   } finally {

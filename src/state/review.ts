@@ -28,6 +28,7 @@ import type {
   NewThreadPlace,
   PrChange,
   PrComment,
+  Placement,
   PrThread,
   PullRequest,
   RepoInfo,
@@ -50,6 +51,7 @@ import * as pullRequests from "./pullRequests";
 import * as commitMode from "./commitMode";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { flushSave, isSaving, queueSave, saveCount } from "./autosave";
+import { checkOutAsking } from "./checkoutChoice";
 import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
 import { loadCreators } from "./branchInfo";
 import { track } from "./activity";
@@ -840,6 +842,10 @@ export async function setSource(source: Source, remember = true) {
   if (source === "commit") return commitMode.enter();
   await setView("all");
   if (source === "pullRequest" && pullRequests.prs.list === null) void pullRequests.loadPullRequests();
+  // Checked out again if the opened folder moved on meanwhile (unless that was cancelled or failed).
+  if (source === "pullRequest" && state.pullRequest) {
+    await loadPrWorktree(checkoutProblem()?.key !== checkoutKey(state.repo.root, `!${state.pullRequest.id}`));
+  }
   await refresh();
 }
 
@@ -1291,10 +1297,10 @@ export async function undoFileEdits(path: string) {
 
 /**
  * What makes the diff editable: checking the branch or the pull request out
- * in a worktree of its own (again, after that failed), or throwing away
- * edits made to an earlier push of the pull request.
+ * (again, after that failed or was cancelled), or throwing away edits made
+ * to an earlier push of the pull request.
  */
-export type EditAction = { kind: "worktree" } | { kind: "discard" };
+export type EditAction = { kind: "checkOut"; label: string } | { kind: "discard" };
 
 /** Why the diff cannot be edited, and what would make it editable; null when it can (or edits do not apply). */
 export function editBlocked(): { reason: string; action: EditAction | null } | null {
@@ -1314,32 +1320,45 @@ export function editBlocked(): { reason: string; action: EditAction | null } | n
         action: { kind: "discard" },
       };
     }
+    return notCheckedOut("The pull request", checkoutKey(repo.root, `!${pullRequest.id}`));
+  }
+  return notCheckedOut(comparison.head, checkoutKey(repo.root, comparison.head));
+}
+
+/** Read-only since `what` is not checked out: the checkout failed, or was cancelled over uncommitted changes. */
+function notCheckedOut(what: string, key: string): { reason: string; action: EditAction } {
+  const problem = checkoutProblem()?.key === key ? checkoutProblem()!.error : null;
+  if (problem === null) return { reason: `${what} is not checked out.`, action: { kind: "checkOut", label: "Check out" } };
+  if (problem === CANCELLED) {
     return {
-      reason: `Arnold could not check the pull request out in a git worktree of its own (.arnold/worktrees/pr-${pullRequest.id})${problemOf(checkoutKey(repo.root, `!${pullRequest.id}`))}`,
-      action: { kind: "worktree" },
+      reason: `${what} is not checked out: the opened folder has uncommitted changes. Check it out in a worktree, or throw the changes away and check it out there.`,
+      action: { kind: "checkOut", label: "Check out…" },
     };
   }
   return {
-    reason: `Arnold could not check ${comparison.head} out in a git worktree of its own (.arnold/worktrees)${problemOf(checkoutKey(repo.root, comparison.head))}`,
-    action: { kind: "worktree" },
+    reason: `Arnold could not check ${what === "The pull request" ? "the pull request" : what} out: ${problem}`,
+    action: { kind: "checkOut", label: "Try again" },
   };
 }
 
-/** Why the last checkout into a worktree failed; `key` says of what (`checkoutKey`). Not tried again by itself. */
+/** Why the last checkout failed (or `CANCELLED`); `key` says of what (`checkoutKey`). Not tried again by itself. */
 const [checkoutProblem, setCheckoutProblem] = createSignal<{ key: string; error: string } | null>(null);
 const checkoutKey = (root: string, what: string) => `${root}\n${what}`;
-const problemOf = (key: string) => (checkoutProblem()?.key === key ? `: ${checkoutProblem()!.error}` : ".");
+/** The problem of a checkout the user cancelled, rather than let it touch the opened folder's changes. */
+const CANCELLED = "cancelled";
 
-/** The checkout into a worktree under way, which refreshes that come meanwhile wait for. */
+/** The checkout under way, which refreshes that come meanwhile wait for. */
 let checkingOut: { key: string; done: Promise<boolean> } | null = null;
 
 /**
  * Branches: makes sure the compared branch is checked out somewhere (the
- * opened folder, a linked worktree, or else a new worktree of its own in
- * `.arnold/worktrees`), so its files can be edited and the language server
- * runs on them. A remote branch is checked out as its local branch, which
- * is compared from then on. False when the review changed meanwhile.
- * A failure leaves the comparison read-only, with why (`editBlocked`).
+ * opened folder, a linked worktree, or else checked out in the opened
+ * folder, or a new worktree of its own when the user would rather keep the
+ * folder's uncommitted changes), so its files can be edited and the
+ * language server runs on them. A remote branch is checked out as its local
+ * branch, which is compared from then on. False when the review changed
+ * meanwhile. A failure or a cancel leaves the comparison read-only, with
+ * why (`editBlocked`).
  */
 async function checkOutHead(repo: RepoInfo): Promise<boolean> {
   const head = state.head;
@@ -1350,11 +1369,18 @@ async function checkOutHead(repo: RepoInfo): Promise<boolean> {
   if (checkingOut?.key !== key) {
     const done = (async () => {
       try {
-        const checkout = await ipc.branchWorktree(repo.root, head);
+        const checkout = await checkOutAsking(
+          { what: head, folder: repo.root, cancelNote: `Nothing is checked out: ${head} is shown read-only.` },
+          (placement) => ipc.branchCheckout(repo.root, head, placement),
+        );
+        if (!checkout) {
+          setCheckoutProblem({ key, error: CANCELLED });
+          return state.repo === repo && state.head === head;
+        }
         const branches = await ipc.listBranches(repo.root);
         if (state.repo !== repo) return false;
         setState("repo", "branches", branches);
-        if (checkout.created) commitMode.notify(`Checked ${checkout.branch} out in ${relativeTo(repo.root, checkout.path) ?? checkout.path}`);
+        if (checkout.created) commitMode.notify(checkedOutText(repo.root, checkout.branch, checkout.path, checkout.stashed));
         if (state.head !== head) return false;
         if (checkout.branch !== head) {
           setState("head", checkout.branch);
@@ -1374,7 +1400,13 @@ async function checkOutHead(repo: RepoInfo): Promise<boolean> {
   return checkingOut.done;
 }
 
-/** The worktree of `pullRequest`, if it has one. */
+/** The status-bar notice after checking `what` out at `path` (`stashed`: the folder's changes first). */
+export function checkedOutText(root: string, what: string, path: string, stashed = false) {
+  const where = path === root ? "the opened folder" : (relativeTo(root, path) ?? path);
+  return `${stashed ? "Stashed your changes (git stash pop brings them back) and checked" : "Checked"} ${what} out in ${where}`;
+}
+
+/** The checkout of `pullRequest` (the opened folder or its worktree), if it has one. */
 const prWorktreeOf = (pullRequest: ReviewedPullRequest) =>
   state.prWorktree?.pullRequest === pullRequest.id ? state.prWorktree : null;
 
@@ -1387,21 +1419,43 @@ function prCheckout(): string | null {
 }
 
 /**
- * Reads (with `create`, makes) the worktree of the pull request under
- * review; one without edits moves to the pull request's latest push, and
- * with `discard` one with edits does too, throwing them away.
+ * Reads the checkout of the pull request under review (the opened folder,
+ * or its worktree), or with `create` checks it out: in the opened folder,
+ * or when that has uncommitted changes, where the user picks. One without
+ * edits moves to the pull request's latest push, and with `discard` one
+ * with edits does too, throwing them away.
  */
 async function loadPrWorktree(create: boolean, discard = false) {
   const repo = state.repo;
   const pullRequest = state.pullRequest;
   if (!repo || !pullRequest?.sourceCommit) return;
+  const key = checkoutKey(repo.root, `!${pullRequest.id}`);
+  const commit = pullRequest.sourceCommit;
+  const check = (create: boolean, placement: Placement) => ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, create, placement);
   try {
-    const worktree = await ipc.pullRequestWorktree(repo.root, pullRequest.id, pullRequest.sourceCommit, create, discard);
+    let worktree: Worktree | null;
+    let stashed = false;
+    if (create) {
+      const made = await checkOutAsking(
+        { what: `pull request !${pullRequest.id}`, folder: repo.root, cancelNote: "Nothing is checked out: the pull request is shown read-only." },
+        // Edits on an earlier push are thrown away only when asked to (`discard`).
+        async (placement) => (await check(true, discard ? "discard" : placement))!,
+      );
+      worktree = made && { path: made.path, head: made.head, edited: made.edited };
+      stashed = made?.stashed ?? false;
+      if (!worktree) setCheckoutProblem({ key, error: CANCELLED });
+    } else {
+      const found = await check(false, "here");
+      worktree = found?.kind === "done" ? found : null;
+    }
     if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id) return;
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
-    if (create) setCheckoutProblem(null);
+    if (worktree && create) {
+      setCheckoutProblem(null);
+      if (worktree.path === repo.root) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id}`, worktree.path, stashed));
+    }
   } catch (error) {
-    setCheckoutProblem({ key: checkoutKey(repo.root, `!${pullRequest.id}`), error: String(error) });
+    setCheckoutProblem({ key, error: String(error) });
   }
 }
 
@@ -1419,7 +1473,7 @@ export async function makeEditable() {
 
 async function makeEditableAs(action: EditAction | null | undefined) {
   if (!action) return;
-  if (action.kind === "worktree" && state.source === "branches") {
+  if (action.kind === "checkOut" && state.source === "branches") {
     // Tried again on the next refresh.
     setCheckoutProblem(null);
     resetSessions();
@@ -2754,8 +2808,10 @@ async function refsChanged() {
     }
   }
   // A commit made elsewhere empties the staged list.
-  if (state.source === "commit") await commitMode.refreshWork();
-  else await refresh();
+  if (state.source === "commit") return commitMode.refreshWork();
+  // The opened folder may have left the pull request's commit (checked out elsewhere).
+  if (state.source === "pullRequest") await loadPrWorktree(false);
+  await refresh();
 }
 
 /** Asks the host whether the pull request under review has new pushes, and shows them. */

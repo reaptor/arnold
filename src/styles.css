@@ -3534,6 +3534,48 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   opacity: 0.85;
 }
 
+/* Throwing work away: red from the start, so it never reads as the way on. */
+.committed-choice.danger:not(:disabled) {
+  color: var(--removed);
+  border-color: var(--removed);
+  background: color-mix(in srgb, var(--removed) 8%, transparent);
+}
+
+.committed-choice.danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--removed) 16%, transparent);
+}
+
+.committed-choice.danger:not(:disabled) .icon {
+  stroke: var(--removed);
+}
+
+.committed-choice.danger:not(:disabled) small {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.checkout-dialog h2 .danger-icon {
+  stroke: var(--removed);
+}
+
+.committed-choice.danger:focus-visible {
+  outline-color: var(--removed);
+}
+
+.checkout-folder,
+.checkout-code {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.checkout-dialog .committed-choice span {
+  min-width: 0;
+  white-space: normal;
+}
+
 /* Moving a change to the other side: the column between the sides of the
    split view (the merge view's own place for its controls), and buttons on
    each change in the unified view. */

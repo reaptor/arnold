@@ -249,3 +249,25 @@ export const NewChatIcon = (props: IconProps) => (
     <path d="M13.5 8.5v3a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3M12 1.5v5M9.5 4h5" />
   </Icon>
 );
+
+/** A worktree: a second checkout beside the first. */
+export const WorktreeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="1.5" y="2.5" width="8" height="8" rx="1.5" />
+    <path d="M12.5 5.5h1v8h-8v-1" />
+  </Icon>
+);
+
+/** Throwing something away for good. */
+export const TrashIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M2.5 4.5h11M6.5 4.5v-2h3v2M4 4.5l.7 9h6.6l.7-9M6.75 7v4.5M9.25 7v4.5" />
+  </Icon>
+);
+
+/** The git stash: changes put away in a box, to take out later. */
+export const StashIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M2.5 6.5h11v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1zM1.5 3.5h13v3h-13zM6.5 9h3" />
+  </Icon>
+);

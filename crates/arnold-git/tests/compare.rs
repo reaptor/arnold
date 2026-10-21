@@ -403,3 +403,102 @@ async fn keeps_a_detached_worktree_of_its_own() {
 
     assert!(detached_worktree(root, "../escape", &main_tip, false).await.is_err());
 }
+
+#[tokio::test]
+async fn checks_branches_out_in_the_opened_folder() {
+    use arnold_git::{branch_checkout, BranchCheckout, CheckedOut, Placement};
+    let dir = fixture();
+    let root = dir.path();
+    git(root, &["checkout", "--quiet", "main"]);
+    let remote = tempfile::tempdir().unwrap();
+    git(remote.path(), &["init", "--quiet", "--bare"]);
+    git(root, &["remote", "add", "origin", remote.path().to_str().unwrap()]);
+    git(root, &["push", "--quiet", "origin", "feature:remote-only"]);
+    git(root, &["fetch", "--quiet", "origin"]);
+    let done = |checkout: CheckedOut<BranchCheckout>| match checkout {
+        CheckedOut::Done(done) => done,
+        other => panic!("not checked out: {other:?}"),
+    };
+
+    // Clean: the folder switches to the branch.
+    let switched = done(branch_checkout(root, "feature", Placement::Here).await.unwrap());
+    assert_eq!((switched.branch.as_str(), switched.path.as_path(), switched.created), ("feature", root, true));
+    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
+    // Checked out already: left as it is.
+    let again = done(branch_checkout(root, "feature", Placement::Here).await.unwrap());
+    assert!(!again.created);
+
+    // Uncommitted changes: refused, and they stay.
+    write(root, "a.txt", "dirty\n");
+    write(root, "new/untracked.txt", "new\n");
+    let refused = branch_checkout(root, "main", Placement::Here).await.unwrap();
+    assert_eq!(refused, CheckedOut::Changes { files: 2, untracked: 1 });
+    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "dirty\n");
+
+    // Stashed: the folder switches, and the stash brings them back.
+    let stashed = done(branch_checkout(root, "main", Placement::Stash).await.unwrap());
+    assert_eq!((stashed.branch.as_str(), stashed.path.as_path()), ("main", root));
+    assert!(git_output(root, &["status", "--porcelain"]).is_empty());
+    let stash = String::from_utf8(git_output(root, &["stash", "list"])).unwrap();
+    assert!(stash.contains("Arnold: before checking out main"), "{stash}");
+    git(root, &["switch", "--quiet", "feature"]);
+    git(root, &["stash", "pop", "--quiet"]);
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "dirty\n");
+    assert!(root.join("new/untracked.txt").exists());
+
+    // Into a worktree instead: the changes stay in the folder.
+    let aside = done(branch_checkout(root, "main", Placement::Worktree).await.unwrap());
+    assert!(aside.path.ends_with(".arnold/worktrees/main"), "{}", aside.path.display());
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "dirty\n");
+
+    // Thrown away: untracked files too, then the folder switches.
+    let tracked = done(branch_checkout(root, "origin/remote-only", Placement::Discard).await.unwrap());
+    assert_eq!((tracked.branch.as_str(), tracked.path.as_path()), ("remote-only", root));
+    assert!(!root.join("new/untracked.txt").exists());
+    assert!(git_output(root, &["status", "--porcelain"]).is_empty());
+    let upstream = git_output(root, &["rev-parse", "--abbrev-ref", "remote-only@{upstream}"]);
+    assert_eq!(String::from_utf8(upstream).unwrap().trim(), "origin/remote-only");
+}
+
+#[tokio::test]
+async fn checks_pull_requests_out_in_the_opened_folder() {
+    use arnold_git::{pull_request_checkout, CheckedOut, Placement, Worktree};
+    let dir = fixture();
+    let root = dir.path();
+    let main_tip = String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim().to_string();
+    let feature_tip = String::from_utf8(git_output(root, &["rev-parse", "feature"])).unwrap().trim().to_string();
+    let done = |checkout: Option<CheckedOut<Worktree>>| match checkout {
+        Some(CheckedOut::Done(done)) => done,
+        other => panic!("not checked out: {other:?}"),
+    };
+    assert_eq!(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap(), None);
+
+    // Detached in the folder.
+    let made = done(pull_request_checkout(root, 7, &main_tip, true, Placement::Here).await.unwrap());
+    assert_eq!((made.path.as_path(), made.head.as_str(), made.edited), (root, main_tip.as_str(), false));
+    assert_eq!(open(root).await.unwrap().current_branch, None);
+    // Found again without `create`, and moved along with a new push while clean.
+    let moved = done(pull_request_checkout(root, 7, &feature_tip, false, Placement::Here).await.unwrap());
+    assert_eq!((moved.path.as_path(), moved.head.as_str()), (root, feature_tip.as_str()));
+    // Edited: it stays where it is, until the edits are thrown away.
+    write(root, "a.txt", "edited\n");
+    let kept = done(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap());
+    assert_eq!((kept.head.as_str(), kept.edited), (feature_tip.as_str(), true));
+    let fresh = done(pull_request_checkout(root, 7, &main_tip, false, Placement::Discard).await.unwrap());
+    assert_eq!((fresh.head.as_str(), fresh.edited), (main_tip.as_str(), false));
+
+    // Another pull request while the folder has edits: refused, or a worktree.
+    write(root, "a.txt", "edited\n");
+    assert_eq!(
+        pull_request_checkout(root, 8, &feature_tip, true, Placement::Here).await.unwrap(),
+        Some(CheckedOut::Changes { files: 1, untracked: 0 })
+    );
+    let aside = done(pull_request_checkout(root, 8, &feature_tip, true, Placement::Worktree).await.unwrap());
+    assert!(aside.path.ends_with(".arnold/worktrees/pr-8"));
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
+
+    // The folder switched away: no longer the pull request's checkout.
+    git(root, &["checkout", "--quiet", "--force", "main"]);
+    assert_eq!(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap(), None);
+}

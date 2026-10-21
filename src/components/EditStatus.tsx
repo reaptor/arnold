@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { commitEdits, editBlocked, editInfoAnchor, editInfoOpen, makeEditable, setEditInfoOpen, state } from "../state/review";
+import { commitEdits, type EditAction, editBlocked, editInfoAnchor, editInfoOpen, makeEditable, setEditInfoOpen, state } from "../state/review";
 
 /** Closes a status bar popup on a click outside `root` or Escape. */
 function closeOnOutside(root: () => HTMLElement, close: () => void) {
@@ -94,12 +94,14 @@ function ReadOnlyPill() {
             >
               <h3>Read-only</h3>
               <p>{blocked().reason}</p>
-              <Show when={blocked().action?.kind === "worktree"}>
-                <div class="edit-popup-actions">
-                  <button class="primary" disabled={state.busy} onClick={act}>
-                    Try again
-                  </button>
-                </div>
+              <Show when={checkOutLabel(blocked().action)}>
+                {(label) => (
+                  <div class="edit-popup-actions">
+                    <button class="primary" disabled={state.busy} onClick={act}>
+                      {label()}
+                    </button>
+                  </div>
+                )}
               </Show>
               <Show when={blocked().action?.kind === "discard"}>
                 <div class="edit-popup-actions">
@@ -115,6 +117,8 @@ function ReadOnlyPill() {
     </Show>
   );
 }
+
+const checkOutLabel = (action: EditAction | null) => (action?.kind === "checkOut" ? action.label : null);
 
 function LockIcon() {
   return (
