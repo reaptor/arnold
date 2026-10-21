@@ -67,6 +67,28 @@ export function Toolbar() {
       data-tauri-drag-region="deep"
     >
       <RepoPicker />
+      <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
+        <div class="nav-buttons" role="group" aria-label="Navigation">
+          <button
+            class="icon-button"
+            disabled={state.backCount === 0}
+            onClick={() => goBack()}
+            title={`Back to where you were (${isMac ? "⌃-" : "Alt+←"}, mouse back button)`}
+            aria-label="Back"
+          >
+            <BackIcon />
+          </button>
+          <button
+            class="icon-button"
+            disabled={state.forwardCount === 0}
+            onClick={() => goForward()}
+            title={`Forward again (${isMac ? "⌃⇧-" : "Alt+→"}, mouse forward button)`}
+            aria-label="Forward"
+          >
+            <ForwardIcon />
+          </button>
+        </div>
+      </Show>
       <Show when={state.repo}>
         {(repo) => (
           <>
@@ -167,26 +189,6 @@ export function Toolbar() {
         <span class="toolbar-separator" />
       </Show>
       <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
-        <div class="nav-buttons" role="group" aria-label="Navigation">
-          <button
-            class="icon-button"
-            disabled={state.backCount === 0}
-            onClick={() => goBack()}
-            title={`Back to where you were (${isMac ? "⌃-" : "Alt+←"}, mouse back button)`}
-            aria-label="Back"
-          >
-            <BackIcon />
-          </button>
-          <button
-            class="icon-button"
-            disabled={state.forwardCount === 0}
-            onClick={() => goForward()}
-            title={`Forward again (${isMac ? "⌃⇧-" : "Alt+→"}, mouse forward button)`}
-            aria-label="Forward"
-          >
-            <ForwardIcon />
-          </button>
-        </div>
         <div class="segmented" role="group" aria-label="Files shown">
           <button
             classList={{ on: state.view === "file" }}
