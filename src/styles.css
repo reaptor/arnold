@@ -95,11 +95,11 @@
        lines and the old side of replaced lines red, as in Azure DevOps; the
        marks are takes on them for the change gutter. */
     --caret-row: #202424;
-    --diff-inserted: rgb(41 66 31 / 0.8);
+    --diff-inserted: #373d29;
     --diff-old-line: rgb(110 38 42 / 0.45);
     --diff-old-text: rgb(150 48 54 / 0.85);
-    --diff-new-line: rgb(41 66 31 / 0.8);
-    --diff-new-text: rgb(44 86 32 / 0.9);
+    --diff-new-line: #373d29;
+    --diff-new-text: #4b5531;
     --diff-inserted-mark: #4f8a3a;
     --diff-old-mark: #a84a4f;
     --tone-gray: #ced0d6;
