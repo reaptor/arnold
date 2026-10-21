@@ -87,7 +87,7 @@ The files dock has three parts:
 - **Staged:** what the next commit takes. A file picked here shows the last commit → index, read-only.
 - **All files:** every file of the working tree. A file picked here shows the last commit → the file on disk, whatever of it is staged, as Unstaged does when nothing is staged; the whole file, without folding unchanged lines, and editable. A file without changes is shown on its own, as one editor: the diff appears with its first edit and goes again when edits (or undo) take all its changes back, keeping the cursor and undo history either way. Staging and resetting lines is done in Unstaged and Staged.
 
-Each part marks only the file picked in it.
+The parts track each other: a file picked in Unstaged or Staged (by click or arrow keys) is marked in All files too, its folders opened and scrolled to, and a file picked in All files is marked in the lists that hold it, ready for `S`, `U` and `R` there. The editor keeps showing what was picked, and the keyboard stays where it was.
 
 *Commit* starts in the toolbar's *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys in the lists move through it and the lists follow as you scroll; clicking a file shows it on its own, as in a review, and the choice of view is remembered.
 

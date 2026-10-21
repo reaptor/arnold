@@ -89,7 +89,8 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
   /**
    * The files picked in one of the lists, for the keys and the menu: the
    * shown file alone, or more with Shift and ⌘/Ctrl. `anchor` is where a
-   * Shift range starts, `cursor` the row the arrow keys move from.
+   * Shift range starts, `cursor` the row the arrow keys move from. A file of
+   * All files (no side) is picked in whichever lists hold it.
    */
   const [picked, setPicked] = createSignal<{ side: WorkingSide | null; paths: ReadonlySet<string>; anchor: string | null; cursor: string | null }>({
     side: null,
@@ -99,20 +100,28 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
   });
   const pickOnly = (side: WorkingSide | null, path: string | null) =>
     setPicked({ side, paths: new Set(path === null ? [] : [path]), anchor: path, cursor: path });
-  const isPicked = (side: WorkingSide, path: string) => picked().side === side && picked().paths.has(path);
+  const pickedIn = (side: WorkingSide) => picked().side === side || picked().side === null;
+  const isPicked = (side: WorkingSide, path: string) => pickedIn(side) && picked().paths.has(path);
   const pickedFiles = (side: WorkingSide) => shown(side).filter((file) => isPicked(side, file.path));
   const several = (side: WorkingSide) => picked().side === side && picked().paths.size > 1;
 
   // A file shown some other way (the explorer, the all-files view's scrolling)
   // is picked alone; files picked together stay so while it is one of the lists'.
+  // One of the explorer is picked in the lists that hold it.
   createEffect(() => {
     const side = state.workSide;
     const path = state.selected;
     const current = untrack(picked);
     if (side !== null && path !== null && current.side === side && current.paths.has(path)) return;
     if (side !== null && current.side === side && current.paths.size > 1) return;
-    pickOnly(side, side === null ? null : path);
+    pickOnly(side, path);
   });
+
+  /** The picks as this list's: a file of the explorer it holds counts as picked in it. */
+  const pickedFor = (side: WorkingSide) => {
+    const current = picked();
+    return current.side === null && pickedFiles(side).length > 0 ? { ...current, side } : current;
+  };
 
   /** The rows from `from` to `to` of a list, both included. */
   const range = (side: WorkingSide, from: string | null, to: string) => {
@@ -125,7 +134,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
 
   /** A click: alone (shown), ⌘/Ctrl adds or takes away one, Shift picks the rows from the last one clicked. */
   const clickRow = (side: WorkingSide, path: string, event: MouseEvent) => {
-    const current = picked();
+    const current = pickedFor(side);
     const same = current.side === side;
     if (event.shiftKey) {
       const anchor = same ? current.anchor : null;
@@ -144,7 +153,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
 
   const move = (side: WorkingSide, delta: number, extend: boolean) => {
     const list = shown(side);
-    const current = picked();
+    const current = pickedFor(side);
     const from = current.side === side && current.cursor !== null ? current.cursor : state.workSide === side ? state.selected : null;
     const index = list.findIndex((file) => file.path === from);
     const next = list[Math.min(Math.max(index + delta, 0), list.length - 1)];
@@ -172,7 +181,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
     const deleting = event.key === "Delete" || (isMac && event.key === "Backspace");
     if (mod && key === "a") {
       const paths = shown(side).map((file) => file.path);
-      const current = picked();
+      const current = pickedFor(side);
       setPicked({ side, paths: new Set(paths), anchor: paths[0] ?? null, cursor: current.side === side ? current.cursor : (paths[0] ?? null) });
     } else if (deleting && !event.ctrlKey && !(event.metaKey && !isMac)) {
       act("delete", side);
@@ -212,7 +221,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
             const parts = splitPath(file.path);
             let row!: HTMLLIElement;
             createEffect(() => {
-              if (selectedIn(side, file.path) || (picked().side === side && picked().cursor === file.path)) row.scrollIntoView({ block: "nearest" });
+              if (selectedIn(side, file.path) || (pickedIn(side) && picked().cursor === file.path)) row.scrollIntoView({ block: "nearest" });
             });
             return (
               <li

@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, 
 import { createStore, produce, reconcile } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
-import { allFiles, changedFiles, explorerSelection, openFile, openTreeMenu, state } from "../state/review";
+import { allFiles, changedFiles, openFile, openTreeMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { CollapseAllIcon, ExpandIcon } from "./icons";
 import { FileTypeIcon, FolderIcon, PROJECT_EXTENSIONS } from "./fileIcons";
@@ -170,10 +170,11 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
   };
   const indexOf = (path: string | null) => rows().findIndex((row) => row.path === path);
 
-  // Follow the file shown in the editor: open its folders and scroll to it.
+  // Follow the file shown in the editor, wherever it was picked (in Commit
+  // mode also Unstaged or Staged): open its folders and scroll to it.
   createEffect(
     on(
-      explorerSelection,
+      () => state.selected,
       (path) => {
         if (!path || !fileSet().has(path)) return;
         for (const folder of ancestors(path)) if (!expanded[folder]) setExpanded(folder, true);
@@ -187,7 +188,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
 
   const inTree = (path: string | null): path is string => !!path && (fileSet().has(path) || !!folderAt(tree(), path));
   /** The row under the cursor, or else the file shown, if it is in the tree. */
-  const selected = () => [cursor(), explorerSelection()].find(inTree) ?? null;
+  const selected = () => [cursor(), state.selected].find(inTree) ?? null;
 
   /**
    * Opens the folder under the cursor and every folder in it. With a file
@@ -284,7 +285,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
                   <div
                     class="tree-row"
                     classList={{
-                      selected: row().path === explorerSelection(),
+                      selected: row().path === state.selected,
                       cursor: row().path === cursor(),
                       [`changed-${status()}`]: status() !== undefined,
                     }}

@@ -320,14 +320,6 @@ const [allFiles, setAllFiles] = createSignal<readonly string[]>([], { equals: sa
 export { allFiles, setAllFiles };
 
 /**
- * The file the explorer marks and follows. In Commit mode each part of the
- * dock marks only what was picked in it, so a file picked in Unstaged or
- * Staged leaves the explorer alone.
- */
-export const explorerSelection = (): string | null =>
-  state.source === "commit" && state.workSide !== null ? null : state.selected;
-
-/**
  * The files with changes, for marking them in the explorer: those of the
  * diff, or in Commit mode the uncommitted ones (unstaged first).
  */
