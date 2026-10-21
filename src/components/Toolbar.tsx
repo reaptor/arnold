@@ -9,6 +9,7 @@ import {
   previousChange,
   setBranches,
   setRange,
+  setIgnoreWhitespace,
   setMode,
   setSource,
   setView,
@@ -38,6 +39,7 @@ import {
   SparkleIcon,
   SplitIcon,
   UnifiedIcon,
+  WhitespaceIcon,
 } from "./icons";
 import { ai, toggleOpen as toggleAi } from "../state/ai";
 import { RepoPicker } from "./RepoPicker";
@@ -227,6 +229,20 @@ export function Toolbar() {
             <UnifiedIcon />
           </button>
         </div>
+        <button
+          class="icon-button whitespace-toggle"
+          classList={{ on: !state.ignoreWhitespace }}
+          onClick={() => setIgnoreWhitespace(!state.ignoreWhitespace)}
+          title={
+            state.ignoreWhitespace
+              ? "Whitespace: changes in whitespace are left out of the diff (click to show them)"
+              : "Whitespace: changes in whitespace are shown (click to leave them out)"
+          }
+          aria-label="Show whitespace changes"
+          aria-pressed={!state.ignoreWhitespace}
+        >
+          <WhitespaceIcon />
+        </button>
         <span class="toolbar-separator" />
         <button class="icon-button" onClick={previousChange} title="Previous change (Shift+F7)">
           <ArrowUpIcon />

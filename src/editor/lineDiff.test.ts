@@ -2,6 +2,7 @@ import { type Change, Chunk, type DiffConfig } from "@codemirror/merge";
 import { Text } from "@codemirror/state";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ignoringWhitespaceDiffConfig,
   joinAcrossBlankLines,
   type LineBlock,
   lineBlocks,
@@ -9,6 +10,7 @@ import {
   lineFirstDiffConfig,
   placeBlocks,
   takeInBlankLines,
+  withDifferingLines,
 } from "./lineDiff";
 
 /** Applies the changes to `a`, which must give `b`. */
@@ -198,5 +200,60 @@ describe("takeInBlankLines", () => {
     const b = ["a", "new", "", "b"];
     expect(takeInBlankLines(lineBlocks(a, b), a, b, () => false)).toEqual(lineBlocks(a, b));
     expect(takeInBlankLines(lineBlocks(a, b), a, b, (line) => line === 0)).toEqual(lineBlocks(a, b));
+  });
+});
+
+describe("ignoring whitespace", () => {
+  const a = "let f x =\n    x + 1\n\nlet g = f 2\n";
+  // Wrapped in a module: indented, with a line added before.
+  const b = "module M =\n  let f x =\n      x + 1\n\n  let g = f 2\n";
+
+  it("leaves lines that differ only in whitespace unchanged", () => {
+    expect(changedLines(a, b)).toEqual([[1, 5]]);
+    expect(changedLines(a, b, ignoringWhitespaceDiffConfig)).toEqual([[1, 1]]);
+  });
+
+  it("shows no changed spaces within a changed line", () => {
+    const [chunk] = chunks("let x = a+b\n", "let  x = a + c\n", ignoringWhitespaceDiffConfig);
+    const text = "let  x = a + c\n";
+    expect(chunk.changes.map((change) => text.slice(chunk.fromB + change.fromB, chunk.fromB + change.toB))).toEqual(["c"]);
+  });
+
+  it("still shows added and removed blank lines", () => {
+    expect(changedLines("a\nb\n", "a\n\nb\n", ignoringWhitespaceDiffConfig)).toEqual([[2, 2]]);
+    expect(changedLines("a\n\nb\n", "a\nb\n", ignoringWhitespaceDiffConfig)).toHaveLength(1);
+  });
+
+  it("diffs the whole texts again after an edit", () => {
+    // Long enough that CodeMirror's update would diff only around the edit.
+    const indented = bigFile.split("\n").slice(0, 2000);
+    const docA = Text.of(indented);
+    const docB = Text.of(indented.map((line) => "  " + line));
+    const built = Chunk.build(docA, docB, ignoringWhitespaceDiffConfig);
+    expect(built).toEqual([]);
+    const at = docB.line(1500).to;
+    const edited = docB.replace(at, at, Text.of([" // note"]));
+    const changes = { iterChangedRanges: (f: (fromA: number, toA: number, fromB: number, toB: number) => void) => f(at, at, at, at + 8) };
+    const updated = Chunk.updateB(built, docA, edited, changes as never, ignoringWhitespaceDiffConfig);
+    expect(updated.map((chunk) => [edited.lineAt(chunk.fromB).number, edited.lineAt(chunk.endB).number])).toEqual([
+      [1500, 1500],
+    ]);
+  });
+
+  it("marks where unchanged lines that differ in whitespace start and end, for lining the sides up", () => {
+    const docA = Text.of(a.split("\n"));
+    const docB = Text.of(b.split("\n"));
+    const points = withDifferingLines(Chunk.build(docA, docB, ignoringWhitespaceDiffConfig), docA, docB).map(
+      (chunk) => [docA.lineAt(chunk.fromA).number, docB.lineAt(chunk.fromB).number, chunk.toB > chunk.fromB],
+    );
+    // The added line (which ends where "let f" starts), then around "let f", "x + 1" (the blank
+    // line after it is the same on both sides) and "let g".
+    expect(points).toEqual([
+      [1, 1, true],
+      [2, 3, false],
+      [3, 4, false],
+      [4, 5, false],
+      [5, 6, false],
+    ]);
   });
 });

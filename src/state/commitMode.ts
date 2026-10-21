@@ -359,6 +359,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
       collapseUnchanged: false,
       moves: { toWorking: "Revert this change to the last commit" },
       aiSuggestions: deleted ? [] : openFor(file.path),
+      ignoreWhitespace: state.ignoreWhitespace,
     };
   }
   const deleted = file.status === "deleted";
@@ -378,6 +379,7 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
       side === "unstaged"
         ? { toBase: "Stage this change", toWorking: "Reset this change to the index" }
         : { toWorking: "Unstage this change" },
+    ignoreWhitespace: state.ignoreWhitespace,
   };
 }
 
@@ -901,6 +903,10 @@ export function forEachSection(action: (target: DiffEditor, file: ChangedFile) =
 
 export function setSectionMode(mode: DiffMode) {
   for (const target of sectionEditors.values()) target.setMode(mode);
+}
+
+export function setSectionIgnoreWhitespace(ignore: boolean) {
+  for (const target of sectionEditors.values()) target.setIgnoreWhitespace(ignore);
 }
 
 /** F7 / Shift+F7 in the all-files view: the next change, on into the next file. */

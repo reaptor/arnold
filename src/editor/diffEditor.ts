@@ -34,7 +34,7 @@ import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor, languageLoading } from "./languages";
 import { editFrames, setCommitted } from "./editFrames";
-import { type LineBlock, lineFirstDiffConfig } from "./lineDiff";
+import { ignoringWhitespaceDiffConfig, type LineBlock, lineFirstDiffConfig, withDifferingLines } from "./lineDiff";
 import { lineTints } from "./lineTints";
 import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
@@ -93,6 +93,8 @@ export interface DiffDocument {
   lineActions?: readonly LineAction[];
   /** Fold long runs of unchanged lines away (the default); false shows the whole file. Each run can be unfolded and folded again. */
   collapseUnchanged?: boolean;
+  /** Lines that differ only in whitespace are unchanged, and changed spaces are not highlighted. */
+  ignoreWhitespace?: boolean;
   /**
    * Buttons on each change that move it to the other side, by what they do
    * ("Stage this change"); a direction without a label has no button.
@@ -214,6 +216,38 @@ function storedSplit(): number {
 let splitRatio = storedSplit();
 /** Re-applies `splitRatio`, one per split view on screen. */
 const splitLayouts = new Set<() => void>();
+
+/**
+ * The split view lines its sides up where unchanged text starts after a
+ * chunk, and inside a long stretch of it by character offsets, as if the
+ * text were the same on both sides. Ignoring whitespace it may not be, so
+ * the sides are also lined up around each line that differs in whitespace.
+ */
+function alignDifferingLines(merge: MergeView) {
+  // The merge view's own measuring (private): spacers, then move buttons.
+  const view = merge as unknown as { measure(): void; revertDOM: HTMLElement | null; updateRevertButtons(): void };
+  const measure = view.measure;
+  const aligned = new WeakMap<readonly Chunk[], readonly Chunk[]>();
+  view.measure = () => {
+    const { chunks } = merge;
+    const revertDOM = view.revertDOM;
+    let lines = aligned.get(chunks);
+    if (!lines) {
+      lines = withDifferingLines(chunks, merge.a.state.doc, merge.b.state.doc) as unknown as readonly Chunk[];
+      aligned.set(chunks, lines);
+    }
+    // Only the spacers go by these; the move buttons stay by the real chunks.
+    merge.chunks = lines;
+    view.revertDOM = null;
+    try {
+      measure.call(merge);
+    } finally {
+      merge.chunks = chunks;
+      view.revertDOM = revertDOM;
+    }
+    if (revertDOM) view.updateRevertButtons();
+  };
+}
 
 const prefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
@@ -346,6 +380,19 @@ export class DiffEditor {
   setLanguageSupport(support: Extension) {
     this.support = support;
     this.working?.dispatch({ effects: this.supportSlot.reconfigure(support) });
+  }
+
+  /** Leaves changes in whitespace out of the diff, or shows them. */
+  setIgnoreWhitespace(ignore: boolean) {
+    if (!this.document || !!this.document.ignoreWhitespace === ignore) return;
+    if (this.document.plain) {
+      this.document = { ...this.document, ignoreWhitespace: ignore };
+      return;
+    }
+    const snapshot = this.snapshot();
+    this.destroyViews();
+    this.document = { ...this.document, ignoreWhitespace: ignore };
+    this.build(snapshot ?? undefined);
   }
 
   setMode(mode: DiffMode) {
@@ -799,6 +846,7 @@ export class DiffEditor {
     // Instead of the merge view's own folding, which cannot fold again.
     const folding = document.collapseUnchanged === false ? [] : unchangedLines(COLLAPSE);
     const selection = snapshot && fits(snapshot.selection, doc.length) ? snapshot.selection : undefined;
+    const diffConfig = document.ignoreWhitespace ? ignoringWhitespaceDiffConfig : lineFirstDiffConfig;
     // An edited file's undo history, while the file still has the text it was made for.
     const history =
       document.editable && snapshot?.history && snapshot.doc?.toString() === doc ? snapshot.history : undefined;
@@ -846,11 +894,12 @@ export class DiffEditor {
         highlightChanges: true,
         // changeKindColors draws the change gutter.
         gutter: false,
-        diffConfig: lineFirstDiffConfig,
+        diffConfig,
         // The merge view places a control by each change, between the sides;
         // its own revert is replaced by the move buttons.
         ...(this.hasMoves() ? { revertControls: "b-to-a" as const, renderRevertControl: () => this.splitMoveControl() } : {}),
       });
+      if (document.ignoreWhitespace) alignDifferingLines(this.merge);
       const moves = this.document?.moves;
       this.merge.dom.classList.toggle("arnold-two-moves", !!moves?.toBase && !!moves.toWorking);
       this.addSplitter(this.merge);
@@ -867,7 +916,7 @@ export class DiffEditor {
             highlightChanges: true,
             gutter: false,
             syntaxHighlightDeletions: true,
-            diffConfig: lineFirstDiffConfig,
+            diffConfig,
             mergeControls: this.hasMoves() ? (type, _action) => this.unifiedMoveButton(type) : false,
           }),
         ],

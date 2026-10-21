@@ -127,6 +127,13 @@ export const UnifiedIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** Whitespace: a tab over a space. */
+export const WhitespaceIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 5.5h7M9 3.5l2 2-2 2M2.5 9.5v3h11v-3" />
+  </Icon>
+);
+
 /** One file of the diff. */
 export const FileIcon = (props: IconProps) => (
   <Icon {...props}>

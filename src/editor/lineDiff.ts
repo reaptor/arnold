@@ -4,7 +4,8 @@
 // Here whole lines are matched first (like git), and characters are only
 // compared inside the lines that differ, for the changed-text highlight.
 
-import { Change, diff, type DiffConfig } from "@codemirror/merge";
+import { Change, Chunk, diff, type DiffConfig } from "@codemirror/merge";
+import type { Text } from "@codemirror/state";
 
 /** A changed region in line numbers (0-based, end exclusive). */
 export interface LineBlock {
@@ -88,14 +89,42 @@ function offsets(lines: string[]): number[] {
   return starts;
 }
 
-/** A drop-in for CodeMirror's character diff (`DiffConfig.override`). */
-export function lineFirstDiff(a: string, b: string): Change[] {
+/** A line as compared when whitespace is ignored: without any. */
+const withoutWhitespace = (line: string) => line.replace(/\s+/g, "");
+
+/** Spaces and tabs (not line breaks) at the start and end of `text`. */
+function spacesAround(text: string): [number, number] {
+  const start = /^[^\S\n]*/.exec(text)![0].length;
+  return start === text.length ? [start, 0] : [start, /[^\S\n]*$/.exec(text)![0].length];
+}
+
+/** `change` without the spaces it adds or removes at its ends; null if that is all it does. */
+function withoutSpaces(change: Change, a: string, b: string): Change | null {
+  const [startA, endA] = spacesAround(a.slice(change.fromA, change.toA));
+  const [startB, endB] = spacesAround(b.slice(change.fromB, change.toB));
+  const fromA = change.fromA + startA;
+  const toA = Math.max(fromA, change.toA - endA);
+  const fromB = change.fromB + startB;
+  const toB = Math.max(fromB, change.toB - endB);
+  return fromA === toA && fromB === toB ? null : new Change(fromA, toA, fromB, toB);
+}
+
+/**
+ * A drop-in for CodeMirror's character diff (`DiffConfig.override`). Ignoring
+ * whitespace, lines that differ only in it are unchanged (like `git diff -w`)
+ * and changed lines show no changed spaces; added and removed lines, blank
+ * ones too, still show.
+ */
+export function lineFirstDiff(a: string, b: string, ignoreWhitespace = false): Change[] {
   const aLines = linesWithBreaks(a);
   const bLines = linesWithBreaks(b);
   const startsA = offsets(aLines);
   const startsB = offsets(bLines);
+  const blocks = ignoreWhitespace
+    ? lineBlocks(aLines.map(withoutWhitespace), bLines.map(withoutWhitespace))
+    : lineBlocks(aLines, bLines);
   const changes: Change[] = [];
-  for (const block of lineBlocks(aLines, bLines)) {
+  for (const block of blocks) {
     const fromA = startsA[block.fromA];
     const toA = startsA[block.toA];
     const fromB = startsB[block.fromB];
@@ -104,15 +133,68 @@ export function lineFirstDiff(a: string, b: string): Change[] {
       changes.push(new Change(fromA, toA, fromB, toB));
       continue;
     }
-    for (const change of diff(a.slice(fromA, toA), b.slice(fromB, toB), CHARACTER_DIFF)) {
-      changes.push(new Change(change.fromA + fromA, change.toA + fromA, change.fromB + fromB, change.toB + fromB));
+    const oldText = a.slice(fromA, toA);
+    const newText = b.slice(fromB, toB);
+    for (const found of diff(oldText, newText, CHARACTER_DIFF)) {
+      const change = ignoreWhitespace ? withoutSpaces(found, oldText, newText) : found;
+      if (change) changes.push(new Change(change.fromA + fromA, change.toA + fromA, change.fromB + fromB, change.toB + fromB));
     }
   }
   return changes;
 }
 
 /** Pass as `diffConfig` to the merge views. */
-export const lineFirstDiffConfig: DiffConfig = { override: lineFirstDiff };
+export const lineFirstDiffConfig: DiffConfig = { override: (a, b) => lineFirstDiff(a, b) };
+
+/** `lineFirstDiffConfig` ignoring whitespace. */
+export const ignoringWhitespaceDiffConfig: DiffConfig = { override: (a, b) => lineFirstDiff(a, b, true) };
+
+// After an edit, the merge views diff again only around it, finding the
+// other side's place as if the unchanged text between chunks were the same
+// on both sides. Lines that differ only in whitespace break that, so while
+// it is ignored the whole texts are diffed again.
+for (const update of ["updateA", "updateB"] as const) {
+  const own = Chunk[update];
+  Chunk[update] = (chunks, a, b, changes, conf) =>
+    conf === ignoringWhitespaceDiffConfig ? Chunk.build(a, b, conf) : own(chunks, a, b, changes, conf);
+}
+
+/**
+ * The chunks with empty ones added around each unchanged line that differs
+ * (in whitespace, when it is ignored), for lining the sides up: between two
+ * of these the text is the same on both sides.
+ */
+export function withDifferingLines(
+  chunks: readonly Chunk[],
+  a: Text,
+  b: Text,
+): Pick<Chunk, "fromA" | "toA" | "fromB" | "toB">[] {
+  const result: Pick<Chunk, "fromA" | "toA" | "fromB" | "toB">[] = [];
+  const mark = (posA: number, posB: number) => {
+    const last = result[result.length - 1];
+    if (last?.toA !== posA || last.toB !== posB) result.push({ fromA: posA, toA: posA, fromB: posB, toB: posB });
+  };
+  let posA = 0;
+  let posB = 0;
+  for (let index = 0; ; index++) {
+    const chunk = chunks[index];
+    const endA = chunk ? chunk.fromA : a.length + 1;
+    const endB = chunk ? chunk.fromB : b.length + 1;
+    while (posA < endA && posB < endB) {
+      const lineA = a.lineAt(posA);
+      const lineB = b.lineAt(posB);
+      const differs = lineA.text !== lineB.text;
+      if (differs) mark(posA, posB);
+      posA = lineA.to + 1;
+      posB = lineB.to + 1;
+      if (differs && posA <= a.length && posB <= b.length) mark(posA, posB);
+    }
+    if (!chunk) return result;
+    result.push(chunk);
+    posA = chunk.toA;
+    posB = chunk.toB;
+  }
+}
 
 /**
  * Where else a block of only added (or only removed) lines could be. When

@@ -17,7 +17,7 @@
 // In the split view both sides fold and unfold together, so they stay lined up.
 
 import { type Chunk, getChunks, mergeViewSiblings, uncollapseUnchanged } from "@codemirror/merge";
-import { type EditorState, type Extension, Facet, type Range, StateEffect, StateField } from "@codemirror/state";
+import { type EditorState, type Extension, Facet, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 
 /** Unchanged lines within `margin` of a change stay shown; runs shorter than `minSize` are not folded. */
@@ -50,15 +50,29 @@ export function unchangedRuns(lineCount: number, changes: readonly LineSpan[], {
   return runs;
 }
 
-/** Where `pos` of one side of a split view is on the other: unchanged text is offset by the changes before it. */
-export function otherSidePos(pos: number, chunks: readonly Pick<Chunk, "fromA" | "toA" | "fromB" | "toB">[], fromA: boolean): number {
+/**
+ * Where `pos` (in unchanged text) of one side of a split view is on the
+ * other: unchanged lines are offset by the changes before them. Their text
+ * may still differ (in whitespace, when it is ignored), so lines are
+ * counted, not characters.
+ */
+export function otherSidePos(
+  pos: number,
+  chunks: readonly Pick<Chunk, "fromA" | "toA" | "fromB" | "toB">[],
+  from: Text,
+  to: Text,
+  fromA: boolean,
+): number {
   let ours = 0;
   let theirs = 0;
   for (const chunk of chunks) {
     if ((fromA ? chunk.fromA : chunk.fromB) >= pos) break;
     [ours, theirs] = fromA ? [chunk.toA, chunk.toB] : [chunk.toB, chunk.toA];
   }
-  return theirs + (pos - ours);
+  const line = from.lineAt(pos);
+  const after = to.lineAt(Math.min(theirs, to.length)).number;
+  const target = to.line(Math.min(after + line.number - from.lineAt(Math.min(ours, from.length)).number, to.lines));
+  return target.from + Math.min(pos - line.from, target.length);
 }
 
 const foldConfig = Facet.define<FoldConfig, FoldConfig>({ combine: (values) => values[0] ?? { margin: 3, minSize: 4 } });
@@ -111,7 +125,8 @@ function onBothSides(view: EditorView, pos: number, effect: (pos: number) => Sta
   const chunks = getChunks(view.state);
   if (!siblings || !chunks) return;
   const fromA = siblings.a === view;
-  (fromA ? siblings.b : siblings.a).dispatch({ effects: effect(otherSidePos(pos, chunks.chunks, fromA)) });
+  const other = fromA ? siblings.b : siblings.a;
+  other.dispatch({ effects: effect(otherSidePos(pos, chunks.chunks, view.state.doc, other.state.doc, fromA)) });
 }
 
 class FoldedWidget extends WidgetType {

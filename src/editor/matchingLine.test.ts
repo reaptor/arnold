@@ -28,4 +28,14 @@ describe("matchingLine", () => {
   it("puts a removed line under the line before the removal", () => {
     expect(matchingLine(6, chunks, base, working, true)).toBe(6);
   });
+
+  it("counts lines where unchanged lines differ in whitespace", () => {
+    const indented = Text.of(["if x then", "    a", "    b", "c"]);
+    const plain = Text.of(["a", "b", "c"]);
+    const inserted = [
+      { fromA: 0, toA: 0, fromB: 0, toB: indented.line(2).from },
+    ] as unknown as Chunk[];
+    expect(matchingLine(2, inserted, plain, indented, true)).toBe(3);
+    expect(matchingLine(4, inserted, indented, plain, false)).toBe(3);
+  });
 });

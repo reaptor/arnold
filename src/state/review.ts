@@ -149,6 +149,8 @@ interface State {
   selected: string | null;
   view: ViewMode;
   mode: DiffMode;
+  /** Diffs leave out changes in whitespace (the default). */
+  ignoreWhitespace: boolean;
   /** Errors and warnings the language server reported, by file path. */
   problems: Record<string, { errors: number; warnings: number }>;
   /** What the language server is busy with, if anything. */
@@ -285,6 +287,7 @@ export const [state, setState] = createStore<State>({
   selected: null,
   view: localStorage.getItem("arnold.view") === "all" ? "all" : "file",
   mode: (localStorage.getItem("arnold.mode") as DiffMode | null) ?? "split",
+  ignoreWhitespace: localStorage.getItem("arnold.ignoreWhitespace") !== "false",
   problems: {},
   lspStatus: null,
   languageSetup: null,
@@ -483,6 +486,7 @@ function documentOf(
     threads: fileThreads(file.path),
     draft: drafts.get(file.path) ?? null,
     aiSuggestions: deleted ? [] : openFor(file.path),
+    ignoreWhitespace: state.ignoreWhitespace,
   };
 }
 
@@ -1802,6 +1806,16 @@ export function setMode(mode: DiffMode) {
   editor?.setMode(mode);
   for (const target of sectionEditors.values()) target.setMode(mode);
   commitMode.setSectionMode(mode);
+  activeEditor()?.focus();
+}
+
+/** Leaves changes in whitespace out of the diffs, or shows them. */
+export function setIgnoreWhitespace(ignore: boolean) {
+  localStorage.setItem("arnold.ignoreWhitespace", String(ignore));
+  setState("ignoreWhitespace", ignore);
+  editor?.setIgnoreWhitespace(ignore);
+  for (const target of sectionEditors.values()) target.setIgnoreWhitespace(ignore);
+  commitMode.setSectionIgnoreWhitespace(ignore);
   activeEditor()?.focus();
 }
 

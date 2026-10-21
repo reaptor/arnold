@@ -3995,11 +3995,13 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 
 /* ----------------------------------------------------------------- AI panel */
 
-.toolbar .ai-toggle.on {
+.toolbar .ai-toggle.on,
+.toolbar .whitespace-toggle.on {
   background: var(--pressed);
 }
 
-.toolbar .ai-toggle.on .icon {
+.toolbar .ai-toggle.on .icon,
+.toolbar .whitespace-toggle.on .icon {
   stroke: var(--accent);
 }
 

@@ -1,5 +1,5 @@
 import { getChunks, uncollapseUnchanged, unifiedMergeView } from "@codemirror/merge";
-import { EditorState, type StateEffect } from "@codemirror/state";
+import { EditorState, type StateEffect, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import {
@@ -46,18 +46,28 @@ describe("unchangedRuns", () => {
 });
 
 describe("otherSidePos", () => {
-  // Side A has 10 characters removed at 20; side B has 5 added at 40 (A's 30).
+  // Side A has line "c" removed; side B has "f" added after A's "e".
+  const a = Text.of(["a", "b", "c", "d", "e", "g"]);
+  const b = Text.of(["a", "b", "d", "e", "f", "g"]);
+  const start = (doc: Text, line: number) => doc.line(line).from;
   const chunks = [
-    { fromA: 20, toA: 30, fromB: 20, toB: 20 },
-    { fromA: 40, toA: 40, fromB: 30, toB: 35 },
+    { fromA: start(a, 3), toA: start(a, 4), fromB: start(b, 3), toB: start(b, 3) },
+    { fromA: start(a, 6), toA: start(a, 6), fromB: start(b, 5), toB: start(b, 6) },
   ];
 
-  it("offsets unchanged text by the changes before it", () => {
-    expect(otherSidePos(10, chunks, true)).toBe(10);
-    expect(otherSidePos(35, chunks, true)).toBe(25);
-    expect(otherSidePos(50, chunks, true)).toBe(45);
-    expect(otherSidePos(25, chunks, false)).toBe(35);
-    expect(otherSidePos(45, chunks, false)).toBe(50);
+  it("offsets unchanged lines by the changes before them", () => {
+    expect(otherSidePos(start(a, 2), chunks, a, b, true)).toBe(start(b, 2));
+    expect(otherSidePos(start(a, 4), chunks, a, b, true)).toBe(start(b, 3));
+    expect(otherSidePos(start(a, 5), chunks, a, b, true)).toBe(start(b, 4));
+    expect(otherSidePos(start(b, 4), chunks, b, a, false)).toBe(start(a, 5));
+    expect(otherSidePos(start(b, 6), chunks, b, a, false)).toBe(start(a, 6));
+  });
+
+  it("counts lines where unchanged lines differ in whitespace", () => {
+    const indented = Text.of(["  a", "    b", "c"]);
+    const plain = Text.of(["a", "b", "c"]);
+    expect(otherSidePos(start(indented, 3), [], indented, plain, true)).toBe(start(plain, 3));
+    expect(otherSidePos(start(plain, 2), [], plain, indented, false)).toBe(start(indented, 2));
   });
 });
 

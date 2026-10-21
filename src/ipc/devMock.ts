@@ -219,6 +219,16 @@ for (let index = 1; index <= extraFiles; index++) {
   files.set("src/Large/Inventory.fs", { base, working: lines.join("\n") + "\n" });
 }
 
+// Lines 101 to 500 moved into a nested module (indented, whitespace only) with one real edit: hiding
+// whitespace changes leaves the module line and the edit.
+{
+  const base = Array.from({ length: 600 }, (_, line) => `let stock${line} = lookup "item-${line}" |> Option.defaultValue 0`);
+  const working = base.map((line, index) => (index >= 100 && index < 500 ? `    ${line}` : line));
+  working[300] = working[300].replace("defaultValue 0", "defaultValue -1");
+  working.splice(100, 0, "module Reserved =");
+  files.set("src/Large/Stock.fs", { base: base.join("\n") + "\n", working: working.join("\n") + "\n" });
+}
+
 const ROOT = "/src/shop-api";
 const lineCount = (text: string | null) => (text ? text.split("\n").length - 1 : 0);
 
