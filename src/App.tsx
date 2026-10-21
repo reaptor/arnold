@@ -9,7 +9,7 @@ import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { LicensesDialog } from "./components/LicensesDialog";
 import { UpdateStatus } from "./components/UpdateStatus";
-import { activities, isBusy } from "./state/activity";
+import { activities, followClicks, isBusy } from "./state/activity";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
@@ -165,7 +165,9 @@ export function App() {
   window.addEventListener("mousedown", onMouseButton);
   window.addEventListener("mouseup", onMouseButton);
   window.addEventListener("contextmenu", suppressBrowserMenu);
+  const stopFollowingClicks = followClicks();
   onCleanup(() => {
+    stopFollowingClicks();
     window.removeEventListener("contextmenu", suppressBrowserMenu);
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("pointerdown", closeMenu);

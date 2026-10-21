@@ -1512,6 +1512,43 @@ button.primary:hover:not(:disabled) {
   cursor: progress;
 }
 
+/* The button or row a slow action was started from: a spinner in place of a
+   button's label (so it keeps its size), at the end of a row. Controls that
+   show their own spinner (.busy) are left alone. */
+[data-working="anchor"] {
+  position: relative;
+}
+
+:is(button, li, [role="treeitem"])[data-working]:not(.busy, .busy:not(.app) *) {
+  pointer-events: none;
+}
+
+button[data-working]:not(.busy, .busy:not(.app) *) {
+  color: transparent !important;
+}
+
+button[data-working]:not(.busy, .busy:not(.app) *) > * {
+  opacity: 0;
+}
+
+:is(button, li, [role="treeitem"])[data-working]:not(.busy, .busy:not(.app) *)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 10px;
+  height: 10px;
+  margin: auto;
+  border: 1.5px solid var(--working-color, var(--accent));
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+:is(li, [role="treeitem"])[data-working]:not(.busy, .busy:not(.app) *)::after {
+  left: auto;
+  right: 8px;
+}
+
 /* --------------------------------------------------------------------- menu */
 
 .menu {
