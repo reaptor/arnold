@@ -1,16 +1,23 @@
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { setLicensesOpen } from "../state/licenses";
+import { updates } from "../state/updates";
 import { openInBrowser } from "./DevOpsSetup";
 
 type Package = { name: string; version: string; license: string; url: string };
-type Notice = { license: string; text: string | null; packages: Package[] };
-type Notices = { packageCount: number; notices: Notice[] };
+/** `texts` are indexes into `Notices.texts`: each license file is stored once. */
+type Notice = { license: string; texts: number[]; packages: Package[] };
+type Notices = { arnold: { license: string; text: string }; packageCount: number; texts: string[]; notices: Notice[] };
 
 // Written by scripts/third-party-notices.mjs during `npm run build`; loaded only when shown.
-const loadNotices = async (): Promise<Notices> => {
-  const response = await fetch("/third-party-notices.json");
-  if (!response.ok) throw new Error(`${response.status}`);
-  return response.json();
+// Null when it is missing (a dev build that never ran the script): reading a failed resource
+// throws, which would leave the dialog empty instead of saying so.
+const loadNotices = async (): Promise<Notices | null> => {
+  try {
+    const response = await fetch("/third-party-notices.json");
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
 };
 
 /**
@@ -24,16 +31,16 @@ export function LicensesDialog() {
   onMount(() => search?.focus());
   const close = () => setLicensesOpen(false);
 
-  const shown = createMemo(() => {
-    const term = filter().trim().toLowerCase();
-    const all = notices()?.notices ?? [];
-    if (!term) return all;
-    return all.filter(
-      (notice) =>
-        notice.license.toLowerCase().includes(term) ||
-        notice.packages.some((p) => p.name.toLowerCase().includes(term)),
-    );
-  });
+  const term = () => filter().trim().toLowerCase();
+  const matches = (name: string, license: string) =>
+    name.toLowerCase().includes(term()) || license.toLowerCase().includes(term());
+  const shown = createMemo(() =>
+    (notices()?.notices ?? []).filter((notice) => notice.packages.some((p) => matches(p.name, notice.license))),
+  );
+  const arnold = () => {
+    const own = notices()?.arnold;
+    return own && matches("Arnold", own.license) ? own : undefined;
+  };
 
   return (
     <div
@@ -66,7 +73,20 @@ export function LicensesDialog() {
           onInput={(event) => setFilter(event.currentTarget.value)}
         />
         <div class="licenses-list">
-          <Show when={!notices.error} fallback={<p class="licenses-missing">The license list is not part of this build.</p>}>
+          <Show when={notices() !== null} fallback={<p class="licenses-missing">The license list is not part of this build.</p>}>
+            <Show when={arnold()}>
+              {(own) => (
+                <details class="licenses-entry">
+                  <summary>
+                    <span class="licenses-names">
+                      Arnold <span class="licenses-version">{updates.version}</span>
+                    </span>
+                    <span class="licenses-id">{own().license}</span>
+                  </summary>
+                  <pre class="licenses-text">{own().text}</pre>
+                </details>
+              )}
+            </Show>
             <For each={shown()}>
               {(notice) => (
                 <details class="licenses-entry">
@@ -87,7 +107,9 @@ export function LicensesDialog() {
                     </For>
                   </ul>
                   <pre class="licenses-text">
-                    {notice.text ?? `${notice.license}. The package ships no license file; see its repository.`}
+                    {notice.texts.length
+                      ? notice.texts.map((id) => notices()!.texts[id]).join("\n\n-----\n\n")
+                      : `${notice.license}. The package ships no license file; see its repository.`}
                   </pre>
                 </details>
               )}

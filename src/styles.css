@@ -3817,6 +3817,10 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   white-space: nowrap;
 }
 
+.licenses-version {
+  color: var(--muted);
+}
+
 .licenses-id {
   flex: none;
   color: var(--muted);

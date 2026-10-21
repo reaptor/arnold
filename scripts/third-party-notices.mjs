@@ -1,6 +1,6 @@
-// Writes public/third-party-notices.json: every package built into Arnold (Rust crates for the
-// two release targets, and the npm packages bundled into the webview), with the license files
-// they ship. MIT, Apache-2.0, BSD and the font's OFL all ask for their notices to go along with
+// Writes public/third-party-notices.json: Arnold's own LICENSE and every package built into
+// Arnold (Rust crates for the two release targets, and the npm packages bundled into the
+// webview), with the license files they ship. MIT, Apache-2.0, BSD and the font's OFL all ask for their notices to go along with
 // the app; Arnold shows this file under "Open source licenses" (src/components/LicensesDialog.tsx).
 //
 // Runs as part of `npm run build`, so every release carries the list for exactly what it was
@@ -37,16 +37,15 @@ const EXTRAS = [
 
 const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright)([-._].*)?$/i;
 
-/** The license and notice files at the top of a package folder, joined. */
-function licenseText(dir, extraFile) {
+/** The license and notice files at the top of a package folder, one text per file. */
+function licenseTexts(dir, extraFile) {
   const files = existsSync(dir)
     ? readdirSync(dir)
         .filter((name) => LICENSE_FILE.test(name) && statSync(join(dir, name)).isFile())
         .sort()
     : [];
   if (extraFile && !files.includes(extraFile) && existsSync(join(dir, extraFile))) files.push(extraFile);
-  const texts = files.map((name) => readFileSync(join(dir, name), "utf8").replace(/\r\n/g, "\n").trim());
-  return texts.length ? texts.join("\n\n-----\n\n") : null;
+  return files.map((name) => readFileSync(join(dir, name), "utf8").replace(/\r\n/g, "\n").trim());
 }
 
 function rustPackages() {
@@ -82,7 +81,7 @@ function rustPackages() {
         version: p.version,
         license: p.license ?? (p.license_file ? "see license text" : "unknown"),
         url: p.repository ?? p.homepage ?? `https://crates.io/crates/${p.name}`,
-        text: licenseText(dirname(p.manifest_path), p.license_file),
+        texts: licenseTexts(dirname(p.manifest_path), p.license_file),
       });
     }
   }
@@ -120,7 +119,7 @@ function npmPackages() {
         .replace(/^git:\/\//, "https://")
         .replace(/\.git$/, "")
         .replace(/^github:/, "https://github.com/"),
-      text: licenseText(location),
+      texts: licenseTexts(location),
     });
     for (const dep of Object.keys(manifest.dependencies ?? {})) queue.push({ name: dep, from: location });
   }
@@ -129,30 +128,42 @@ function npmPackages() {
 
 const packages = [...rustPackages(), ...npmPackages()];
 
-// Packages with the same license text share one entry: most Apache-2.0 texts are identical.
+// Each license file is stored once and referred to by index: most Apache-2.0 texts are
+// identical, and dual-licensed packages often differ only in their MIT copyright line.
+const texts = [];
+const textIndex = new Map();
+const indexOf = (text) => {
+  if (!textIndex.has(text)) textIndex.set(text, texts.push(text) - 1);
+  return textIndex.get(text);
+};
+
+// Packages with the same license files share one entry.
 const groups = new Map();
-for (const { text, ...entry } of packages) {
-  const key = text ?? `(no license file) ${entry.license}`;
-  if (!groups.has(key)) groups.set(key, { license: entry.license, text, packages: [] });
+for (const { texts: own, ...entry } of packages) {
+  const ids = own.map(indexOf);
+  const key = ids.length ? ids.join(",") : `(no license file) ${entry.license}`;
+  if (!groups.has(key)) groups.set(key, { license: entry.license, texts: ids, packages: [] });
   groups.get(key).packages.push(entry);
 }
-const apache = [...groups.values()].find((group) => group.license === "Apache-2.0" && group.text);
+const apache = [...groups.values()].find((group) => group.license === "Apache-2.0" && group.texts.length);
 for (const extra of EXTRAS) {
   if (apache && extra.license === "Apache-2.0") apache.packages.push(extra);
-  else groups.set(extra.name, { license: extra.license, text: null, packages: [extra] });
+  else groups.set(extra.name, { license: extra.license, texts: [], packages: [extra] });
 }
 
 const notices = [...groups.values()]
   .map((group) => ({ ...group, packages: group.packages.sort((a, b) => a.name.localeCompare(b.name)) }))
   .sort((a, b) => a.packages[0].name.localeCompare(b.packages[0].name));
 
+const arnold = { license: "MIT", text: readFileSync(join(root, "LICENSE"), "utf8").replace(/\r\n/g, "\n").trim() };
+
 mkdirSync(dirname(output), { recursive: true });
-writeFileSync(output, JSON.stringify({ packageCount: packages.length + EXTRAS.length, notices }));
+writeFileSync(output, JSON.stringify({ arnold, packageCount: packages.length + EXTRAS.length, texts, notices }));
 console.log(
-  `third-party-notices.json: ${packages.length + EXTRAS.length} packages, ${notices.length} license texts, ` +
+  `third-party-notices.json: ${packages.length + EXTRAS.length} packages, ${notices.length} entries, ${texts.length} license texts, ` +
     `${Math.round(statSync(output).size / 1024)} kB`,
 );
-const missing = packages.filter((p) => !p.text);
+const missing = packages.filter((p) => !p.texts.length);
 if (missing.length) {
   console.log(`  without a license file: ${missing.map((p) => `${p.name} (${p.license})`).join(", ")}`);
 }
