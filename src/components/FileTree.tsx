@@ -4,6 +4,7 @@ import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
 import { allFiles, changedFiles, explorerSelection, openFile, openTreeMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
+import { FileTypeIcon, FolderIcon, PROJECT_EXTENSIONS } from "./fileIcons";
 import { showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Height of one row; rows are virtualized, so it is fixed. Matches `.tree-row`. */
@@ -99,6 +100,16 @@ export function FileTree(props: { filter: string }) {
     () => new Map<string, FileStatus>(changedFiles().map((file) => [file.path, file.status])),
   );
   const changedFolders = createMemo(() => new Set([...changed().keys()].flatMap(ancestors)));
+  /** Folders holding a project file, shown with that project's icon. */
+  const projects = createMemo(() => {
+    const result = new Map<string, (typeof PROJECT_EXTENSIONS)[string]>();
+    for (const path of allFiles()) {
+      const kind = PROJECT_EXTENSIONS[path.slice(path.lastIndexOf(".") + 1).toLowerCase()];
+      const slash = path.lastIndexOf("/");
+      if (kind && slash > 0) result.set(path.slice(0, slash), kind);
+    }
+    return result;
+  });
   /** Files with uncommitted edits in the checkout a comparison reads. */
   const edited = createMemo(() => new Set(changedFiles().flatMap((file) => (showsEdited(file) ? [file.path] : []))));
 
@@ -243,6 +254,12 @@ export function FileTree(props: { filter: string }) {
                         <Chevron open={row().open} />
                       </Show>
                     </span>
+                    <Show
+                      when={row().kind === "folder"}
+                      fallback={<FileTypeIcon name={row().label} />}
+                    >
+                      <FolderIcon project={projects().get(row().path)} />
+                    </Show>
                     <span class="tree-label" classList={{ "tree-folder": row().kind === "folder" }}>
                       {row().label}
                       <Show when={row().detail}>
