@@ -3234,7 +3234,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   background: var(--pressed);
 }
 
-/* Expand selected / Collapse all in the All files heading. */
+/* Stage / unstage, Expand selected / Collapse all: icon buttons in the dock headings. */
 .dock-icon-action {
   display: flex;
   align-items: center;

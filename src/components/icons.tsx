@@ -58,6 +58,34 @@ export const CollapseAllIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** An arrow down onto a bar: stage, into the Staged list below. */
+export const StageIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" />
+  </Icon>
+);
+
+/** Two arrows down onto a bar: stage everything. */
+export const StageAllIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 3 8 6.5 11.5 3M4.5 7 8 10.5 11.5 7M3 13.5h10" />
+  </Icon>
+);
+
+/** An arrow up onto a bar: unstage, back to the Unstaged list above. */
+export const UnstageIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8 13.5v-8M4.5 9 8 5.5 11.5 9M3 2.5h10" />
+  </Icon>
+);
+
+/** Two arrows up onto a bar: unstage everything. */
+export const UnstageAllIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 13 8 9.5 11.5 13M4.5 9 8 5.5 11.5 9M3 2.5h10" />
+  </Icon>
+);
+
 export const BackIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M13 8H3.5M7.5 3.5 3 8l4.5 4.5" />

@@ -5,6 +5,7 @@ import { isMac } from "../platform";
 import { allFiles, explainFilesItem, ignoreTarget, noteDeparture, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree, type TreeControls, TreeButtons } from "./FileTree";
+import { StageAllIcon, StageIcon, UnstageAllIcon, UnstageIcon } from "./icons";
 
 const MIN_LIST_HEIGHT = 44;
 /** Room the file explorer keeps when the lists above it are made taller. */
@@ -299,14 +300,27 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
           >
             <Show when={listOf("unstaged").length > 0}>
               <button
-                class="dock-action"
+                class="dock-action dock-icon-action"
+                disabled={pickedFiles("unstaged").length === 0}
+                title="Stage the selected files (S)"
+                aria-label="Stage selected"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  act("stage", "unstaged");
+                }}
+              >
+                <StageIcon />
+              </button>
+              <button
+                class="dock-action dock-icon-action"
                 title="Stage every unstaged file"
+                aria-label="Stage all"
                 onClick={(event) => {
                   event.stopPropagation();
                   void stageAll();
                 }}
               >
-                Stage all
+                <StageAllIcon />
               </button>
             </Show>
           </DockHeading>
@@ -329,14 +343,27 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
           >
             <Show when={listOf("staged").length > 0}>
               <button
-                class="dock-action"
+                class="dock-action dock-icon-action"
+                disabled={pickedFiles("staged").length === 0}
+                title="Unstage the selected files (U)"
+                aria-label="Unstage selected"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  act("unstage", "staged");
+                }}
+              >
+                <UnstageIcon />
+              </button>
+              <button
+                class="dock-action dock-icon-action"
                 title="Unstage every staged file"
+                aria-label="Unstage all"
                 onClick={(event) => {
                   event.stopPropagation();
                   void unstageAll();
                 }}
               >
-                Unstage all
+                <UnstageAllIcon />
               </button>
             </Show>
           </DockHeading>
