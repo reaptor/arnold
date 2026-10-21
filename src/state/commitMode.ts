@@ -16,7 +16,7 @@ import * as ipc from "../ipc/commands";
 import type { BranchSync, ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
 import { branchNameFor } from "./branchName";
-import { comparePaths } from "./pathOrder";
+import { clearSolution, fileOrder, loadSolution } from "./solutionView";
 import {
   attachLanguageServer,
   editorCallbacks,
@@ -158,6 +158,7 @@ async function openCheckout(path: string) {
   for (const key of [...sectionEditors.keys()]) hideSection(key);
   sectionSnapshotsClear();
   setAllFiles([]);
+  clearSolution();
   setMessage(localStorage.getItem(messageKey(path)) ?? "");
   // One file at a time, without changing the remembered choice for reviewing.
   setState({
@@ -211,13 +212,15 @@ async function readWork() {
   try {
     const [work, files] = await Promise.all([ipc.workingStatus(checkout), ipc.worktreeFiles(checkout)]);
     if (state.repo !== repo || state.checkout !== checkout || state.source !== "commit") return;
-    work.unstaged.sort((a, b) => comparePaths(a.path, b.path));
-    work.staged.sort((a, b) => comparePaths(a.path, b.path));
+    const order = fileOrder();
+    work.unstaged.sort((a, b) => order(a.path, b.path));
+    work.staged.sort((a, b) => order(a.path, b.path));
     // Where the selected file was, before the lists change under it.
     const side = state.workSide;
     const index = side ? listOf(side).findIndex((file) => file.path === state.selected) : -1;
     setState("work", reconcile(work, { key: "path" }));
     setAllFiles(files);
+    void loadSolution(repo.root, work.head ?? "HEAD", checkout, files);
     if (work.head) setUpLanguageFeaturesIn(checkout, work.branch ?? "HEAD", work.head);
     const place = placePending ? (placePending = false, takePlace(repo.root)) : undefined;
     const known = (key: string | undefined) => {

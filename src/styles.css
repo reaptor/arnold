@@ -960,6 +960,17 @@ button.primary:hover:not(:disabled) {
   color: var(--modified);
 }
 
+/* An F# file its project does not list: not compiled. */
+.tree-row.unlisted .tree-label {
+  font-style: italic;
+}
+
+.tree-unlisted {
+  margin-left: 6px;
+  color: var(--warning);
+  font-size: 11px;
+}
+
 .tree-dot {
   color: var(--modified);
   font-size: 8px;
@@ -3350,6 +3361,14 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 }
 
 .dock-icon-action:hover:not(:disabled) .icon {
+  stroke: var(--text);
+}
+
+.dock-icon-action[aria-pressed="true"] {
+  background: var(--pressed);
+}
+
+.dock-icon-action[aria-pressed="true"] .icon {
   stroke: var(--text);
 }
 

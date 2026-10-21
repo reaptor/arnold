@@ -51,6 +51,13 @@ export const ExpandIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A solution's grid: the explorer's Solution view. */
+export const SolutionViewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 2.5h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2ZM8 2.5v11M2.5 8h11" />
+  </Icon>
+);
+
 /** Two arrows pointing together: close folders. */
 export const CollapseAllIcon = (props: IconProps) => (
   <Icon {...props}>

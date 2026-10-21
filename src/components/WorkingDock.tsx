@@ -390,7 +390,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
           detail="in the working tree"
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
-          explanation="File explorer: every file of the checkout as it is on disk, tracked or not (ignored files left out). Files with uncommitted changes are marked with their status letter. Click a file to open it; it can be edited."
+          explanation="File explorer: every file of the checkout as it is on disk, tracked or not (ignored files left out). Files with uncommitted changes are marked with their status letter. With a solution or projects, the Solution view (the grid button) shows the projects in solution order and F# files in compile order. Click a file to open it; it can be edited."
         >
           <Show when={open().explorer}>
             <TreeButtons controls={treeControls} filtering={!!filter()} />

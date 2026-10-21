@@ -208,6 +208,34 @@ pub async fn list_files(
         .map_err(text_error)
 }
 
+/// Texts of the solution and project files at `paths`, for the explorer's
+/// Solution view: from the files on disk in `checkout` when given, else from
+/// `commit`. `None` for a path that is missing or not text.
+#[tauri::command]
+pub async fn read_texts(
+    root: String,
+    commit: String,
+    checkout: Option<String>,
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Option<String>>, String> {
+    let checkout = checkout.map(|checkout| state.checked_root(&checkout)).transpose()?;
+    let root = state.checked_root(&root)?;
+    let mut texts = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let bytes = match &checkout {
+            Some(checkout) => arnold_git::read_worktree(checkout, path).await,
+            None => arnold_git::read_blob(&root, &commit, path).await,
+        }
+        .map_err(text_error)?;
+        texts.push(match bytes.as_deref().map(fsio::decode) {
+            Some(Decoded::Text(text)) => Some(text),
+            _ => None,
+        });
+    }
+    Ok(texts)
+}
+
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FilePair {

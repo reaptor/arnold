@@ -4,7 +4,7 @@
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   type BlockedEdit,
@@ -41,7 +41,7 @@ import * as lsp from "../lsp/clients";
 import { removeUnusedOpens, showFixes, unusedOpenCount } from "../lsp/codeActions";
 import { applyTextEdits, onEditFile, onRenameError, startRename } from "../lsp/rename";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
-import { comparePaths } from "./pathOrder";
+import { clearSolution, fileOrder, loadSolution } from "./solutionView";
 import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
 import type { LineBlock } from "../editor/lineDiff";
 import { isSuggestion, placeName, setThreadActions } from "../editor/threads";
@@ -934,6 +934,7 @@ export function resetSessions() {
   // Dropping the list also removes the file sections of the all-files view.
   setState({ comparison: null, visited: [], backCount: 0, forwardCount: 0 });
   setAllFiles([]);
+  clearSolution();
 }
 
 // ---------------------------------------------------------------- comparison
@@ -953,7 +954,8 @@ export async function refresh() {
     // Commits no longer on the branch (rebased away): all of the changes are shown instead.
     if (!sameRange(comparison.range, range)) setState("range", comparison.range);
     // Listed, stepped through and shown in the order of the file explorer.
-    comparison.files.sort((a, b) => comparePaths(a.path, b.path));
+    const order = fileOrder();
+    comparison.files.sort((a, b) => order(a.path, b.path));
     // Deleted files start collapsed in the all-files view; once opened or
     // closed by hand they keep that across refreshes.
     for (const file of comparison.files) {
@@ -1011,11 +1013,28 @@ export async function refresh() {
 async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
   try {
     const files = await ipc.listFiles(repo.root, comparison);
-    if (repo === state.repo && comparison.headCommit === state.comparison?.headCommit) setAllFiles(files);
+    if (repo !== state.repo || comparison.headCommit !== state.comparison?.headCommit) return;
+    setAllFiles(files);
+    void loadSolution(repo.root, comparison.headCommit, comparison.checkout ?? null, files);
   } catch (error) {
     fail(error);
   }
 }
+
+// The explorer's view or the solution changed: the change lists follow its order.
+createRoot(() =>
+  createEffect(
+    on(
+      fileOrder,
+      (order) => {
+        const sorted = (files: readonly ChangedFile[]) => [...files].sort((a, b) => order(a.path, b.path));
+        if (state.comparison) setState("comparison", "files", sorted(state.comparison.files));
+        if (state.work) setState("work", { unstaged: sorted(state.work.unstaged), staged: sorted(state.work.staged) });
+      },
+      { defer: true },
+    ),
+  ),
+);
 
 const unchangedFile = (path: string): ChangedFile => ({
   path,

@@ -1,95 +1,18 @@
 import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, Show } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
-import { collator } from "../state/pathOrder";
 import { allFiles, changedFiles, openFile, openTreeMenu, state } from "../state/review";
+import { explorerView, fileOrder, setExplorerView, showsSolution, solutionTree } from "../state/solutionView";
 import { Chevron } from "./Chevron";
-import { CollapseAllIcon, ExpandIcon } from "./icons";
-import { FileTypeIcon, FolderIcon, PROJECT_EXTENSIONS } from "./fileIcons";
+import { CollapseAllIcon, ExpandIcon, SolutionViewIcon } from "./icons";
+import { FileTypeIcon, FolderIcon } from "./fileIcons";
+import { folderModel, type Row, solutionModel, type TreeModel } from "./treeModel";
 import { showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
 /** Height of one row; rows are virtualized, so it is fixed. Matches `.tree-row`. */
 const ROW_HEIGHT = 22;
 /** Rows drawn above and below the visible ones. */
 const OVERSCAN = 12;
-
-interface Folder {
-  path: string;
-  folders: Map<string, Folder>;
-  /** Full paths of the files directly in this folder. */
-  files: string[];
-  sorted: boolean;
-}
-
-interface Row {
-  kind: "folder" | "file";
-  path: string;
-  label: string;
-  /** Folder of a file found by the filter. */
-  detail: string;
-  depth: number;
-  open: boolean;
-}
-
-function buildTree(paths: readonly string[]): Folder {
-  const root: Folder = { path: "", folders: new Map(), files: [], sorted: false };
-  for (const path of paths) {
-    const parts = path.split("/");
-    let folder = root;
-    for (let index = 0; index < parts.length - 1; index++) {
-      let child = folder.folders.get(parts[index]);
-      if (!child) {
-        child = { path: parts.slice(0, index + 1).join("/"), folders: new Map(), files: [], sorted: false };
-        folder.folders.set(parts[index], child);
-      }
-      folder = child;
-    }
-    folder.files.push(path);
-  }
-  return root;
-}
-
-/** Folders are sorted the first time they are opened, not all up front. */
-function sortOnce(folder: Folder) {
-  if (folder.sorted) return;
-  folder.folders = new Map([...folder.folders].sort(([a], [b]) => collator.compare(a, b)));
-  folder.files.sort((a, b) => collator.compare(splitPath(a).name, splitPath(b).name));
-  folder.sorted = true;
-}
-
-/** The rows of the open part of the tree, folders before files as in VS Code. */
-function flatten(folder: Folder, expanded: Record<string, boolean>, depth: number, rows: Row[]) {
-  sortOnce(folder);
-  for (const [name, child] of folder.folders) {
-    // A chain of folders that each hold just one folder is one row: "src/Api".
-    let shown = child;
-    let label = name;
-    while (shown.files.length === 0 && shown.folders.size === 1) {
-      const [[innerName, inner]] = shown.folders;
-      label += `/${innerName}`;
-      shown = inner;
-    }
-    const open = !!expanded[shown.path];
-    rows.push({ kind: "folder", path: shown.path, label, detail: "", depth, open });
-    if (open) flatten(shown, expanded, depth + 1, rows);
-  }
-  for (const path of folder.files) {
-    rows.push({ kind: "file", path, label: splitPath(path).name, detail: "", depth, open: false });
-  }
-}
-
-/** The folder at `path`, if the tree has one. */
-function folderAt(root: Folder, path: string): Folder | undefined {
-  let folder: Folder | undefined = root;
-  for (const part of path.split("/")) folder = folder?.folders.get(part);
-  return folder;
-}
-
-/** Calls `visit` with `folder` and every folder inside it. */
-function eachFolder(folder: Folder, visit: (folder: Folder) => void) {
-  visit(folder);
-  for (const child of folder.folders.values()) eachFolder(child, visit);
-}
 
 /** What the buttons in the explorer's heading do to the tree. */
 export interface TreeControls {
@@ -99,15 +22,11 @@ export interface TreeControls {
   collapseAll(): void;
 }
 
-const ancestors = (path: string) => {
-  const parts = path.split("/");
-  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
-};
-
 /**
- * File explorer: every file of the branch under review as a folder tree.
- * Changed files are marked with their status, folders holding changes with
- * a dot. With a filter, matching files are listed flat instead.
+ * File explorer: every file of the branch under review, as the solution's
+ * projects (F# files in compile order) or as a folder tree. Changed files
+ * are marked with their status, folders holding changes with a dot. With a
+ * filter, matching files are listed flat instead.
  */
 export function FileTree(props: { filter: string; controls?: (controls: TreeControls) => void }) {
   let scroller!: HTMLDivElement;
@@ -116,38 +35,32 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewHeight, setViewHeight] = createSignal(0);
 
-  const tree = createMemo(() => buildTree(allFiles()));
+  const model = createMemo<TreeModel>(() => {
+    const solution = showsSolution() ? solutionTree() : null;
+    return solution ? solutionModel(solution, allFiles()) : folderModel(allFiles());
+  });
   const fileSet = createMemo(() => new Set(allFiles()));
   const changed = createMemo(
     () => new Map<string, FileStatus>(changedFiles().map((file) => [file.path, file.status])),
   );
-  const changedFolders = createMemo(() => new Set([...changed().keys()].flatMap(ancestors)));
-  /** Folders holding a project file, shown with that project's icon. */
-  const projects = createMemo(() => {
-    const result = new Map<string, (typeof PROJECT_EXTENSIONS)[string]>();
-    for (const path of allFiles()) {
-      const kind = PROJECT_EXTENSIONS[path.slice(path.lastIndexOf(".") + 1).toLowerCase()];
-      const slash = path.lastIndexOf("/");
-      if (kind && slash > 0) result.set(path.slice(0, slash), kind);
-    }
-    return result;
-  });
+  /** Rows holding changed files. */
+  const changedGroups = createMemo(() => new Set([...changed().keys()].flatMap((path) => model().holders(path))));
   /** Files with uncommitted edits in the checkout a comparison reads. */
   const edited = createMemo(() => new Set(changedFiles().flatMap((file) => (showsEdited(file) ? [file.path] : []))));
 
   const rows = createMemo<Row[]>(() => {
     const needle = props.filter.toLowerCase();
     if (needle) {
+      const order = fileOrder();
       return allFiles()
         .filter((path) => path.toLowerCase().includes(needle))
+        .sort(order)
         .map((path) => {
           const parts = splitPath(path);
-          return { kind: "file", path, label: parts.name, detail: parts.directory, depth: 0, open: false };
+          return { kind: "file", key: path, path, label: parts.name, detail: parts.directory, depth: 0, open: false, icon: null, note: "", unlisted: "" };
         });
     }
-    const result: Row[] = [];
-    flatten(tree(), expanded, 0, result);
-    return result;
+    return model().rows(expanded);
   });
 
   const first = () => Math.max(0, Math.floor(scrollTop() / ROW_HEIGHT) - OVERSCAN);
@@ -168,7 +81,13 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight)
       scroller.scrollTop = top + ROW_HEIGHT - scroller.clientHeight;
   };
-  const indexOf = (path: string | null) => rows().findIndex((row) => row.path === path);
+  const indexOf = (key: string | null) => rows().findIndex((row) => row.key === key);
+  const openAll = (keys: string[]) =>
+    setExpanded(
+      produce((open) => {
+        for (const key of keys) open[key] = true;
+      }),
+    );
 
   // Follow the file shown in the editor, wherever it was picked (in Commit
   // mode also Unstaged or Staged): open its folders and scroll to it.
@@ -177,16 +96,19 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
       () => state.selected,
       (path) => {
         if (!path || !fileSet().has(path)) return;
-        for (const folder of ancestors(path)) if (!expanded[folder]) setExpanded(folder, true);
+        const closed = model().holders(path).filter((key) => !rowOpen(key));
+        if (closed.length) openAll(closed);
         setCursor(path);
         scrollToRow(indexOf(path));
       },
     ),
   );
 
-  const toggle = (path: string) => setExpanded(path, !expanded[path]);
+  /** Whether the group row `key` is open (some start open). */
+  const rowOpen = (key: string) => rows().find((row) => row.key === key)?.open ?? !!expanded[key];
+  const toggle = (row: Row) => setExpanded(row.key, !row.open);
 
-  const inTree = (path: string | null): path is string => !!path && (fileSet().has(path) || !!folderAt(tree(), path));
+  const inTree = (key: string | null): key is string => !!key && (fileSet().has(key) || model().isGroup(key));
   /** The row under the cursor, or else the file shown, if it is in the tree. */
   const selected = () => [cursor(), state.selected].find(inTree) ?? null;
 
@@ -196,26 +118,20 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
    * With nothing selected, opens every folder.
    */
   const expandSelected = () => {
-    const path = selected();
-    const folder = path === null ? tree() : fileSet().has(path) ? undefined : folderAt(tree(), path);
-    setExpanded(
-      produce((open) => {
-        if (path) for (const above of ancestors(path)) open[above] = true;
-        // The root (path "") has no row to open.
-        if (folder) eachFolder(folder, (inner) => inner.path && (open[inner.path] = true));
-      }),
-    );
-    if (path) scrollToRow(indexOf(path));
+    const key = selected();
+    const tree = model();
+    openAll([...(key ? tree.holders(key) : []), ...(key !== null && fileSet().has(key) ? [] : tree.groupsIn(key))]);
+    if (key) scrollToRow(indexOf(key));
   };
 
   /** Closes every folder; the cursor stays, so Expand selected finds its way back. */
-  const collapseAll = () => setExpanded(reconcile({}));
+  const collapseAll = () => setExpanded(reconcile(model().collapsed()));
 
   props.controls?.({ selected, expandSelected, collapseAll });
 
   const activate = (row: Row) => {
-    setCursor(row.path);
-    if (row.kind === "folder") toggle(row.path);
+    setCursor(row.key);
+    if (row.kind === "folder") toggle(row);
     else void openFile(row.path);
   };
 
@@ -226,7 +142,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     const row = list[index];
     const moveTo = (next: number) => {
       const target = Math.min(Math.max(next, 0), list.length - 1);
-      setCursor(list[target].path);
+      setCursor(list[target].key);
       scrollToRow(target);
     };
     if (event.key === "ArrowDown") moveTo(indexOf(cursor()) < 0 ? 0 : index + 1);
@@ -237,9 +153,9 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     else if (event.key === "*") expandSelected();
     else if (event.key === "ArrowRight" && row.kind === "folder") {
       if (row.open) moveTo(index + 1);
-      else setExpanded(row.path, true);
+      else setExpanded(row.key, true);
     } else if (event.key === "ArrowLeft") {
-      if (row.kind === "folder" && row.open) setExpanded(row.path, false);
+      if (row.kind === "folder" && row.open) setExpanded(row.key, false);
       else {
         // To the folder row holding this one.
         let parent = index - 1;
@@ -279,14 +195,17 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
                 const title = () => {
                   const known = status();
                   const edits = edited().has(row().path) ? ", with uncommitted edits" : "";
-                  return known ? `${STATUS_NAME[known]}${edits}: ${row().path}` : row().path;
+                  const name = row().kind === "file" ? row().path : row().note || row().path || row().label;
+                  const note = row().kind === "file" && row().note ? ` (${row().note})` : "";
+                  return known ? `${STATUS_NAME[known]}${edits}: ${name}${note}` : `${name}${note}`;
                 };
                 return (
                   <div
                     class="tree-row"
                     classList={{
-                      selected: row().path === state.selected,
-                      cursor: row().path === cursor(),
+                      selected: row().kind === "file" && row().path === state.selected,
+                      cursor: row().key === cursor(),
+                      unlisted: !!row().unlisted,
                       [`changed-${status()}`]: status() !== undefined,
                     }}
                     role="treeitem"
@@ -295,6 +214,8 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
                     title={title()}
                     onClick={() => activate(row())}
                     onContextMenu={(event) => {
+                      // Groups of the Solution view without a real folder have no menu.
+                      if (!row().path) return;
                       if (openTreeMenu(row().path, row().kind === "folder", event.clientX, event.clientY)) {
                         event.preventDefault();
                       }
@@ -309,18 +230,21 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
                       when={row().kind === "folder"}
                       fallback={<FileTypeIcon name={row().label} />}
                     >
-                      <FolderIcon project={projects().get(row().path)} />
+                      <GroupIconOf icon={row().icon} />
                     </Show>
                     <span class="tree-label" classList={{ "tree-folder": row().kind === "folder" }}>
                       {row().label}
                       <Show when={row().detail}>
                         <span class="file-directory">{row().detail}</span>
                       </Show>
+                      <Show when={row().unlisted}>
+                        <span class="tree-unlisted">not in {row().unlisted}</span>
+                      </Show>
                     </span>
                     <Show
                       when={status()}
                       fallback={
-                        <Show when={row().kind === "folder" && changedFolders().has(row().path)}>
+                        <Show when={row().kind === "folder" && changedGroups().has(row().key)}>
                           <span class="tree-dot" title="Holds changed files">
                             ●
                           </span>
@@ -349,6 +273,16 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
   );
 }
 
+function GroupIconOf(props: { icon: Row["icon"] }) {
+  return (
+    <Show when={props.icon !== "solution"} fallback={<FileTypeIcon name="solution.sln" />}>
+      <FolderIcon
+        project={props.icon === "fsharpProject" || props.icon === "csharpProject" ? props.icon : undefined}
+      />
+    </Show>
+  );
+}
+
 /** "Expand selected" (or "Expand all", with nothing selected) and "Collapse all" at the end of the All files heading. */
 export function TreeButtons(props: { controls: () => TreeControls | undefined; filtering: boolean }) {
   const run = (event: MouseEvent, action: (controls: TreeControls) => void) => {
@@ -358,8 +292,27 @@ export function TreeButtons(props: { controls: () => TreeControls | undefined; f
   };
   const off = () => (props.filtering ? " (not while filtering: the files are listed flat)" : "");
   const all = () => props.controls()?.selected() === null;
+  const solution = () => explorerView() === "solution";
   return (
     <>
+      <Show when={solutionTree()}>
+        <button
+          class="dock-action dock-icon-action"
+          aria-pressed={solution()}
+          title={
+            solution()
+              ? "Solution view: the projects in the order of the solution, and the files of an F# project in its compile order. The change lists follow this order. Click to show the folders instead."
+              : "Folders view: the files in their folders, by name. Click to show the solution's projects, with F# files in compile order."
+          }
+          aria-label="Solution view"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExplorerView(solution() ? "folders" : "solution");
+          }}
+        >
+          <SolutionViewIcon />
+        </button>
+      </Show>
       <button
         class="dock-action dock-icon-action"
         disabled={props.filtering}

@@ -233,7 +233,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
           detail={state.range ? `in ${state.range.newest.slice(0, 7)}` : branchNames().head ? `in ${branchNames().head}` : ""}
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
-          explanation={`File explorer: every file in ${state.range ? `commit ${state.range.newest.slice(0, 7)}, the newest one picked` : `the last commit of ${branchNames().head}`}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
+          explanation={`File explorer: every file in ${state.range ? `commit ${state.range.newest.slice(0, 7)}, the newest one picked` : `the last commit of ${branchNames().head}`}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. With a solution or projects, the Solution view (the grid button) shows the projects in solution order and F# files in compile order. Click a file to open it.`}
         >
           <Show when={explorerOpen()}>
             <TreeButtons controls={treeControls} filtering={!!filter()} />

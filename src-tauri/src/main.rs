@@ -78,6 +78,7 @@ fn main() {
             commands::pull_request_worktree,
             commands::list_files,
             commands::read_file_pair,
+            commands::read_texts,
             working::working_status,
             working::uncommitted_count,
             working::stop_watching_checkout,

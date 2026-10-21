@@ -142,6 +142,8 @@ The left side has two parts:
 - **Changes:** every file in the diff, with its status (A, M, D, R) and line counts.
 - **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit* and *Branches*): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk.
 
+In a repository with a .NET solution (`.sln` or `.slnx`) or project files, *All files* starts in the **Solution view**, as Rider's solution explorer: the solution's folders and projects in the order of the solution file, each F# project's files in the order of its project file (its compile order, with a folder showing again where its files are listed apart), C# projects by folder, and everything else under *Files outside projects*. An F# file in a project's folder that the project does not list is marked *not in X.fsproj*, as it is not compiled. Changes, and in *Commit* Unstaged and Staged, are listed in the same order. The grid button on the *All files* heading switches to the plain folder tree (files by name) and back; the choice is remembered.
+
 The filter above them applies to both. Drag the gap between them to resize, click a heading to fold a part away, and press `Ctrl+B` to hide or show the whole dock.
 
 ### One file or all files
@@ -417,6 +419,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
+| `nosolution` | The stand-in repository has no solution or project files, so *All files* shows only the folder tree |
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is checked out in a worktree of its own when compared; `dirtyfolder` also gives `main` uncommitted changes; `checkoutfail` makes the worktree fail, so the comparison is read-only |
 | `unformatted` | The repository uses Fantomas and it would reformat files; `=many` lists more than the dialog shows, `=errors` adds a file it cannot parse, `=fail` makes the check fail |
 | `failpush` | Pushing the branch from *Commit* fails |

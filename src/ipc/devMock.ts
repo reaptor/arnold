@@ -781,13 +781,59 @@ ENTRYPOINT ["dotnet", "/app/Api.dll"]
 `,
 };
 
+/** A solution and its projects, for the explorer's Solution view. */
+const SOLUTION_FILES: Record<string, string> = {
+  "Shop.sln": `
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Shop", "Shop.fsproj", "{A1000000-0000-0000-0000-000000000001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api", "src\\Api\\Api.csproj", "{A1000000-0000-0000-0000-000000000002}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A1000000-0000-0000-0000-000000000003}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Tests", "tests\\Tests.fsproj", "{A1000000-0000-0000-0000-000000000004}"
+EndProject
+Global
+	GlobalSection(NestedProjects) = preSolution
+		{A1000000-0000-0000-0000-000000000004} = {A1000000-0000-0000-0000-000000000003}
+	EndGlobalSection
+EndGlobal
+`,
+  "Shop.fsproj": `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="Pricing.fs" />
+    <Compile Include="Orders.fs" />
+    <Compile Include="Audit.fs" />
+    <Compile Include="src\\Data\\OrderQueries.fs" />
+    <Compile Include="src\\Large\\Inventory.fs" />
+    <Compile Include="src\\Generated\\*.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+</Project>
+`,
+  "src/Api/Api.csproj": `<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><TargetFramework>net9.0</TargetFramework></PropertyGroup>
+</Project>
+`,
+  "tests/Tests.fsproj": `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="OrdersTests.fs" />
+    <ProjectReference Include="..\\Shop.fsproj" />
+  </ItemGroup>
+</Project>
+`,
+};
+
 /** A few files that are not part of the diff, so the explorer has more to show. */
 function addUnchangedFiles() {
   const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
   for (const path of unchanged) {
     if (!files.has(path)) files.set(path, { base: `// ${path}\n`, working: `// ${path}\n` });
   }
-  for (const [path, text] of Object.entries(OTHER_LANGUAGES)) {
+  for (const [path, text] of Object.entries({ ...OTHER_LANGUAGES, ...(searchParams.has("nosolution") ? {} : SOLUTION_FILES) })) {
     if (!files.has(path)) files.set(path, { base: text, working: text });
   }
 }
@@ -1713,6 +1759,11 @@ export function install() {
             .filter(([, file]) => file.working !== null)
             .map(([path]) => path)
             .sort();
+        }
+        case "read_texts": {
+          const texts = args.checkout ? treeOf(args.checkout) : null;
+          const set = ownDiffOf(args.commit)?.files ?? files;
+          return (payload as { paths: string[] }).paths.map((path) => (texts ? (texts.get(path) ?? null) : (set.get(path)?.working ?? null)));
         }
         case "read_file_pair": {
           const set = ownDiffOf(args.commit)?.files ?? files;

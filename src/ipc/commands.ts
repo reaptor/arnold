@@ -206,6 +206,10 @@ export const pullRequestWorktree = (root: string, id: number, commit: string, cr
 export const listFiles = (root: string, comparison: Comparison) =>
   invoke<string[]>("list_files", { root, commit: comparison.headCommit, checkout: comparison.checkout });
 
+/** Texts of files (solution and project files), from `checkout` when given, else from `commit`; null when missing. */
+export const readTexts = (root: string, commit: string, checkout: string | null, paths: string[]) =>
+  invoke<(string | null)[]>("read_texts", { root, commit, checkout, paths });
+
 export const readFilePair = (root: string, comparison: Comparison, file: ChangedFile) =>
   invoke<FilePair>("read_file_pair", {
     root,
