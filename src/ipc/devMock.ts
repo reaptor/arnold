@@ -76,6 +76,9 @@ let loyaltyTotalText (order: Order) : string =
     |> Pricing.applyLoyaltyDiscount
     |> Pricing.roundMoney
     |> Currency.format
+
+/// Lines past which an order needs a manual check.
+let reviewLimit = (List.length [ 1; 2; 3 ] * 4)
 `;
 
 const PRICING_BASE = `module Shop.Pricing
@@ -314,6 +317,12 @@ function publishUnusedOpens(uri: string, text: string) {
       const range = { start: { line: index, character: start }, end: { line: index, character: start + mistyped[1].length } };
       const message = "This expression was expected to have type\n    'int'    \nbut here has type\n    'string'    ";
       return [{ range, severity: 1, code: "FS0001", source: "F# Compiler", message }];
+    }
+    const parens = /=\s*(\([^()]*\))\s*$/.exec(line);
+    if (parens) {
+      const start = line.lastIndexOf(parens[1]);
+      const range = { start: { line: index, character: start }, end: { line: index, character: start + parens[1].length } };
+      return [{ range, severity: 4, code: "FSAC0004", source: "FSAC", message: "Parentheses can be removed.", tags: [1] }];
     }
     if (!name) return [];
     const start = line.indexOf(name[1], name[0].length - name[1].length);

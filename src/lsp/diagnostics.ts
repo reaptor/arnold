@@ -1,15 +1,16 @@
 // Server diagnostics for the editor: @codemirror/lsp-client's
 // `serverDiagnostics`, plus the "unnecessary" tag, which FsAutoComplete puts
 // on unused opens. Tagged code is faded the way Rider shows it instead of
-// getting the hint underline. Read-only editors never have unsynced changes,
+// getting the hint underline; for removable parentheses only the parentheses
+// are, so the code inside keeps its colors. Read-only editors never have unsynced changes,
 // so positions map straight from the synced document. Each diagnostic keeps
 // the server's original, which code actions are asked with (codeActions.ts);
 // in an editor that can be typed in its hover card offers the quick fixes.
 
-import { type Diagnostic, setDiagnostics } from "@codemirror/lint";
+import { type Diagnostic, forEachDiagnostic, setDiagnostics, setDiagnosticsEffect } from "@codemirror/lint";
 import { type LSPClient, type LSPClientExtension, LSPPlugin } from "@codemirror/lsp-client";
-import type { Text } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import type { Range, Text } from "@codemirror/state";
+import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { type FromServer, type ServerDiagnostic, showFixes } from "./codeActions";
 
 const enum Tag {
@@ -20,6 +21,9 @@ const SEVERITY = ["error", "error", "warning", "info", "hint"] as const;
 
 /** FsAutoComplete's code for an unused `open`; its range covers only the module name. */
 const UNUSED_OPEN = "FSAC0001";
+
+/** FsAutoComplete's code for "Parentheses can be removed"; its range covers the parentheses too. */
+const REMOVABLE_PARENS = "FSAC0004";
 
 /** "Quick fixes" in a diagnostic's hover card: the fixes menu for where it starts. */
 const quickFixes = {
@@ -37,6 +41,7 @@ const quickFixes = {
  */
 export function toDiagnostic(item: ServerDiagnostic, from: number, to: number, doc: Text, fixable = false): Diagnostic & FromServer {
   const unnecessary = item.tags?.includes(Tag.Unnecessary) ?? false;
+  const parens = unnecessary && item.code === REMOVABLE_PARENS && doc.sliceString(from, from + 1) === "(" && doc.sliceString(to - 1, to) === ")";
   const start = from;
   if (item.code === UNUSED_OPEN) {
     // Fade the whole statement, `open` included, as Rider does.
@@ -48,14 +53,44 @@ export function toDiagnostic(item: ServerDiagnostic, from: number, to: number, d
     to,
     severity: SEVERITY[item.severity ?? 1] ?? "hint",
     message: item.message,
-    ...(unnecessary && { markClass: "cm-unnecessary" }),
+    ...(unnecessary && { markClass: parens ? "cm-unnecessaryParens" : "cm-unnecessary" }),
     ...(fixable && { actions: [{ ...quickFixes, apply: (view: EditorView) => quickFixes.apply(view, start) }] }),
     lsp: { item, shift: start - from },
   };
 }
 
+const parenMark = Decoration.mark({ class: "cm-unnecessaryParen" });
+
+function parenMarks(view: EditorView): DecorationSet {
+  const marks: Range<Decoration>[] = [];
+  forEachDiagnostic(view.state, (diagnostic, from, to) => {
+    if (diagnostic.markClass === "cm-unnecessaryParens") marks.push(parenMark.range(from, from + 1), parenMark.range(to - 1, to));
+  });
+  // Nested parentheses come out of order.
+  return Decoration.set(marks, true);
+}
+
+/** Fades just the parentheses of a "Parentheses can be removed" diagnostic. */
+const removableParens = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = parenMarks(view);
+    }
+    update(update: ViewUpdate) {
+      if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setDiagnosticsEffect)))) {
+        this.decorations = parenMarks(update.view);
+      } else if (update.docChanged) {
+        this.decorations = this.decorations.map(update.changes);
+      }
+    }
+  },
+  { decorations: (plugin) => plugin.decorations },
+);
+
 export function serverDiagnostics(): LSPClientExtension {
   return {
+    editorExtension: removableParens,
     clientCapabilities: {
       textDocument: { publishDiagnostics: { versionSupport: true, tagSupport: { valueSet: [Tag.Unnecessary] } } },
     },

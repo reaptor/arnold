@@ -202,8 +202,13 @@ const theme = EditorView.theme(
     ".cm-lintRange.cm-unnecessary, .cm-lintRange.cm-unnecessary *": {
       color: color.inactive,
     },
-    ".cm-lintRange.cm-unnecessary": {
+    ".cm-lintRange.cm-unnecessary, .cm-lintRange.cm-unnecessaryParens": {
       backgroundImage: "none",
+    },
+    // Removable parentheses: only the parentheses fade, the code between
+    // them keeps its colors.
+    ".cm-unnecessaryParen, .cm-unnecessaryParen *": {
+      color: color.inactive,
     },
     ".cm-completionMatchedText": {
       textDecoration: "none",

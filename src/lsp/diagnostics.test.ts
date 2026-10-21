@@ -2,7 +2,7 @@ import { Text } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { toDiagnostic } from "./diagnostics";
 
-const doc = Text.of(["module Orders", "", "  open System.IO", "let x = 1"]);
+const doc = Text.of(["module Orders", "", "  open System.IO", "let x = 1", "let y = (x + 1)"]);
 const at = (line: number, column: number) => doc.line(line).from + column;
 const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
 
@@ -18,6 +18,13 @@ describe("toDiagnostic", () => {
       // The server's own start, for asking it for fixes.
       lsp: { item, shift: 5 },
     });
+  });
+
+  it("marks removable parentheses so only the parentheses fade", () => {
+    const item = { range, severity: 4, code: "FSAC0004", message: "Parentheses can be removed.", tags: [1] };
+    expect(toDiagnostic(item, at(5, 8), at(5, 15), doc).markClass).toBe("cm-unnecessaryParens");
+    // A range that does not start and end with parentheses fades as a whole.
+    expect(toDiagnostic(item, at(5, 9), at(5, 14), doc).markClass).toBe("cm-unnecessary");
   });
 
   it("offers quick fixes only where the editor can be typed in", () => {
