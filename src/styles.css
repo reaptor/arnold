@@ -1299,6 +1299,37 @@ button.primary:hover:not(:disabled) {
   color: var(--text);
 }
 
+/* At the top of unchanged lines unfolded from their bar: folds them again
+   (unchangedLines.ts). Slimmer than the bar, as it sits among the code. */
+.diff-host .cm-editor .cm-hideUnchanged {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 19px;
+  padding: 0 10px;
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.diff-host .cm-editor .cm-hideUnchanged::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-top: 3px;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.diff-host .cm-editor .cm-hideUnchanged:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
 /* Divider between the base and working sides of the split view. */
 .arnold-diff-splitter {
   flex: none;

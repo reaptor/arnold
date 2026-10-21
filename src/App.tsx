@@ -25,6 +25,7 @@ import {
   addComment,
   addToGitignore,
   attachEditor,
+  collapseUnchangedLines,
   goBack,
   goForward,
   goToDefinition,
@@ -328,6 +329,20 @@ export function App() {
                 >
                   <span>{menu().unusedOpens ? `Remove unused opens (${menu().unusedOpens})` : "Remove unused opens"}</span>
                 </li>
+              </Show>
+              <Show when={menu().unchanged}>
+                {(unchanged) => (
+                  <>
+                    <li class="menu-separator" />
+                    <li
+                      classList={{ disabled: !unchanged().collapsible }}
+                      title={unchanged().collapsible ? undefined : "The unchanged lines are collapsed already"}
+                      onClick={() => unchanged().collapsible && collapseUnchangedLines()}
+                    >
+                      <span>Collapse unchanged lines</span>
+                    </li>
+                  </>
+                )}
               </Show>
             </Show>
             <Show when={menu().undo}>

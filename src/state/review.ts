@@ -204,6 +204,8 @@ interface State {
     fixes?: boolean;
     /** How many unused opens the right-clicked editor's file has. */
     unusedOpens?: number;
+    /** The right-clicked file folds unchanged lines: whether some unfolded ones can be folded again. */
+    unchanged?: { collapsible: boolean };
     comment?: string | null;
     file?: string;
     /** Commit mode: what can be done to the selected lines (an editor) or the file (a list of the dock). */
@@ -392,6 +394,8 @@ const sectionEditors = new Map<string, DiffEditor>();
 let focusedPath: string | null = null;
 /** Where the context menu was opened; kept out of the store, which would wrap the view. */
 let menuTarget: { view: EditorView; position: number } | null = null;
+/** The editor the context menu was opened in, for "Collapse unchanged lines". */
+let menuEditor: DiffEditor | null = null;
 /** Where a comment from the context menu would go. */
 let menuComment: NewThreadPlace | null = null;
 /** What the "Explain…" items of the open context menu act on. */
@@ -593,6 +597,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       const path = pathOf();
       menuComment = path !== null && comment && canComment(path) ? { path, lines: comment } : null;
       const undos = path !== null && editsUndoable(path) ? editorFor(path)?.editUndos() : undefined;
+      menuEditor = side && path !== null ? commitMode.sectionEditor(side, path) : editorFor(path);
       const workSide = state.source === "commit" ? (side ?? state.workSide) : null;
       let explain: NonNullable<State["menu"]>["explain"];
       if (path !== null) {
@@ -610,6 +615,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
         definition: menuTarget !== null && lsp.hasLanguageServer(view),
         fixes: menuTarget !== null && lsp.hasLanguageServer(view) && !view.state.readOnly,
         unusedOpens: lsp.hasLanguageServer(view) && !view.state.readOnly ? unusedOpenCount(view) : 0,
+        unchanged: menuEditor?.unchangedFolding() ?? undefined,
         comment: state.source === "pullRequest" ? (menuComment && placeName(menuComment)) : undefined,
         lines:
           state.source === "commit"
@@ -1778,6 +1784,13 @@ export function setMode(mode: DiffMode) {
   for (const target of sectionEditors.values()) target.setMode(mode);
   commitMode.setSectionMode(mode);
   activeEditor()?.focus();
+}
+
+/** "Collapse unchanged lines" in the context menu: folds the right-clicked file's unchanged lines again. */
+export function collapseUnchangedLines() {
+  setState("menu", null);
+  menuEditor?.collapseUnchanged();
+  menuEditor = null;
 }
 
 /** "Go to definition" in the context menu: the symbol that was right-clicked. */

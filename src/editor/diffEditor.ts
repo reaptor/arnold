@@ -40,7 +40,8 @@ import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 import { matchingLine } from "./matchingLine";
 import { type LineSelection, resetEdits, type TextEdit } from "./resetLines";
-import { cardPlaces, draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
+import { cardPlaces, draftCardId, markedPositions, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
+import { canCollapseUnchanged, collapseAllUnchanged, foldsUnchanged, unchangedLines } from "./unchangedLines";
 import { type AiSuggestion, locate, suggestionCardId } from "./aiSuggestions";
 import { linesExtent, type MarkKind, type OverviewBand, OverviewRuler, overviewUpdates, partAbove, textPart } from "./overviewRuler";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
@@ -90,7 +91,7 @@ export interface DiffDocument {
   suggest?: boolean;
   /** What the selected lines can have done to them (Commit mode); none when reviewing. */
   lineActions?: readonly LineAction[];
-  /** Fold long runs of unchanged lines away (the default); false shows the whole file. */
+  /** Fold long runs of unchanged lines away (the default); false shows the whole file. Each run can be unfolded and folded again. */
   collapseUnchanged?: boolean;
   /**
    * Buttons on each change that move it to the other side, by what they do
@@ -661,6 +662,31 @@ export class DiffEditor {
     this.working?.focus();
   }
 
+  /** The file's editors: both sides of the split view. */
+  private views(): EditorView[] {
+    if (this.merge) return [this.merge.a, this.merge.b];
+    return this.unified ? [this.unified] : [];
+  }
+
+  /**
+   * Whether the file folds runs of unchanged lines, and if so whether any
+   * unfolded run (but those around a discussion) can be folded again; null
+   * for a file shown whole.
+   */
+  unchangedFolding(): { collapsible: boolean } | null {
+    const views = this.views().filter((view) => foldsUnchanged(view.state));
+    if (views.length === 0) return null;
+    return { collapsible: views.some((view) => canCollapseUnchanged(view.state, markedPositions(view.state))) };
+  }
+
+  /**
+   * Folds the unchanged lines again, as when the file was shown: those
+   * around discussions and Copilot's suggestions stay unfolded.
+   */
+  collapseUnchanged() {
+    for (const view of this.views()) view.dispatch({ effects: collapseAllUnchanged.of(markedPositions(view.state)) });
+  }
+
   /**
    * Types `text` over the selection `at` of the working text, as typing
    * would, when it can be edited. Points past the end of the text are
@@ -770,6 +796,8 @@ export class DiffEditor {
   private build(snapshot?: Snapshot) {
     const document = this.document!;
     const doc = document.working;
+    // Instead of the merge view's own folding, which cannot fold again.
+    const folding = document.collapseUnchanged === false ? [] : unchangedLines(COLLAPSE);
     const selection = snapshot && fits(snapshot.selection, doc.length) ? snapshot.selection : undefined;
     // An edited file's undo history, while the file still has the text it was made for.
     const history =
@@ -812,13 +840,12 @@ export class DiffEditor {
         parent: this.parent,
         a: {
           doc: document.base,
-          extensions: this.sharedExtensions(document.path, true),
+          extensions: [this.sharedExtensions(document.path, true), folding],
         },
-        b: { doc, selection, extensions: workingExtensions },
+        b: { doc, selection, extensions: [workingExtensions, folding] },
         highlightChanges: true,
         // changeKindColors draws the change gutter.
         gutter: false,
-        collapseUnchanged: document.collapseUnchanged === false ? undefined : COLLAPSE,
         diffConfig: lineFirstDiffConfig,
         // The merge view places a control by each change, between the sides;
         // its own revert is replaced by the move buttons.
@@ -834,12 +861,12 @@ export class DiffEditor {
         selection,
         extensions: [
           workingExtensions,
+          folding,
           unifiedMergeView({
             original: document.base,
             highlightChanges: true,
             gutter: false,
             syntaxHighlightDeletions: true,
-            collapseUnchanged: document.collapseUnchanged === false ? undefined : COLLAPSE,
             diffConfig: lineFirstDiffConfig,
             mergeControls: this.hasMoves() ? (type, _action) => this.unifiedMoveButton(type) : false,
           }),

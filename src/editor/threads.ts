@@ -3,7 +3,6 @@
 // split view the other side gets an empty block of the same height, so the
 // two sides stay lined up.
 
-import { uncollapseUnchanged } from "@codemirror/merge";
 import { type EditorState, type Range, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { NewThreadPlace, PrComment, PrThread } from "../ipc/commands";
@@ -11,6 +10,7 @@ import { ago } from "../components/CommitPicker";
 import { openInBrowser } from "../components/DevOpsSetup";
 import { MARKDOWN_GUIDE, openClickedLink, renderMarkdown } from "../components/Markdown";
 import { type AiSuggestion, suggestionCardId, suggestionElement } from "./aiSuggestions";
+import { revealUnchanged } from "./unchangedLines";
 
 /** What goes under a line of an editor. */
 export type ThreadMark =
@@ -478,15 +478,19 @@ export function showThreadMarks(view: EditorView, marks: ThreadMark[]) {
   const doc = view.state.doc;
   // Cards above the first line are never folded away.
   const positions = marks.filter((mark) => mark.line > 0).map((mark) => doc.line(Math.min(mark.line, doc.lines)).from);
-  if (positions.length === 0) return;
-  const starts = new Set<number>();
-  for (const source of view.state.facet(EditorView.decorations)) {
-    if (typeof source === "function") continue;
-    source.between(0, doc.length, (from, to, decoration) => {
-      // The folded unchanged lines of @codemirror/merge.
-      if ((decoration.spec.widget as { type?: string } | undefined)?.type !== "collapsed-unchanged-code") return;
-      if (positions.some((pos) => pos >= from && pos <= to)) starts.add(from);
-    });
-  }
-  if (starts.size > 0) view.dispatch({ effects: [...starts].map((start) => uncollapseUnchanged.of(start)) });
+  if (positions.length > 0) revealUnchanged(view, positions);
+}
+
+/**
+ * Where the cards and their empty blocks are, but those above the first line
+ * (never folded away): the unchanged lines around them stay unfolded when the
+ * file's unchanged lines are folded again.
+ */
+export function markedPositions(state: EditorState): number[] {
+  const positions: number[] = [];
+  state.field(threadField, false)?.between(0, state.doc.length, (from, _to, decoration) => {
+    const widget = decoration.spec.widget;
+    if ((widget instanceof CardWidget || widget instanceof SpacerWidget) && decoration.spec.side > 0) positions.push(from);
+  });
+  return positions;
 }
