@@ -3197,6 +3197,21 @@ button.primary:hover:not(:disabled) {
   background: var(--pressed);
 }
 
+/* Expand selected / Collapse all in the All files heading. */
+.dock-icon-action {
+  display: flex;
+  align-items: center;
+  padding: 0 1px;
+}
+
+.dock-icon-action:disabled .icon {
+  opacity: 0.4;
+}
+
+.dock-icon-action:hover:not(:disabled) .icon {
+  stroke: var(--text);
+}
+
 /* Under the diff, as in Git Extensions' commit dialog. */
 .commit-box {
   flex: 1;

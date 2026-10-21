@@ -1,9 +1,10 @@
 import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, Show } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { collator } from "../state/pathOrder";
 import { allFiles, changedFiles, explorerSelection, openFile, openTreeMenu, state } from "../state/review";
 import { Chevron } from "./Chevron";
+import { CollapseAllIcon, ExpandIcon } from "./icons";
 import { FileTypeIcon, FolderIcon, PROJECT_EXTENSIONS } from "./fileIcons";
 import { showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 
@@ -77,6 +78,25 @@ function flatten(folder: Folder, expanded: Record<string, boolean>, depth: numbe
   }
 }
 
+/** The folder at `path`, if the tree has one. */
+function folderAt(root: Folder, path: string): Folder | undefined {
+  let folder: Folder | undefined = root;
+  for (const part of path.split("/")) folder = folder?.folders.get(part);
+  return folder;
+}
+
+/** Calls `visit` with `folder` and every folder inside it. */
+function eachFolder(folder: Folder, visit: (folder: Folder) => void) {
+  visit(folder);
+  for (const child of folder.folders.values()) eachFolder(child, visit);
+}
+
+/** What the buttons in the explorer's heading do to the tree. */
+export interface TreeControls {
+  expandSelected(): void;
+  collapseAll(): void;
+}
+
 const ancestors = (path: string) => {
   const parts = path.split("/");
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
@@ -87,7 +107,7 @@ const ancestors = (path: string) => {
  * Changed files are marked with their status, folders holding changes with
  * a dot. With a filter, matching files are listed flat instead.
  */
-export function FileTree(props: { filter: string }) {
+export function FileTree(props: { filter: string; controls?: (controls: TreeControls) => void }) {
   let scroller!: HTMLDivElement;
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({});
   const [cursor, setCursor] = createSignal<string | null>(null);
@@ -163,6 +183,28 @@ export function FileTree(props: { filter: string }) {
 
   const toggle = (path: string) => setExpanded(path, !expanded[path]);
 
+  /**
+   * Opens the folder under the cursor and every folder in it. With a file
+   * there (or nothing picked, the file shown), opens the folders down to it.
+   */
+  const expandSelected = () => {
+    const path = cursor() ?? explorerSelection();
+    if (!path) return;
+    const folder = fileSet().has(path) ? undefined : folderAt(tree(), path);
+    setExpanded(
+      produce((open) => {
+        for (const above of ancestors(path)) open[above] = true;
+        if (folder) eachFolder(folder, (inner) => (open[inner.path] = true));
+      }),
+    );
+    scrollToRow(indexOf(path));
+  };
+
+  /** Closes every folder; the cursor stays, so Expand selected finds its way back. */
+  const collapseAll = () => setExpanded(reconcile({}));
+
+  props.controls?.({ expandSelected, collapseAll });
+
   const activate = (row: Row) => {
     setCursor(row.path);
     if (row.kind === "folder") toggle(row.path);
@@ -184,6 +226,7 @@ export function FileTree(props: { filter: string }) {
     else if (event.key === "Home") moveTo(0);
     else if (event.key === "End") moveTo(list.length - 1);
     else if (event.key === "Enter" || event.key === " ") activate(row);
+    else if (event.key === "*") expandSelected();
     else if (event.key === "ArrowRight" && row.kind === "folder") {
       if (row.open) moveTo(index + 1);
       else setExpanded(row.path, true);
@@ -295,5 +338,37 @@ export function FileTree(props: { filter: string }) {
         </div>
       </Show>
     </div>
+  );
+}
+
+/** "Expand selected" and "Collapse all" at the end of the All files heading. */
+export function TreeButtons(props: { controls: () => TreeControls | undefined; filtering: boolean }) {
+  const run = (event: MouseEvent, action: (controls: TreeControls) => void) => {
+    event.stopPropagation();
+    const controls = props.controls();
+    if (controls) action(controls);
+  };
+  const off = () => (props.filtering ? " (not while filtering: the files are listed flat)" : "");
+  return (
+    <>
+      <button
+        class="dock-action dock-icon-action"
+        disabled={props.filtering}
+        title={`Expand selected: open the selected folder and every folder in it, or the folders down to the selected file (*)${off()}`}
+        aria-label="Expand selected"
+        onClick={(event) => run(event, (controls) => controls.expandSelected())}
+      >
+        <ExpandIcon />
+      </button>
+      <button
+        class="dock-action dock-icon-action"
+        disabled={props.filtering}
+        title={`Collapse all folders${off()}`}
+        aria-label="Collapse all"
+        onClick={(event) => run(event, (controls) => controls.collapseAll())}
+      >
+        <CollapseAllIcon />
+      </button>
+    </>
   );
 }

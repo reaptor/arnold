@@ -4,7 +4,7 @@ import { type FileAction, filesAction, listOf, openWorkFile, selectWorkFile, sta
 import { isMac } from "../platform";
 import { allFiles, explainFilesItem, ignoreTarget, noteDeparture, setState, state } from "../state/review";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
-import { FileTree } from "./FileTree";
+import { FileTree, type TreeControls, TreeButtons } from "./FileTree";
 
 const MIN_LIST_HEIGHT = 44;
 /** Room the file explorer keeps when the lists above it are made taller. */
@@ -28,6 +28,7 @@ function fileTitle(side: WorkingSide, file: ChangedFile): string {
  */
 export function WorkingDock(props: { width: number; hidden?: boolean }) {
   const [filter, setFilter] = createSignal("");
+  let treeControls: TreeControls | undefined;
   const [open, setOpen] = createSignal({
     unstaged: remembered("unstagedOpen") !== "false",
     staged: remembered("stagedOpen") !== "false",
@@ -354,9 +355,13 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
           explanation="File explorer: every file of the checkout as it is on disk, tracked or not (ignored files left out). Files with uncommitted changes are marked with their status letter. Click a file to open it; it can be edited."
-        />
+        >
+          <Show when={open().explorer}>
+            <TreeButtons controls={() => treeControls} filtering={!!filter()} />
+          </Show>
+        </DockHeading>
         <Show when={open().explorer}>
-          <FileTree filter={filter()} />
+          <FileTree filter={filter()} controls={(controls) => (treeControls = controls)} />
         </Show>
       </section>
     </aside>

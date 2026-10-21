@@ -4,7 +4,7 @@ import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile,
 import { isOpen } from "../editor/threads";
 import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
-import { FileTree } from "./FileTree";
+import { FileTree, type TreeControls, TreeButtons } from "./FileTree";
 import { CommentIcon } from "./icons";
 
 export const STATUS_LETTER: Record<FileStatus, string> = {
@@ -59,6 +59,7 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
   let changesList!: HTMLUListElement;
   let explorer!: HTMLElement;
   const [filter, setFilter] = createSignal("");
+  let treeControls: TreeControls | undefined;
   /** "3 commits" when only some of the branch's commits are shown. */
   const picked = () => {
     if (!state.range) return null;
@@ -233,9 +234,13 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
           count={allFiles().length}
           matching={filter() ? matchingFiles() : undefined}
           explanation={`File explorer: every file in ${state.range ? `commit ${state.range.newest.slice(0, 7)}, the newest one picked` : `the last commit of ${branchNames().head}`}, changed or not. Changed files are marked with their status letter; folders holding changes with a dot. Click a file to open it.`}
-        />
+        >
+          <Show when={explorerOpen()}>
+            <TreeButtons controls={() => treeControls} filtering={!!filter()} />
+          </Show>
+        </DockHeading>
         <Show when={explorerOpen()}>
-          <FileTree filter={filter()} />
+          <FileTree filter={filter()} controls={(controls) => (treeControls = controls)} />
         </Show>
       </section>
     </aside>
@@ -252,7 +257,7 @@ export function DockHeading(props: {
   /** How many of them the filter leaves, while filtering. */
   matching?: number;
   explanation: string;
-  /** Buttons at the end of the heading (Stage all). */
+  /** Buttons at the end of the heading (Stage all, Collapse all). */
   children?: JSX.Element;
 }) {
   return (

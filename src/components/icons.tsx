@@ -44,6 +44,20 @@ export const ArrowDownIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** Two arrows pointing apart: open folders. */
+export const ExpandIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 6 8 2.5 11.5 6M4.5 10 8 13.5l3.5-3.5" />
+  </Icon>
+);
+
+/** Two arrows pointing together: close folders. */
+export const CollapseAllIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5" />
+  </Icon>
+);
+
 export const BackIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M13 8H3.5M7.5 3.5 3 8l4.5 4.5" />
