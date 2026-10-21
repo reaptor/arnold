@@ -21,6 +21,10 @@ pub struct PullRequest {
     pub description: String,
     /// Display name of whoever opened it.
     pub author: String,
+    /// The host's id of whoever opened it.
+    pub author_id: String,
+    /// Opened by the owner of the token: whoever votes from Arnold.
+    pub yours: bool,
     /// When it was opened, ISO 8601.
     pub created: String,
     pub draft: bool,
@@ -173,6 +177,8 @@ pub struct UnmetPolicy {
     pub name: String,
     /// `queued`, `running`, `rejected` or `broken`, as the host has it.
     pub status: String,
+    /// Met by reviewers approving: minimum number of reviewers, required reviewers.
+    pub approval: bool,
 }
 
 /// A discussion on a pull request: about lines of a file, or about the pull

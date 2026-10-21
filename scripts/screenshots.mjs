@@ -115,12 +115,13 @@ const shots = {
   async complete() {
     const p = await page("?devops&lsp");
     await pullRequest(p);
-    await p.click(".pr-actions .vote-button .split-more");
+    await p.click(".pr-actions .pr-button .split-more");
     await p.waitForTimeout(300);
     await p.screenshot({ path: `${out}/vote.png`, clip: { x: 760, y: 0, width: 680, height: 260 } });
     await p.keyboard.press("Escape");
     await p.mouse.click(700, 500);
-    await p.click(".pr-actions .complete-button .split-main");
+    await p.click(".pr-actions .pr-button .split-more");
+    await p.click(".action-menu li:has-text('Complete')");
     // Until the branch policies are read.
     await p.waitForTimeout(1200);
     await p.screenshot({ path: `${out}/complete.png`, clip: around(await p.locator(".complete-dialog").boundingBox(), 40) });

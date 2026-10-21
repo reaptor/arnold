@@ -1113,6 +1113,8 @@ const mockPullRequests: PullRequest[] =
           description:
             "Adds `Shop.Discounts` and uses the best discount in order totals.\n\n- Seasonal: 5 %\n- Staff: 20 %\n\nTry editing it in Arnold and suggesting changes. `arnoldMock.newPush()` in the browser console gives it a new push.",
           author: "Grace Hopper",
+          authorId: "grace-hopper",
+          yours: false,
           created: hoursAgo(2),
           draft: false,
           status: "active",
@@ -1129,6 +1131,8 @@ const mockPullRequests: PullRequest[] =
           title: "Add loyalty discount for returning customers",
           description: "Customers who come back get 10% off. Also rounds totals to two decimals.",
           author: "Ada Lovelace",
+          authorId: "ada-lovelace",
+          yours: false,
           created: hoursAgo(3),
           draft: false,
           status: "active",
@@ -1148,7 +1152,9 @@ const mockPullRequests: PullRequest[] =
           id: 1284,
           title: "Round order totals to two decimals",
           description: "Totals were shown with up to four decimals.",
-          author: "Bo Svensson",
+          author: YOU.name,
+          authorId: YOU.id,
+          yours: false,
           created: hoursAgo(20),
           draft: false,
           status: "active",
@@ -1157,9 +1163,10 @@ const mockPullRequests: PullRequest[] =
           sourceCommit: TIP,
           targetCommit: MERGE_BASE,
           url: "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/1284",
+          // Yours and not approved yet: with `?completepolicies` it cannot be completed.
           reviewers: [
-            reviewer("Ada Lovelace", "approved"),
-            reviewer("Cy Young", "approvedWithSuggestions"),
+            reviewer("Ada Lovelace", "none"),
+            reviewer("Cy Young", "waitingForAuthor"),
             reviewer("[Shop]\\Shop Team", "none", true),
           ],
           mergeStatus: "succeeded",
@@ -1169,6 +1176,8 @@ const mockPullRequests: PullRequest[] =
           title: "Open orders stored procedure: only the last 30 days",
           description: "",
           author: "Grace Hopper",
+          authorId: "grace-hopper",
+          yours: false,
           created: hoursAgo(30),
           draft: true,
           status: "active",
@@ -1186,6 +1195,8 @@ const mockPullRequests: PullRequest[] =
           description:
             "## Why\n\nUnknown orders crashed `OrderController`; this **validates** them first and removes the [legacy notes](https://example.com/notes).\n\n- Returns 404 for unknown orders\n- Deletes `docs/Legacy.md`\n- Adds tests for the validation that runs before every order is described",
           author: "Linus Torvalds",
+          authorId: "linus-torvalds",
+          yours: false,
           created: hoursAgo(24 * 6),
           draft: false,
           status: "active",
@@ -1201,9 +1212,13 @@ const mockPullRequests: PullRequest[] =
 
 const pullRequestList = () => mockPullRequests.filter((pullRequest) => pullRequest.status === "active");
 
-/** The pull request with the token owner marked among its reviewers, as the backend sends it. */
+/** The pull request with the token owner marked among its reviewers and as its author, as the backend sends it. */
 const asSeenByYou = (pullRequest: PullRequest): PullRequest =>
-  structuredClone({ ...pullRequest, reviewers: pullRequest.reviewers.map((entry) => ({ ...entry, you: entry.id === YOU.id })) });
+  structuredClone({
+    ...pullRequest,
+    yours: pullRequest.authorId === YOU.id,
+    reviewers: pullRequest.reviewers.map((entry) => ({ ...entry, you: entry.id === YOU.id })),
+  });
 
 function findPullRequest(id: unknown): PullRequest {
   const found = mockPullRequests.find((pullRequest) => pullRequest.id === Number(id));
@@ -1465,18 +1480,21 @@ function planPullRequest(head: string, base: string, commit: string): NewPullReq
 }
 
 // `?completepolicies`: the target branch allows squash and semi-linear merges
-// only, needs one approval, and !1270's build is still running
+// only, needs one approval (the author's does not count), and !1270's build
+// is still running
 // (`?completepolicies=fail`: they cannot be read, so nothing is limited).
 function completionPolicies(id: unknown): CompletionPolicies {
   const found = findPullRequest(id);
   const policies = searchParams.get("completepolicies");
   if (policies === "fail") throw { kind: "network", message: "Could not reach Azure DevOps at dev.azure.com (dev mock)" };
   if (policies === null) return { mergeStrategies: ["noFastForward", "squash", "rebase", "rebaseMerge"], unmet: [] };
-  const approved = found.reviewers.some((person) => person.vote === "approved" || person.vote === "approvedWithSuggestions");
+  const approved = found.reviewers.some(
+    (person) => person.id !== found.authorId && (person.vote === "approved" || person.vote === "approvedWithSuggestions"),
+  );
   const rejected = found.reviewers.some((person) => person.vote === "rejected");
   const unmet: CompletionPolicies["unmet"] = [];
-  if (!approved || rejected) unmet.push({ name: "Minimum number of reviewers", status: "rejected" });
-  if (found.id === 1270) unmet.push({ name: "Build: Shop CI", status: "running" });
+  if (!approved || rejected) unmet.push({ name: "Minimum number of reviewers", status: "rejected", approval: true });
+  if (found.id === 1270) unmet.push({ name: "Build: Shop CI", status: "running", approval: false });
   return { mergeStrategies: ["squash", "rebaseMerge"], unmet };
 }
 
@@ -2003,6 +2021,8 @@ export function install() {
               title: request.title,
               description: request.description,
               author: YOU.name,
+              authorId: YOU.id,
+              yours: true,
               created: new Date().toISOString(),
               draft: request.draft,
               status: "active",

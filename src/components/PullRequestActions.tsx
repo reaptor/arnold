@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from "solid-js";
 import type { CompletionPolicies, MergeStrategy, UnmetPolicy, Vote } from "../ipc/commands";
 import {
   completionPolicies,
@@ -40,6 +40,8 @@ function SplitButton(props: {
     <div
       class={`split-button ${props.class ?? ""}`}
       classList={{ busy: props.busy }}
+      // A disabled button shows no tooltip in some web views; this says why it is disabled.
+      title={props.disabled ? props.title : undefined}
       ref={root}
       onKeyDown={(event) => event.key === "Escape" && close()}
     >
@@ -102,64 +104,83 @@ const VOTE_CLASS: Record<Vote, string> = {
   none: "",
 };
 
-/** Your vote, as in Azure DevOps: "Approve" until you voted, then what you voted. */
-function VoteButton() {
-  const voted = () => VOTES.find((entry) => entry.vote === yourVote());
-  return (
-    <SplitButton
-      class={`vote-button ${VOTE_CLASS[yourVote()]}`}
-      label={
-        <>
-          <CheckIcon />
-          <span class="action-label">{state.updatingPullRequest === "vote" ? "Voting…" : (voted()?.done ?? "Approve")}</span>
-        </>
-      }
-      title={voted() ? `You voted: ${voted()!.done.toLowerCase()}` : "Approve the pull request"}
-      onMain={voted() ? undefined : () => void votePullRequest("approved")}
-      busy={state.updatingPullRequest !== null}
-    >
-      {(close) => (
-        <>
-          <For each={VOTES}>
-            {(entry) => (
-              <MenuItem
-                checked={yourVote() === entry.vote}
-                onClick={() => {
-                  close();
-                  if (yourVote() !== entry.vote) void votePullRequest(entry.vote);
-                }}
-              >
-                {entry.label}
-              </MenuItem>
-            )}
-          </For>
-          <li class="menu-separator" />
-          <MenuItem
-            disabled={yourVote() === "none"}
-            onClick={() => {
-              close();
-              void votePullRequest("none");
-            }}
-          >
-            Reset feedback
-          </MenuItem>
-        </>
-      )}
-    </SplitButton>
-  );
-}
-
 const change = (kind: "abandon" | "reactivate") => updatePullRequest({ kind }).catch(fail);
 const setDraft = (draft: boolean) => updatePullRequest({ kind: "draft", draft }).catch(fail);
 
+/** The approvals the target branch's policies still want, for disabling Complete. */
+function approvalsNeeded(pullRequest: () => ReviewedPullRequest) {
+  const [needed, setNeeded] = createSignal<UnmetPolicy[]>([]);
+  // Read again whenever a vote, push or state could have changed them.
+  const key = () => {
+    const now = pullRequest();
+    if (now.status !== "active" || now.draft) return null;
+    return [now.id, now.sourceCommit, ...now.reviewers.map((reviewer) => `${reviewer.id}=${reviewer.vote}`)].join(" ");
+  };
+  createEffect(
+    on(key, (now) => {
+      if (now === null) return setNeeded([]);
+      let current = true;
+      onCleanup(() => (current = false));
+      // Unknown policies hold nothing up: Azure DevOps still checks them when completing.
+      completionPolicies().then(
+        (policies) => current && setNeeded(policies.unmet.filter((policy) => policy.approval)),
+        () => current && setNeeded([]),
+      );
+    }),
+  );
+  return needed;
+}
+
 /**
- * Complete (or Publish for a draft, Reactivate for an abandoned one), with
- * Mark as draft and Abandon in its menu, as in Azure DevOps.
+ * Voting, completing and the rest in one button, as in Azure DevOps. Its main
+ * part is what you would do next: Approve someone else's pull request (or
+ * show your vote), Complete (or Publish) your own.
  */
-function CompleteButton(props: { pullRequest: ReviewedPullRequest; onComplete(): void }) {
+function PullRequestButton(props: { pullRequest: ReviewedPullRequest; onComplete(): void }) {
   const busy = () => state.updatingPullRequest !== null;
   const doing = (kind: string, text: string) => (state.updatingPullRequest === kind ? text : null);
   const status = () => props.pullRequest.status;
+  const yours = () => props.pullRequest.yours;
+  const voted = () => VOTES.find((entry) => entry.vote === yourVote());
+  const needed = approvalsNeeded(() => props.pullRequest);
+
+  const cannotApprove = "You created this pull request, so you cannot approve it";
+  const cannotComplete = () =>
+    needed().length > 0
+      ? `Cannot be completed yet: the branch policies of ${props.pullRequest.targetBranch} require approval (${needed()
+          .map((policy) => policy.name)
+          .join(", ")})`
+      : null;
+  const completeTitle = () => cannotComplete() ?? `Merge ${props.pullRequest.sourceBranch} into ${props.pullRequest.targetBranch}`;
+  const publishTitle = "Publish the draft: reviewers are notified and it can be completed";
+
+  const busyLabel = () =>
+    doing("vote", "Voting…") ??
+    doing("complete", "Completing…") ??
+    doing("draft", props.pullRequest.draft ? "Publishing…" : "Saving…") ??
+    doing("abandon", "Abandoning…");
+
+  /** The author's next step is Publish for a draft, else Complete; a reviewer's is to vote. */
+  const main = (): { label: string; title: string; icon: JSX.Element; primary: boolean; disabled?: boolean; run?(): void } => {
+    if (yours()) {
+      return props.pullRequest.draft
+        ? { label: "Publish", title: publishTitle, icon: <MergeIcon />, primary: true, run: () => void setDraft(false) }
+        : {
+            label: "Complete",
+            title: completeTitle(),
+            icon: <MergeIcon />,
+            primary: true,
+            disabled: cannotComplete() !== null,
+            run: props.onComplete,
+          };
+    }
+    const vote = voted();
+    // Once you voted, the main part opens the menu to change it.
+    return vote
+      ? { label: vote.done, title: `You voted: ${vote.done.toLowerCase()}`, icon: <CheckIcon />, primary: false }
+      : { label: "Approve", title: "Approve the pull request", icon: <CheckIcon />, primary: true, run: () => void votePullRequest("approved") };
+  };
+
   return (
     <Show
       when={status() === "active"}
@@ -167,7 +188,7 @@ function CompleteButton(props: { pullRequest: ReviewedPullRequest; onComplete():
         <Show when={status() === "abandoned"} fallback={<span class="tag tag-completed">Completed</span>}>
           <span class="tag tag-abandoned">Abandoned</span>
           <SplitButton
-            class="complete-button"
+            class="pr-button"
             label={<span class="action-label">{doing("reactivate", "Reactivating…") ?? "Reactivate"}</span>}
             title="Open the pull request again"
             onMain={() => void change("reactivate")}
@@ -177,27 +198,76 @@ function CompleteButton(props: { pullRequest: ReviewedPullRequest; onComplete():
       }
     >
       <SplitButton
-        class="complete-button primary"
+        class={`pr-button ${yours() ? "complete-button" : "vote-button"} ${main().primary ? "primary" : VOTE_CLASS[yourVote()]}`}
         label={
           <>
-            <MergeIcon />
-            <span class="action-label">
-              {props.pullRequest.draft
-                ? (doing("draft", "Publishing…") ?? "Publish")
-                : (doing("complete", "Completing…") ?? doing("draft", "Saving…") ?? doing("abandon", "Abandoning…") ?? "Complete")}
-            </span>
+            {main().icon}
+            <span class="action-label">{busyLabel() ?? main().label}</span>
           </>
         }
-        title={
-          props.pullRequest.draft
-            ? "Publish the draft: reviewers are notified and it can be completed"
-            : `Merge ${props.pullRequest.sourceBranch} into ${props.pullRequest.targetBranch}`
-        }
-        onMain={props.pullRequest.draft ? () => void setDraft(false) : props.onComplete}
+        title={main().title}
+        onMain={main().run}
+        disabled={main().disabled}
         busy={busy()}
       >
         {(close) => (
           <>
+            <For each={VOTES}>
+              {(entry) => {
+                const approving = entry.vote === "approved" || entry.vote === "approvedWithSuggestions";
+                return (
+                  <MenuItem
+                    checked={yourVote() === entry.vote}
+                    disabled={approving && yours()}
+                    title={approving && yours() ? cannotApprove : undefined}
+                    onClick={() => {
+                      close();
+                      if (yourVote() !== entry.vote) void votePullRequest(entry.vote);
+                    }}
+                  >
+                    {entry.label}
+                  </MenuItem>
+                );
+              }}
+            </For>
+            <li class="menu-separator" />
+            <MenuItem
+              disabled={yourVote() === "none"}
+              onClick={() => {
+                close();
+                void votePullRequest("none");
+              }}
+            >
+              Reset feedback
+            </MenuItem>
+            <li class="menu-separator" />
+            <Show when={!yours()}>
+              <Show
+                when={props.pullRequest.draft}
+                fallback={
+                  <MenuItem
+                    disabled={cannotComplete() !== null}
+                    title={completeTitle()}
+                    onClick={() => {
+                      close();
+                      props.onComplete();
+                    }}
+                  >
+                    Complete
+                  </MenuItem>
+                }
+              >
+                <MenuItem
+                  title={publishTitle}
+                  onClick={() => {
+                    close();
+                    void setDraft(false);
+                  }}
+                >
+                  Publish
+                </MenuItem>
+              </Show>
+            </Show>
             <Show when={!props.pullRequest.draft}>
               <MenuItem
                 title="Back to a draft: not ready for review, cannot be completed"
@@ -232,10 +302,7 @@ export function PullRequestActions() {
     <Show when={state.pullRequest}>
       {(pullRequest) => (
         <div class="pr-actions" data-tauri-drag-region="false">
-          <Show when={pullRequest().status === "active"}>
-            <VoteButton />
-          </Show>
-          <CompleteButton pullRequest={pullRequest()} onComplete={() => setCompleting(true)} />
+          <PullRequestButton pullRequest={pullRequest()} onComplete={() => setCompleting(true)} />
           <Show when={completing()}>
             <CompleteDialog pullRequest={pullRequest()} onClose={() => setCompleting(false)} />
           </Show>

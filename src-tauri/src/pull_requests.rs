@@ -107,9 +107,11 @@ impl PrState {
         Ok(user)
     }
 
-    /// Marks the token's owner among the reviewers, when the host can say who that is.
+    /// Marks the token's owner among the reviewers, and as the author, when
+    /// the host can say who that is.
     async fn mark_you(&self, repo: &AzureRepo, token: &str, mut pull_request: PullRequest) -> PullRequest {
         if let Ok(user) = self.user(repo, token).await {
+            pull_request.yours = !pull_request.author_id.is_empty() && pull_request.author_id.eq_ignore_ascii_case(&user);
             for reviewer in &mut pull_request.reviewers {
                 reviewer.you = reviewer.id.eq_ignore_ascii_case(&user);
             }

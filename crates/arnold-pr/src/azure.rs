@@ -401,6 +401,16 @@ fn is_merge_strategy_policy(policy: &Value) -> bool {
     policy["type"]["id"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(MERGE_STRATEGY_POLICY))
 }
 
+/// The types of the "Minimum number of reviewers" and "Required reviewers" policies.
+const APPROVAL_POLICIES: [&str; 2] = ["fa4e907d-c16b-4a4c-9dfa-4906e5d171dd", "fd2167ab-b0be-447a-8ec8-39368250530e"];
+
+/// A policy that reviewers meet by approving.
+fn is_approval_policy(policy: &Value) -> bool {
+    let kind = &policy["type"];
+    kind["id"].as_str().is_some_and(|id| APPROVAL_POLICIES.iter().any(|known| id.eq_ignore_ascii_case(known)))
+        || matches!(kind["displayName"].as_str(), Some("Minimum number of reviewers" | "Required reviewers"))
+}
+
 /// The merge types every required "Limit merge types" policy allows; all of
 /// them when there is none.
 fn allowed_merge_strategies(configurations: &[Value]) -> Vec<MergeStrategy> {
@@ -444,7 +454,7 @@ fn unmet_policies(evaluations: &[Value]) -> Vec<UnmetPolicy> {
             None => kind.to_string(),
         };
         if !unmet.iter().any(|known| known.name == name) {
-            unmet.push(UnmetPolicy { name, status: status.to_string() });
+            unmet.push(UnmetPolicy { name, status: status.to_string(), approval: is_approval_policy(policy) });
         }
     }
     unmet
@@ -785,6 +795,8 @@ fn parse_pull_request(value: &Value, repo: &AzureRepo) -> Option<PullRequest> {
         title: text(&value["title"]),
         description: text(&value["description"]),
         author: text(&value["createdBy"]["displayName"]),
+        author_id: text(&value["createdBy"]["id"]),
+        yours: false,
         created: text(&value["creationDate"]),
         draft: value["isDraft"].as_bool().unwrap_or(false),
         status: text(&value["status"]),
@@ -944,8 +956,8 @@ mod tests {
         assert_eq!(
             unmet_policies(&list),
             vec![
-                UnmetPolicy { name: "Minimum number of reviewers".into(), status: "rejected".into() },
-                UnmetPolicy { name: "Build: CI".into(), status: "running".into() },
+                UnmetPolicy { name: "Minimum number of reviewers".into(), status: "rejected".into(), approval: true },
+                UnmetPolicy { name: "Build: CI".into(), status: "running".into(), approval: false },
             ]
         );
     }

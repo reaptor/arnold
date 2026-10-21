@@ -441,6 +441,10 @@ export interface PullRequest {
   title: string;
   description: string;
   author: string;
+  /** The host's id of the author. */
+  authorId: string;
+  /** Opened by the owner of the token: whoever votes from Arnold. */
+  yours: boolean;
   /** ISO 8601. */
   created: string;
   draft: boolean;
@@ -570,6 +574,8 @@ export interface CompletionPolicies {
 export interface UnmetPolicy {
   name: string;
   status: "queued" | "running" | "rejected" | "broken";
+  /** Met by reviewers approving: minimum number of reviewers, required reviewers. */
+  approval: boolean;
 }
 
 export const completionPolicies = (root: string, remote: string, id: number, targetBranch: string) =>
