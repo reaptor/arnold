@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { projectCounts, projectName, type SetupStep, setupOutput, state } from "../state/review";
+import { type SetupStep, setupOutput, state } from "../state/review";
 
 const STEP_MARK: Record<SetupStep["state"], string> = {
   running: "",
@@ -33,30 +33,13 @@ export function LanguageStatus() {
   const setup = () => state.languageSetup;
   const phase = () => setup()?.phase;
   const working = () => phase() === "preparing" || phase() === "starting" || phase() === "loading";
-  const busy = () => working() || (phase() === "ready" && state.lspStatus !== null);
   const problems = () => setup()?.problems ?? [];
-  const runningStep = () => setup()?.steps.find((step) => step.state === "running")?.title;
 
+  // Only "F# loading" while it gets going; the steps are in the popup.
   const label = () => {
-    const detail = state.lspStatus ? `: ${state.lspStatus}` : "…";
+    if (working()) return "F# loading";
     switch (phase()) {
-      case "preparing":
-        return `Preparing F# features: ${runningStep() ?? "…"}`;
-      case "starting":
-        return `Starting the F# language server${detail}`;
-      case "loading": {
-        // FsAutoComplete's own progress only says "Loading N Projects".
-        const { total, finished, failed } = projectCounts(setup()!);
-        if (total === 0) return `Loading F# projects${detail}`;
-        const current = setup()!.currentProject;
-        return (
-          `Loading F# projects: ${finished} of ${total}` +
-          (failed ? ` (${failed} failed)` : "") +
-          (current ? ` · ${projectName(current)}` : "")
-        );
-      }
       case "ready":
-        if (state.lspStatus) return `F#: ${state.lspStatus}`;
         return problems().length ? `F# ready, ${problems().length} ${problems().length === 1 ? "problem" : "problems"}` : "F# ready";
       default:
         return "F# features off";
@@ -93,13 +76,12 @@ export function LanguageStatus() {
           <button
             class="language-button"
             classList={{
-              working: working(),
               warning: phase() === "failed" || (phase() === "ready" && problems().length > 0),
             }}
-            title="F# language features: click for details"
+            title={`F# language features${state.lspStatus ? ` (${state.lspStatus})` : ""}: click for details`}
             onClick={() => setOpen(!open())}
           >
-            <Show when={busy()} fallback={<span class="language-mark">{phase() === "ready" ? "✓" : "!"}</span>}>
+            <Show when={working()} fallback={<span class="language-mark">{phase() === "ready" ? "✓" : "!"}</span>}>
               <span class="spinner" aria-hidden="true" />
             </Show>
             <span class="language-label">{label()}</span>

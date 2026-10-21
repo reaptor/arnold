@@ -2,13 +2,20 @@
 // talking to Azure DevOps…) show in the status bar and as a bar under the
 // toolbar while they run, so a click that takes a while is seen to work.
 // The button or row that was clicked shows a spinner too, and ignores more
-// clicks until its work is done. Calls that end quickly never show, so fast
-// ones do not flicker.
+// clicks until its work is done. Calls that end quickly never show, and once
+// shown the bar and label stay a moment after the last call ends, so calls
+// made one after another do not flicker.
 
 import { createSignal } from "solid-js";
 
 /** How long a call runs before it shows. */
 const SHOW_AFTER_MS = 250;
+
+/** How long the bar and label stay after the last call ends, in case another starts. */
+const HIDE_AFTER_MS = 300;
+
+/** How long the bar and label stay at least, once shown. */
+const MIN_SHOWN_MS = 600;
 
 /** How soon after a click a call counts as started by it. */
 const CLICK_STARTS_MS = 500;
@@ -25,7 +32,31 @@ interface Activity {
 }
 
 const [running, setRunning] = createSignal<readonly Activity[]>([]);
+/** What was running last, kept while the bar lingers after it ended. */
+const [lastShown, setLastShown] = createSignal<readonly Activity[]>([]);
+const [shown, setShown] = createSignal(false);
+let shownAt = 0;
+let hideTimer: ReturnType<typeof setTimeout> | undefined;
 let nextId = 1;
+
+function setActivities(list: readonly Activity[]) {
+  setRunning(list);
+  if (list.length > 0) {
+    clearTimeout(hideTimer);
+    hideTimer = undefined;
+    setLastShown(list);
+    if (!shown()) {
+      shownAt = performance.now();
+      setShown(true);
+    }
+  } else if (shown() && hideTimer === undefined) {
+    const wait = Math.max(HIDE_AFTER_MS, shownAt + MIN_SHOWN_MS - performance.now());
+    hideTimer = setTimeout(() => {
+      hideTimer = undefined;
+      setShown(false);
+    }, wait);
+  }
+}
 
 let lastClick: { control: HTMLElement; at: number } | null = null;
 
@@ -74,25 +105,31 @@ function release(control: HTMLElement) {
   }, SETTLE_MS);
 }
 
-/** Shows `label` (e.g. "Fetching") while `work` runs, once it has run for a moment. */
+/**
+ * Shows `label` (e.g. "Fetching") while `work` runs, once it has run for a
+ * moment, or at once while the bar is still up from an earlier call.
+ */
 export async function track<T>(label: string, work: Promise<T>): Promise<T> {
   const activity = { id: nextId++, label };
   const control = startedFrom();
   if (control) held.set(control, (held.get(control) ?? 0) + 1);
-  const shown = setTimeout(() => {
-    setRunning((list) => [...list, activity]);
-    if (control) showWorking(control);
-  }, SHOW_AFTER_MS);
+  const reveal = setTimeout(
+    () => {
+      setActivities([...running(), activity]);
+      if (control) showWorking(control);
+    },
+    shown() ? 0 : SHOW_AFTER_MS,
+  );
   try {
     return await work;
   } finally {
-    clearTimeout(shown);
-    setRunning((list) => list.filter((item) => item !== activity));
+    clearTimeout(reveal);
+    setActivities(running().filter((item) => item !== activity));
     if (control) release(control);
   }
 }
 
 /** What the app is busy with, the latest first; empty when idle. */
-export const activities = () => [...running()].reverse();
+export const activities = () => (shown() ? [...(running().length > 0 ? running() : lastShown())].reverse() : []);
 
-export const isBusy = () => running().length > 0;
+export const isBusy = shown;

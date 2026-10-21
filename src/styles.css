@@ -1556,8 +1556,8 @@ button.primary:hover:not(:disabled) {
   flex: none;
 }
 
-/* While a slow action runs: its name in the status bar, and a bar sliding
-   along under the toolbar (taking no room, so nothing moves). */
+/* While a slow action runs: its name in the status bar, and a bar bouncing
+   back and forth under the toolbar (taking no room, so nothing moves). */
 .activity-status {
   flex: none;
   display: flex;
@@ -1594,19 +1594,22 @@ button.primary:hover:not(:disabled) {
   background: var(--accent);
   opacity: 0;
   transition: opacity 0.2s;
+  /* Paused rather than removed when idle, so the bar fades out where it is
+     and goes on from there next time instead of jumping back. */
+  animation: activity-bounce 0.9s ease-in-out infinite alternate paused;
 }
 
 .app.busy .activity-bar::after {
   opacity: 1;
-  animation: activity-slide 1.2s ease-in-out infinite;
+  animation-play-state: running;
 }
 
-@keyframes activity-slide {
+@keyframes activity-bounce {
   from {
-    left: -30%;
+    left: 0;
   }
   to {
-    left: 100%;
+    left: 70%;
   }
 }
 
@@ -1721,10 +1724,9 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   background: var(--hover);
 }
 
-.language-button.working {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+.language-button .spinner {
+  width: 8px;
+  height: 8px;
 }
 
 .language-button.warning {
