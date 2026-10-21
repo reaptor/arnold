@@ -1,5 +1,7 @@
 import { createMemo, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import type { ChangedFile } from "../ipc/commands";
+import type { ChangedFile, FileStatus } from "../ipc/commands";
+import type { DiffEditor } from "../editor/diffEditor";
+import { type MarkKind, type OverviewBand, OverviewRuler } from "../editor/overviewRuler";
 import { state } from "../state/review";
 import { Chevron } from "./Chevron";
 import { Counts, EditedMark, showsEdited, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
@@ -26,6 +28,14 @@ function estimatedHeight(file: ChangedFile) {
 
 const hostOf = (section: HTMLElement) => section.querySelector<HTMLElement>(".section-host");
 
+/** How a file never loaded is marked along the scrollbar, by its status; faintly, where its changes will roughly be. */
+const ESTIMATED_MARKS: Partial<Record<FileStatus, MarkKind>> = {
+  added: "inserted",
+  deleted: "deleted",
+  modified: "modified",
+  renamed: "modified",
+};
+
 /** A file of the list; `key` tells it apart when the same file is listed twice. */
 export interface SectionEntry {
   key: string;
@@ -49,6 +59,8 @@ export interface SectionSource {
   show(key: string): Promise<unknown>;
   /** Unloads the file's editor; `keepFocused` leaves the one with keyboard focus. Returns whether one was removed. */
   hide(key: string, keepFocused: boolean): boolean;
+  /** The file's editor, while loaded. */
+  editor(key: string): DiffEditor | null;
   /**
    * How the list is asked to scroll a file into view (with `offset`, that
    * far into the file); null when the list goes away.
@@ -70,6 +82,7 @@ export interface SectionSource {
 export function SectionList(props: { source: SectionSource }) {
   const source = props.source;
   let scroller!: HTMLDivElement;
+  let frame!: HTMLDivElement;
   const entries = createMemo(() => source.entries());
   const keys = createMemo(() => entries().map((entry) => entry.key));
   const entryOf = (key: string) => entries().find((entry) => entry.key === key);
@@ -95,7 +108,70 @@ export function SectionList(props: { source: SectionSource }) {
   let loader: IntersectionObserver;
   let unloader: IntersectionObserver;
   let resizer: ResizeObserver;
+  let ruler: OverviewRuler;
   const heights = new WeakMap<Element, number>();
+
+  /**
+   * Each file's marks along the scrollbar as last measured, from the top of
+   * its editor: an unloaded file keeps its height, and its marks with it.
+   */
+  const measured = new Map<string, OverviewBand[]>();
+
+  /**
+   * Goes to mark `index` of a file not loaded (its first change by default):
+   * loads the file, puts the cursor there and keeps it in the middle of the
+   * screen while the files around it load.
+   */
+  const pickUnloaded = (key: string, index = 0) => {
+    const section = sections.get(key);
+    if (!section) return;
+    reveal(key);
+    void source.show(key).then(() => {
+      const band = source.editor(key)?.overviewBands(scroller)[index];
+      if (!band || !section.isConnected) return;
+      band.pick(false);
+      revealInside(section, Math.max(1, band.top - section.offsetTop - scroller.clientHeight / 2));
+    });
+  };
+
+  /** The marks along the scrollbar: measured in the files loaded, remembered or estimated in the others. */
+  const overviewBands = (): OverviewBand[] => {
+    const bands: OverviewBand[] = [];
+    for (const entry of entries()) {
+      const key = entry.key;
+      const host = sections.get(key) && hostOf(sections.get(key)!);
+      if (!host || source.collapsed(key)) continue;
+      // Sections are not positioned: this is from the top of the list.
+      const top = host.offsetTop;
+      const editor = source.editor(key);
+      if (editor) {
+        const own = editor.overviewBands(scroller);
+        measured.set(
+          key,
+          own.map((band, index) => ({
+            ...band,
+            top: band.top - top,
+            bottom: band.bottom - top,
+            pick: () => pickUnloaded(key, index),
+          })),
+        );
+        bands.push(...own);
+      } else if (measured.has(key)) {
+        for (const band of measured.get(key)!) bands.push({ ...band, top: band.top + top, bottom: band.bottom + top });
+      } else {
+        // As `estimatedHeight` has it: the changed lines, after a few unchanged ones.
+        const file = entry.file;
+        const kind = file.binary ? undefined : ESTIMATED_MARKS[file.status];
+        if (kind) {
+          const start = top + 3 * LINE_HEIGHT;
+          const bottom = Math.min(start + ((file.additions ?? 0) + (file.deletions ?? 0)) * LINE_HEIGHT, top + host.offsetHeight);
+          const title = `${file.path} (not loaded yet)`;
+          bands.push({ top: start, bottom, kind, title, estimated: true, pick: () => pickUnloaded(key) });
+        }
+      }
+    }
+    return bands;
+  };
 
   // Runs before the sections' own onMount, so the observers exist when they register.
   onMount(() => {
@@ -124,6 +200,7 @@ export function SectionList(props: { source: SectionSource }) {
         if (top + before <= scroller.scrollTop) shift += height - before;
         moved += height - before;
       }
+      ruler.schedule();
       if (anchor && (Date.now() > anchor.until || !anchor.section.isConnected)) anchor = null;
       if (anchor) {
         // Still scrolling to a place: the dock follows the file read, as when scrolling.
@@ -136,6 +213,7 @@ export function SectionList(props: { source: SectionSource }) {
       }
     });
     source.onReveal(reveal);
+    ruler = new OverviewRuler(scroller, frame, overviewBands);
     // The sections register in their own onMount, after this one. A place
     // restored meanwhile (the review opening) wins.
     requestAnimationFrame(() => {
@@ -149,6 +227,7 @@ export function SectionList(props: { source: SectionSource }) {
     loader.disconnect();
     unloader.disconnect();
     resizer.disconnect();
+    ruler.destroy();
     source.onReveal(null);
   });
 
@@ -201,6 +280,7 @@ export function SectionList(props: { source: SectionSource }) {
     loader.observe(section);
     unloader.observe(section);
     resizer.observe(section);
+    ruler.schedule();
   };
 
   const unobserve = (key: string, section: HTMLElement) => {
@@ -208,6 +288,8 @@ export function SectionList(props: { source: SectionSource }) {
     loader.unobserve(section);
     unloader.unobserve(section);
     resizer.unobserve(section);
+    measured.delete(key);
+    ruler.schedule();
   };
 
   const toggle = (key: string) => {
@@ -270,32 +352,35 @@ export function SectionList(props: { source: SectionSource }) {
   }
 
   return (
-    <div
-      class="all-files"
-      ref={scroller}
-      onScroll={onScroll}
-      onWheel={dropAnchor}
-      onPointerDown={dropAnchor}
-      onKeyDown={dropAnchor}
-    >
-      <For each={keys()} fallback={<div class="placeholder">{source.placeholder()}</div>}>
-        {(key) => (
-          <Show when={entryOf(key)}>
-            {(entry) => (
-              <>
-                <Show when={entry().group}>{(group) => <h3 class="section-group">{group()}</h3>}</Show>
-                <FileSection
-                  entry={entry()}
-                  source={source}
-                  observe={observe}
-                  unobserve={unobserve}
-                  toggle={toggle}
-                />
-              </>
-            )}
-          </Show>
-        )}
-      </For>
+    // The frame holds the list and, over its scrollbar, the marks of the changes.
+    <div class="all-files-frame" ref={frame}>
+      <div
+        class="all-files"
+        ref={scroller}
+        onScroll={onScroll}
+        onWheel={dropAnchor}
+        onPointerDown={dropAnchor}
+        onKeyDown={dropAnchor}
+      >
+        <For each={keys()} fallback={<div class="placeholder">{source.placeholder()}</div>}>
+          {(key) => (
+            <Show when={entryOf(key)}>
+              {(entry) => (
+                <>
+                  <Show when={entry().group}>{(group) => <h3 class="section-group">{group()}</h3>}</Show>
+                  <FileSection
+                    entry={entry()}
+                    source={source}
+                    observe={observe}
+                    unobserve={unobserve}
+                    toggle={toggle}
+                  />
+                </>
+              )}
+            </Show>
+          )}
+        </For>
+      </div>
     </div>
   );
 }

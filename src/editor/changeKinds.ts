@@ -17,9 +17,9 @@ import {
   ViewPlugin,
 } from "@codemirror/view";
 
-type Kind = "inserted" | "deleted" | "modified";
+export type Kind = "inserted" | "deleted" | "modified";
 
-function kindOf(chunk: Chunk): Kind {
+export function kindOf(chunk: Chunk): Kind {
   if (chunk.fromA === chunk.toA) return "inserted";
   if (chunk.fromB === chunk.toB) return "deleted";
   return "modified";

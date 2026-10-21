@@ -3,6 +3,7 @@ import {
   noteListPlace,
   onRevealSection,
   registerSection,
+  sectionEditorOf,
   setCollapsed,
   setState,
   showSection,
@@ -31,6 +32,7 @@ const reviewSource: SectionSource = {
   unregister: unregisterSection,
   show: showSection,
   hide: hideSection,
+  editor: sectionEditorOf,
   onReveal: (handler) => onRevealSection(handler ?? (() => {})),
   onPlace: noteListPlace,
   placeholder: () =>

@@ -159,6 +159,7 @@ The toolbar switches between one file at a time and *All files*: every file of t
 - Compared line by line first, so small edits far apart stay small. Changed words are marked red and green, as in Azure DevOps.
 - Added and deleted files show whole; deleted ones are tinted red.
 - `F7` / `Shift+F7` step through the changes; in the all-files view they carry on into the next or previous file.
+- Marks along the scrollbar show where the changes are (red and green as in the gutter), with errors and discussions in a narrow lane beside them; click one to go there. In the all-files view they cover the whole list, faint for files not loaded yet.
 - Syntax highlighting for F#, C#, T-SQL, project and other XML files, JSON and Markdown (with code blocks in their own language), and for about 140 more languages through [`@codemirror/language-data`](https://github.com/codemirror/language-data): JavaScript and TypeScript, Python, Rust, Go, Java, Kotlin, C and C++, PHP, Ruby, Swift, HTML, CSS, YAML, TOML, shell, PowerShell, Dockerfiles and others, chosen by file name. Each is loaded the first time a file needs it.
 
 ### Editing while comparing

@@ -4,6 +4,7 @@ import {
   hideSection,
   onRevealSection,
   registerSection,
+  sectionEditorOf,
   sectionEntries,
   selectedSection,
   selectSection,
@@ -27,6 +28,7 @@ const workingSource: SectionSource = {
   unregister: unregisterSection,
   show: showSection,
   hide: hideSection,
+  editor: sectionEditorOf,
   onReveal: onRevealSection,
   onPlace: noteListPlace,
   placeholder: () =>

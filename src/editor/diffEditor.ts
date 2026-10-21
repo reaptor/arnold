@@ -5,6 +5,7 @@
 // history).
 
 import { historyField } from "@codemirror/commands";
+import { forEachDiagnostic } from "@codemirror/lint";
 import {
   type Chunk,
   getChunks,
@@ -28,7 +29,7 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { changeKindColors } from "./changeKinds";
+import { changeKindColors, type Kind, kindOf } from "./changeKinds";
 import { deletedFile } from "./deletedFile";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor, languageLoading } from "./languages";
@@ -39,8 +40,9 @@ import { tabIndentation } from "./tabIndent";
 import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRanges } from "./semanticHighlight";
 import { matchingLine } from "./matchingLine";
 import { type LineSelection, resetEdits, type TextEdit } from "./resetLines";
-import { draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
+import { cardPlaces, draftCardId, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
 import { type AiSuggestion, locate, suggestionCardId } from "./aiSuggestions";
+import { linesExtent, type MarkKind, type OverviewBand, OverviewRuler, overviewUpdates, partAbove, textPart } from "./overviewRuler";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
 
 export type DiffMode = "split" | "unified";
@@ -156,6 +158,16 @@ export interface DiffEditorCallbacks {
 const isEditKey = (event: KeyboardEvent) =>
   !event.ctrlKey && !event.metaKey && (event.key.length === 1 || ["Backspace", "Delete", "Enter", "Tab"].includes(event.key));
 
+/** Tooltips of the overview ruler's change marks. */
+const CHANGE_TITLES: Record<Kind, string> = {
+  inserted: "Added lines",
+  deleted: "Removed lines",
+  modified: "Changed lines",
+};
+
+/** Tooltip of the overview ruler's mark for a card, by the card's id. */
+const cardTitle = (id: string) => (id.startsWith("ai:") ? "Copilot suggestion" : id.startsWith("draft:") ? "New comment" : "Discussion");
+
 /** Arrows of the move buttons: which way the change goes. */
 const MOVE_ARROWS: Record<MoveDirection, string> = { toBase: "←", toWorking: "→" };
 
@@ -217,10 +229,16 @@ export class DiffEditor {
   private lastFocused: EditorView | null = null;
   /** The "Show changes" button, while the document offers one. */
   private changesButton: HTMLElement | null = null;
+  private ruler: OverviewRuler | null = null;
 
   constructor(
     private readonly parent: HTMLElement,
     private readonly callbacks: DiffEditorCallbacks,
+    /**
+     * The editor scrolls on its own (the one-file view), with the changes
+     * marked along its scrollbar; in the all-files view the list scrolls.
+     */
+    private readonly scrolls = false,
   ) {}
 
   /** Shows a file. `snapshot` restores where an earlier visit of the same file was. */
@@ -563,6 +581,82 @@ export class DiffEditor {
     });
   }
 
+  /** A mark of the overview ruler clicked: the cursor goes to `from`, and `from`..`to` to the middle of the screen (with `scroll`). */
+  private goTo(view: EditorView, from: number, to = from, scroll = true) {
+    view.dispatch({
+      selection: { anchor: from },
+      userEvent: "select",
+      effects: scroll ? EditorView.scrollIntoView(EditorSelection.range(to, from), { y: "center" }) : [],
+    });
+    view.focus();
+  }
+
+  /**
+   * The file's changes, errors and discussions as bands of `scroller`'s
+   * content, for an overview ruler. Reads the layout: for measuring only.
+   */
+  overviewBands(scroller: HTMLElement): OverviewBand[] {
+    const document = this.document;
+    const working = this.working;
+    if (!document || !working) return [];
+    const box = scroller.getBoundingClientRect();
+    const origins = new Map<EditorView, number>();
+    const origin = (view: EditorView) => {
+      let top = origins.get(view);
+      if (top === undefined) origins.set(view, (top = view.documentTop - box.top - scroller.clientTop + scroller.scrollTop));
+      return top;
+    };
+    const bands: OverviewBand[] = [];
+    const add = (view: EditorView, top: number, bottom: number, kind: MarkKind, title: string, pick: OverviewBand["pick"]) =>
+      bands.push({ top: top + origin(view), bottom: bottom + origin(view), kind, title, pick });
+
+    if (this.merge) {
+      // The sides are lined up: a change spans the lines it has on either side.
+      const { a, b, chunks } = this.merge;
+      for (const chunk of chunks) {
+        const kind = kindOf(chunk);
+        const sides = [
+          chunk.fromA < chunk.toA ? { view: a, ...linesExtent(a, chunk.fromA, chunk.endA) } : null,
+          chunk.fromB < chunk.toB ? { view: b, ...linesExtent(b, chunk.fromB, chunk.endB) } : null,
+        ].filter((side) => side !== null);
+        const top = Math.min(...sides.map((side) => side.top + origin(side.view)));
+        const bottom = Math.max(...sides.map((side) => side.bottom + origin(side.view)));
+        bands.push({ top, bottom, kind, title: CHANGE_TITLES[kind], pick: (scroll) => this.goTo(b, chunk.fromB, chunk.toB, scroll) });
+      }
+    } else if (!document.plain) {
+      // Removed lines are a block above the chunk's new lines.
+      const view = working;
+      for (const chunk of getChunks(view.state)?.chunks ?? []) {
+        const kind = kindOf(chunk);
+        const block = view.lineBlockAt(Math.min(chunk.fromB, view.state.doc.length));
+        const removed = chunk.fromA < chunk.toA ? partAbove(block) : null;
+        const added = chunk.fromB < chunk.toB ? linesExtent(view, chunk.fromB, chunk.endB) : null;
+        const top = removed?.top ?? added?.top ?? textPart(block).top;
+        const bottom = added?.bottom ?? removed?.bottom ?? top;
+        add(view, top, bottom, kind, CHANGE_TITLES[kind], (scroll) => this.goTo(view, chunk.fromB, chunk.toB, scroll));
+      }
+    } else if (document.deleted || (document.base === "" && working.state.doc.length > 0)) {
+      // An added or deleted file shown whole: all of it is the change.
+      const kind = document.deleted ? "deleted" : "inserted";
+      const { top, bottom } = linesExtent(working, 0, working.state.doc.length);
+      add(working, top, bottom, kind, CHANGE_TITLES[kind], (scroll) => this.goTo(working, 0, 0, scroll));
+    }
+
+    forEachDiagnostic(working.state, (diagnostic, from) => {
+      if (diagnostic.severity !== "error") return;
+      const { top, bottom } = linesExtent(working, from, from);
+      add(working, top, bottom, "error", diagnostic.message, (scroll) => this.goTo(working, from, from, scroll));
+    });
+    for (const view of this.merge ? [this.merge.a, this.merge.b] : [working]) {
+      for (const card of cardPlaces(view.state)) {
+        const { top, bottom } = linesExtent(view, card.pos, card.pos);
+        const line = view.state.doc.lineAt(card.pos).from;
+        add(view, top, bottom, "comment", cardTitle(card.id), (scroll) => this.goTo(view, line, line, scroll));
+      }
+    }
+    return bands;
+  }
+
   focus() {
     this.working?.focus();
   }
@@ -659,6 +753,8 @@ export class DiffEditor {
   }
 
   private destroyViews() {
+    this.ruler?.destroy();
+    this.ruler = null;
     this.changesButton?.remove();
     this.changesButton = null;
     this.lastFocused = null;
@@ -767,7 +863,9 @@ export class DiffEditor {
     if (document.plain && document.showChanges) this.addChangesButton(document.showChanges);
     this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
-    this.scroller()?.addEventListener("scroll", () => this.callbacks.onPlaceChange?.(), { passive: true });
+    const scroller = this.scroller();
+    scroller?.addEventListener("scroll", () => this.callbacks.onPlaceChange?.(), { passive: true });
+    if (this.scrolls && scroller) this.ruler = new OverviewRuler(scroller, this.parent, () => this.overviewBands(scroller));
     this.callbacks.onPlaceChange?.();
   }
 
@@ -1013,6 +1111,7 @@ export class DiffEditor {
       changeKindColors,
       lineTints,
       threadMarks,
+      overviewUpdates,
       // Typing into a read-only side, told before any key binding can swallow the key.
       Prec.highest(
         EditorView.domEventHandlers({

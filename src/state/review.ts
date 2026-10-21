@@ -669,7 +669,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 }
 
 export function attachEditor(host: HTMLElement) {
-  editor = new DiffEditor(host, editorCallbacks(() => state.selected));
+  editor = new DiffEditor(host, editorCallbacks(() => state.selected), true);
   setThreadActions({ reply, createThread, cancelDraft, deleteComment });
   lsp.onDisplayFile(displayUri);
   lsp.onJump(noteDeparture);
@@ -1760,6 +1760,9 @@ export function hideSection(path: string, keepFocused = false): boolean {
   if (target) void checkChangedFiles();
   return target !== undefined;
 }
+
+/** The editor of `path`'s section of the all-files view, while loaded. */
+export const sectionEditorOf = (path: string) => sectionEditors.get(path) ?? null;
 
 export function setCollapsed(path: string, collapsed: boolean) {
   setState("collapsed", path, collapsed);

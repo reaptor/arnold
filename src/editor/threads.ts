@@ -320,7 +320,7 @@ class CardWidget extends WidgetType {
   private observer: ResizeObserver | null = null;
 
   constructor(
-    private readonly id: string,
+    readonly id: string,
     /** Tells cards apart that look different. */
     private readonly key: string,
     private readonly build: (onResize: () => void) => HTMLElement,
@@ -461,6 +461,16 @@ const threadField = StateField.define<DecorationSet>({
 });
 
 export const threadMarks = [threadField];
+
+/** The cards shown (not their empty blocks on the other side): their ids, and the positions they are at. */
+export function cardPlaces(state: EditorState): { id: string; pos: number }[] {
+  const places: { id: string; pos: number }[] = [];
+  state.field(threadField, false)?.between(0, state.doc.length, (from, _to, decoration) => {
+    const widget = decoration.spec.widget;
+    if (widget instanceof CardWidget) places.push({ id: widget.id, pos: from });
+  });
+  return places;
+}
 
 /** Shows the cards: unfolds the stretches of unchanged lines they would be hidden in. */
 export function showThreadMarks(view: EditorView, marks: ThreadMark[]) {

@@ -881,6 +881,9 @@ export function currentEditor(): DiffEditor | null {
 
 export const sectionEditor = (side: WorkingSide, path: string) => sectionEditors.get(keyOf(side, path)) ?? null;
 
+/** The editor of section `key` of the all-files view, while loaded. */
+export const sectionEditorOf = (key: string) => sectionEditors.get(key) ?? null;
+
 /** The editor the language server talks to for `path`: its working tree text (Unstaged) where shown, else Staged. */
 export const languageEditorFor = (path: string) =>
   sectionEditors.get(keyOf("unstaged", path)) ?? sectionEditors.get(keyOf("staged", path)) ?? null;

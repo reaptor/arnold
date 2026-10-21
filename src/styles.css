@@ -1117,6 +1117,8 @@ button.primary:hover:not(:disabled) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* Holds the overview ruler over the editor's scrollbar. */
+  position: relative;
 }
 
 .editor-host.hidden {
@@ -1311,7 +1313,76 @@ button.primary:hover:not(:disabled) {
   opacity: 0.4;
 }
 
+/*
+ * The overview ruler (overviewRuler.ts): over the vertical scrollbar, a mark
+ * for each change where it is in the file (or the all-files list). Only the
+ * marks take clicks; the rest of the scrollbar drags as usual. Changes fill
+ * the thumb's width, errors and discussions a lane at its right.
+ */
+.overview-ruler {
+  position: absolute;
+  width: 10px;
+  pointer-events: none;
+  /* Above the editors, below their tooltips. */
+  z-index: 1;
+}
+
+.overview-ruler[hidden] {
+  display: none;
+}
+
+.overview-mark {
+  position: absolute;
+  left: 2px;
+  width: 6px;
+  border-radius: 1px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.overview-inserted {
+  background: var(--diff-inserted-mark);
+}
+
+.overview-deleted {
+  background: var(--diff-old-mark);
+}
+
+/* Replaced lines: the old side's red beside the new side's green, as in the split view. */
+.overview-modified {
+  background: linear-gradient(to right, var(--diff-old-mark) 50%, var(--diff-inserted-mark) 50%);
+}
+
+.overview-error,
+.overview-comment {
+  left: 6px;
+  width: 3px;
+  box-shadow: 0 0 0 1px var(--bg);
+}
+
+.overview-error {
+  background: var(--removed);
+}
+
+.overview-comment {
+  background: var(--accent);
+}
+
+/* A file of the all-files list not loaded yet: where its changes will roughly be. */
+.overview-estimated {
+  opacity: 0.4;
+}
+
 /* ------------------------------------------------------------ all files */
+
+.all-files-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Holds the overview ruler over the list's scrollbar. */
+  position: relative;
+}
 
 .all-files {
   flex: 1;
