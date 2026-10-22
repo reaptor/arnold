@@ -6,6 +6,7 @@ import {
   canCollapseUnchanged,
   collapseAllUnchanged,
   collapseUnchangedAt,
+  keepUnchangedLines,
   otherSidePos,
   unchangedLines,
   unchangedRuns,
@@ -42,6 +43,13 @@ describe("unchangedRuns", () => {
 
   it("folds all of a file without changes", () => {
     expect(unchangedRuns(10, [], config)).toEqual([{ from: 1, to: 10 }]);
+  });
+
+  it("folds around the lines kept", () => {
+    expect(unchangedRuns(40, [], config, [3, 4, 20])).toEqual([
+      { from: 5, to: 19 },
+      { from: 21, to: 40 },
+    ]);
   });
 });
 
@@ -143,5 +151,15 @@ describe("unchangedLines", () => {
     state = state.update({ changes: { from: line.from, to: line.to, insert: "edited" } }).state;
     // Lines 1-6 are too few to fold; 14-26 were folded with the edited line.
     expect(shown(state)).toEqual({ folded: ["34-60"], bars: ["14"] });
+  });
+
+  it("keeps lines shown, folding the runs around them", () => {
+    let state = unified();
+    state = run(state, uncollapseUnchanged.of(state.doc.line(34).from));
+    state = run(state, keepUnchangedLines.of([state.doc.line(2).from, state.doc.line(40).from]));
+    // Folded 1-26 folds again around line 2 (line 1 alone is too short); unfolded 34-60 stays so.
+    expect(shown(state)).toEqual({ folded: ["3-26"], bars: ["41"] });
+    state = run(state, collapseAllUnchanged.of([]));
+    expect(shown(state)).toEqual({ folded: ["3-26", "41-60"], bars: [] });
   });
 });
