@@ -1,5 +1,5 @@
 // Marks along the diff's scrollbar, as in VS Code and Rider: one for each
-// change (and error and discussion) where it is in the scrolling content, so
+// change (and error, discussion and find match) where it is in the scrolling content, so
 // changes can be seen and gone to while scrolling. Clicking a mark goes there.
 // The marks are measured when an editor's text or heights change, or the
 // scrolling area is resized, never by polling.
@@ -7,7 +7,7 @@
 import { type BlockInfo, BlockType, EditorView, type ViewUpdate } from "@codemirror/view";
 
 /** What a mark stands for; changes are colored like the change gutter. */
-export type MarkKind = "inserted" | "deleted" | "modified" | "error" | "comment";
+export type MarkKind = "inserted" | "deleted" | "modified" | "error" | "comment" | "search";
 
 /** Something to mark: a stretch of the scrolling content, in pixels from its top. */
 export interface OverviewBand {

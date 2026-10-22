@@ -318,6 +318,10 @@ The panel lists the suggestions under a short summary of the changes, as a start
 | Keys | What they do |
 |---|---|
 | `F7` / `Shift+F7` | Next / previous change (across files in the all-files view) |
+| `Ctrl+F` (`Cmd+F`) | Find in the file: the selection, else the last text searched for; every match is highlighted and marked on the scrollbar, and folded unchanged lines open for the match stepped to |
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3`, `Ctrl+G` / `Ctrl+Shift+G` (`Cmd+G` / `Cmd+Shift+G`) | Next / previous match, wrapping around |
+| `Alt+C` / `Alt+W` / `Alt+R` (`⌥C` / `⌥W` / `⌥R`) | In the find box: match case / whole words / regular expression |
+| `Ctrl+H` (`Cmd+Alt+F`) | Find and replace, where the diff can be edited |
 | `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#) |
 | `Shift+F12` | Find references (F#) |
 | `Alt+Enter`, `Ctrl+.` (`Cmd+.`) | Quick fixes and refactorings for the cursor's line or the selection (F#, where the diff can be edited) |
@@ -329,7 +333,7 @@ The panel lists the suggestions under a short summary of the changes, as a start
 | `Del` (on macOS also `⌫`) | Commit mode: delete the picked files of Unstaged or Staged from disk, after asking |
 | `Tab` / `Shift+Tab` | Commit mode, where text can be typed: indent / outdent, in the file's own indentation (tabs, or its step of spaces); `Esc` then `Tab` leaves the editor |
 | `Ctrl+Enter` (`⌘+Enter`) | Commit; send a comment |
-| `Esc` | Close a menu, popup or dialog; cancel a comment |
+| `Esc` | Close a menu, popup, dialog or the find box; cancel a comment |
 
 ## What Arnold writes
 

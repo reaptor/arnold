@@ -31,6 +31,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors, type Kind, kindOf } from "./changeKinds";
 import { deletedFile } from "./deletedFile";
+import { findBar, selectMatch, shownMatches } from "./findBar";
 import { riderIslandsDark } from "./riderIslandsTheme";
 import { languageFor, languageLoading } from "./languages";
 import { editFrames, setCommitted } from "./editFrames";
@@ -162,6 +163,9 @@ const isEditKey = (event: KeyboardEvent) =>
   !event.ctrlKey && !event.metaKey && (event.key.length === 1 || ["Backspace", "Delete", "Enter", "Tab"].includes(event.key));
 
 /** Tooltips of the overview ruler's change marks. */
+/** Find matches past this many are not marked on the overview ruler. */
+const MOST_MARKED_MATCHES = 2000;
+
 const CHANGE_TITLES: Record<Kind, string> = {
   inserted: "Added lines",
   deleted: "Removed lines",
@@ -640,7 +644,7 @@ export class DiffEditor {
   }
 
   /**
-   * The file's changes, errors and discussions as bands of `scroller`'s
+   * The file's changes, errors, discussions and find matches as bands of `scroller`'s
    * content, for an overview ruler. Reads the layout: for measuring only.
    */
   overviewBands(scroller: HTMLElement): OverviewBand[] {
@@ -700,6 +704,14 @@ export class DiffEditor {
         const { top, bottom } = linesExtent(view, card.pos, card.pos);
         const line = view.state.doc.lineAt(card.pos).from;
         add(view, top, bottom, "comment", cardTitle(card.id), (scroll) => this.goTo(view, line, line, scroll));
+      }
+    }
+    // Drawn last, over the changes: the find box's matches.
+    for (const view of this.views()) {
+      for (const match of shownMatches(view, MOST_MARKED_MATCHES)) {
+        const { top, bottom } = linesExtent(view, match.from, match.from);
+        const title = `Match on line ${view.state.doc.lineAt(match.from).number}`;
+        add(view, top, bottom, "search", title, (scroll) => selectMatch(view, match, scroll));
       }
     }
     return bands;
@@ -1179,6 +1191,7 @@ export class DiffEditor {
     return [
       keymap.of([...letterKeys, altKeys]),
       basicSetup,
+      findBar,
       // Read-only, but still focusable with a cursor for go-to-definition and selecting.
       EditorState.readOnly.of(readOnly),
       languageFor(path),

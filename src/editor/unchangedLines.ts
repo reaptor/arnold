@@ -263,3 +263,14 @@ export function revealUnchanged(view: EditorView, positions: readonly number[]) 
   });
   if (starts.size > 0) view.dispatch({ effects: [...starts].map((start) => uncollapseUnchanged.of(start)) });
 }
+
+/** Unfolds the run holding `pos` and, in the split view, the other side's run beside it, so the sides stay lined up. */
+export function revealUnchangedOnBothSides(view: EditorView, pos: number) {
+  const siblings = mergeViewSiblings(view);
+  const chunks = getChunks(view.state);
+  revealUnchanged(view, [pos]);
+  if (!siblings || !chunks) return;
+  const fromA = siblings.a === view;
+  const other = fromA ? siblings.b : siblings.a;
+  revealUnchanged(other, [otherSidePos(pos, chunks.chunks, view.state.doc, other.state.doc, fromA)]);
+}
