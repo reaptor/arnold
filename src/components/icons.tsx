@@ -271,3 +271,27 @@ export const StashIcon = (props: IconProps) => (
     <path d="M2.5 6.5h11v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1zM1.5 3.5h13v3h-13zM6.5 9h3" />
   </Icon>
 );
+
+/** A problem of the language server: an error. */
+export const ErrorIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5" />
+  </Icon>
+);
+
+/** A problem of the language server: a warning. */
+export const WarningIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8 2l6.5 11.5h-13z" />
+    <path d="M8 6.5v3.5M8 11.75v.25" />
+  </Icon>
+);
+
+/** A problem of the language server: a message. */
+export const InfoIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M8 7v4.5M8 4.75v.25" />
+  </Icon>
+);
