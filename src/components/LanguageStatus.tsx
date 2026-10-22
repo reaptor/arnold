@@ -9,8 +9,9 @@ const STEP_MARK: Record<SetupStep["state"], string> = {
 };
 
 /**
- * Status bar item for F# language features: what is being done to get them
- * going, and a popup with the steps, problems and output.
+ * Status bar item for F# language features: a static "F# ready" or "F# not
+ * ready" once there is something to say, and a popup with the steps, problems
+ * and output. Getting them going runs quietly in the background.
  */
 export function LanguageStatus() {
   const [open, setOpen] = createSignal(false);
@@ -32,19 +33,10 @@ export function LanguageStatus() {
 
   const setup = () => state.languageSetup;
   const phase = () => setup()?.phase;
-  const working = () => phase() === "preparing" || phase() === "starting" || phase() === "loading";
   const problems = () => setup()?.problems ?? [];
-
-  // Only "F# loading" while it gets going; the steps are in the popup.
-  const label = () => {
-    if (working()) return "F# loading";
-    switch (phase()) {
-      case "ready":
-        return problems().length ? `F# ready, ${problems().length} ${problems().length === 1 ? "problem" : "problems"}` : "F# ready";
-      default:
-        return "F# features off";
-    }
-  };
+  // Nothing is shown while it gets going, unless something already went wrong.
+  const notReady = () => phase() === "failed" || problems().length > 0;
+  const shown = () => notReady() || phase() === "ready";
 
   const explanation = () => {
     switch (phase()) {
@@ -70,21 +62,17 @@ export function LanguageStatus() {
   });
 
   return (
-    <Show when={setup()}>
+    <Show when={shown() && setup()}>
       {(current) => (
         <div class="language-status" ref={root}>
           <button
             class="language-button"
-            classList={{
-              warning: phase() === "failed" || (phase() === "ready" && problems().length > 0),
-            }}
+            classList={{ warning: notReady() }}
             title={`F# language features${state.lspStatus ? ` (${state.lspStatus})` : ""}: click for details`}
             onClick={() => setOpen(!open())}
           >
-            <Show when={working()} fallback={<span class="language-mark">{phase() === "ready" ? "✓" : "!"}</span>}>
-              <span class="spinner" aria-hidden="true" />
-            </Show>
-            <span class="language-label">{label()}</span>
+            <span class="language-mark">{notReady() ? "!" : "✓"}</span>
+            <span class="language-label">{notReady() ? "F# not ready" : "F# ready"}</span>
           </button>
           <Show when={open()}>
             <div class="language-popup" role="dialog" aria-label="F# language features">
