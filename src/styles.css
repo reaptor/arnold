@@ -1106,6 +1106,170 @@ button.primary:hover:not(:disabled) {
   overflow: hidden;
 }
 
+/* The Problems panel under the diff (and the commit message). */
+.problems-island {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100% - 120px - var(--island-gap));
+  background: var(--bg);
+  border-radius: var(--island-radius);
+  overflow: hidden;
+}
+
+.problems-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.problems-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.problems-title {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.problems-filter,
+.problems-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.problems-filter:hover,
+.problems-button:hover {
+  background: var(--hover);
+}
+
+.problems-filter.active,
+.problems-button.open {
+  color: var(--text);
+  background: var(--selected-inactive);
+}
+
+.problems-filter .icon,
+.problems-button .icon,
+.problem .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.icon.problem-error {
+  stroke: var(--removed);
+}
+
+.icon.problem-warning {
+  stroke: var(--warning);
+}
+
+.icon.problem-info {
+  stroke: var(--modified);
+}
+
+.problems-scope {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problems-header .icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.problems-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.problems-empty {
+  margin: 8px 12px;
+  color: var(--muted);
+}
+
+.problems-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 12px;
+  white-space: nowrap;
+}
+
+.problems-file-name {
+  font-weight: 600;
+}
+
+.problems-file-folder {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problems-file-count {
+  color: var(--muted);
+}
+
+.problem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 12px 2px 28px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.problem:hover {
+  background: var(--hover);
+}
+
+.problem-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem-code,
+.problem-place {
+  flex: none;
+  color: var(--muted);
+}
+
 .content {
   flex: 1;
   min-width: 0;

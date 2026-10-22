@@ -15,7 +15,7 @@ import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import * as ipc from "../ipc/commands";
 import { atPointer } from "./atPointer";
-import { codeActionCapabilities, codeActions } from "./codeActions";
+import { codeActionCapabilities, codeActions, type ServerDiagnostic } from "./codeActions";
 import { serverCompletion } from "./completion";
 import { rename } from "./rename";
 import { serverDiagnostics } from "./diagnostics";
@@ -41,6 +41,7 @@ let displayFile: DisplayFile = async () => null;
 let startFailed: (reason: unknown) => void = () => {};
 let serverEvent: (event: ipc.LspEvent) => void = () => {};
 let jumped: (from?: number) => void = () => {};
+let diagnosticsPublished: (uri: string, diagnostics: ServerDiagnostic[]) => void = () => {};
 
 export function onDisplayFile(handler: DisplayFile) {
   displayFile = handler;
@@ -63,6 +64,14 @@ export function onStartFailed(handler: (reason: unknown) => void) {
 /** Called with what the running server reports besides LSP messages; never for a stopped one. */
 export function onServerEvent(handler: (event: ipc.LspEvent) => void) {
   serverEvent = handler;
+}
+
+/**
+ * Called with every file's diagnostics the server publishes, also for files
+ * no editor shows (the Problems panel); `uri` as `canonicalUri` spells it.
+ */
+export function onDiagnostics(handler: (uri: string, diagnostics: ServerDiagnostic[]) => void) {
+  diagnosticsPublished = handler;
 }
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -193,8 +202,9 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
         notificationHandlers: {
           // Match the server's spelling of file URIs to ours; the built-in
           // handler then finds the open file.
-          "textDocument/publishDiagnostics": (_client, params: { uri: string }) => {
+          "textDocument/publishDiagnostics": (_client, params: { uri: string; diagnostics: ServerDiagnostic[] }) => {
             params.uri = canonicalUri(params.uri);
+            if (running === entry) diagnosticsPublished(params.uri, params.diagnostics);
             return false;
           },
         },

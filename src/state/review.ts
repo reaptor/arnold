@@ -5,7 +5,7 @@ import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createEffect, createRoot, createSignal, on } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import {
   type BlockedEdit,
   DiffEditor,
@@ -39,7 +39,7 @@ import type {
   Worktree,
 } from "../ipc/commands";
 import * as lsp from "../lsp/clients";
-import { removeUnusedOpens, showFixes, unusedOpenCount } from "../lsp/codeActions";
+import { removeUnusedOpens, type ServerDiagnostic, showFixes, unusedOpenCount } from "../lsp/codeActions";
 import { applyTextEdits, onEditFile, onRenameError, startRename } from "../lsp/rename";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { clearSolution, fileOrder, loadSolution } from "./solutionView";
@@ -55,6 +55,7 @@ import { checkOutAsking } from "./checkoutChoice";
 import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
 import { loadCreators } from "./branchInfo";
 import { track } from "./activity";
+import { type Problem, toProblems } from "./problems";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
@@ -155,6 +156,8 @@ interface State {
   ignoreWhitespace: boolean;
   /** Errors and warnings the language server reported, by file path. */
   problems: Record<string, { errors: number; warnings: number }>;
+  /** The language server's errors, warnings and messages, by file path (the Problems panel). */
+  diagnostics: Record<string, Problem[]>;
   /** What the language server is busy with, if anything. */
   lspStatus: string | null;
   /** F# language features for the reviewed commit; null when it has no F# projects. */
@@ -291,6 +294,7 @@ export const [state, setState] = createStore<State>({
   mode: (localStorage.getItem("arnold.mode") as DiffMode | null) ?? "split",
   ignoreWhitespace: localStorage.getItem("arnold.ignoreWhitespace") !== "false",
   problems: {},
+  diagnostics: {},
   lspStatus: null,
   languageSetup: null,
   backCount: 0,
@@ -687,6 +691,7 @@ export function attachEditor(host: HTMLElement) {
   lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
   lsp.onServerEvent(onServerEvent);
+  lsp.onDiagnostics(onDiagnostics);
   onEditFile(editClosedFile);
   onRenameError(fail);
   onSuggestionsChange(() => {
@@ -940,6 +945,7 @@ export function resetSessions() {
   forwardStack.length = 0;
   editor?.close();
   setState("problems", reconcile({}));
+  setState("diagnostics", reconcile({}));
   setState("collapsed", reconcile({}));
   // Dropping the list also removes the file sections of the all-files view.
   setState({ comparison: null, visited: [], backCount: 0, forwardCount: 0 });
@@ -2037,6 +2043,7 @@ async function prepareLanguageFeatures(key: string, root: string, name: string, 
   forEachShownEditor((target) => target.setLanguageSupport([]));
   backgroundSent.clear();
   setState("problems", reconcile({}));
+  setState("diagnostics", reconcile({}));
   setSetupOutput([]);
   setState({
     lspStatus: null,
@@ -2218,6 +2225,17 @@ function onServerEvent(event: ipc.LspEvent) {
   }
 }
 
+/** Keeps the Problems panel's list of a file; a file without problems leaves it. */
+function onDiagnostics(uri: string, diagnostics: ServerDiagnostic[]) {
+  const root = serverRoot();
+  const absolute = uriToPath(uri);
+  const path = root && absolute ? relativeTo(root, absolute) : null;
+  if (path === null) return;
+  const problems = toProblems(diagnostics);
+  if (problems.length) setState("diagnostics", path, reconcile(problems));
+  else if (path in state.diagnostics) setState("diagnostics", produce((all) => void delete all[path]));
+}
+
 /** Every editor on screen, with its file. */
 function forEachShownEditor(action: (target: DiffEditor, file: ChangedFile) => void) {
   if (state.view === "all" && state.source === "commit") {
@@ -2397,17 +2415,18 @@ async function showPlace(place: NavigationPlace): Promise<DiffEditor | null> {
 
 /**
  * Shows line `line` (1-based) of `path` as a jump "back" returns from (a
- * link in an AI answer). Commit mode: of the diff of `side`, else of the
- * file against the last commit.
+ * link in an AI answer, a problem), at `column` (0-based) of it. Commit
+ * mode: of the diff of `side`, else of the file against the last commit.
  */
-export async function goToLine(path: string, line: number, side: WorkingSide | null = null) {
+export async function goToLine(path: string, line: number, side: WorkingSide | null = null, column = 0) {
   noteDeparture();
   setState("menu", null);
   const target = await showPlace({ path, side, anchor: 0 });
   const view = target?.working;
   if (!view) return;
   const doc = view.state.doc;
-  const anchor = doc.line(Math.min(Math.max(line, 1), doc.lines)).from;
+  const lineAt = doc.line(Math.min(Math.max(line, 1), doc.lines));
+  const anchor = Math.min(lineAt.from + Math.max(column, 0), lineAt.to);
   view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
   view.focus();
   requestAnimationFrame(() => target?.revealCursor());

@@ -10,6 +10,7 @@ import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { LicensesDialog } from "./components/LicensesDialog";
+import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./components/ProblemsPanel";
 import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
@@ -43,6 +44,10 @@ import {
   undoFileEdits,
   undoLineEdits,
 } from "./state/review";
+
+/** Opens or closes the Problems panel: Ctrl+Shift+M, and Cmd+Shift+M on macOS, as in VS Code. */
+const isProblemsShortcut = (event: KeyboardEvent) =>
+  (event.ctrlKey || (isMac && event.metaKey)) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "m";
 
 /** "Go back" as editors have it: Ctrl+- on macOS, Alt+Left elsewhere. */
 const isBackShortcut = (event: KeyboardEvent) =>
@@ -90,6 +95,8 @@ const MAX_DOCK = 640;
 const MIN_COMMIT_HEIGHT = 96;
 /** Room the diff keeps when the commit message pane is made taller. */
 const MIN_DIFF_HEIGHT = 120;
+/** The Problems panel: its header and a line or two. */
+const MIN_PROBLEMS_HEIGHT = 80;
 
 /** Reviewing pull requests, and none is picked yet: the main area lists them instead. */
 const choosingPullRequest = () => state.repo !== null && state.source === "pullRequest" && state.pullRequest === null;
@@ -104,6 +111,24 @@ export function App() {
   let editorHost!: HTMLDivElement;
   let contentColumn!: HTMLDivElement;
   const [commitHeight, setCommitHeight] = createSignal(Number(localStorage.getItem("arnold.commitHeight")) || 130);
+
+  const [problemsHeight, setProblemsHeight] = createSignal(Number(localStorage.getItem("arnold.problemsHeight")) || 180);
+
+  const startProblemsResize = (down: PointerEvent) => {
+    const startY = down.clientY;
+    const startHeight = problemsHeight();
+    const most = Math.max(contentColumn.clientHeight - MIN_DIFF_HEIGHT, MIN_PROBLEMS_HEIGHT);
+    const onMove = (move: PointerEvent) =>
+      setProblemsHeight(Math.min(Math.max(startHeight - (move.clientY - startY), MIN_PROBLEMS_HEIGHT), most));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      localStorage.setItem("arnold.problemsHeight", String(problemsHeight()));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    down.preventDefault();
+  };
 
   const startCommitResize = (down: PointerEvent) => {
     const startY = down.clientY;
@@ -151,6 +176,10 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
       toggleAi();
+    } else if (isProblemsShortcut(event) && state.repo) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleProblems();
     }
   };
   const closeMenu = () => setState("menu", null);
@@ -250,6 +279,13 @@ export function App() {
           <div class="content-sash" onPointerDown={startCommitResize} />
           <section class="commit-island" style={{ height: `${commitHeight()}px` }}>
             <CommitBox />
+          </section>
+        </Show>
+        {/* Under everything else, as Rider's tool windows. */}
+        <Show when={problemsOpen() && state.repo}>
+          <div class="content-sash" onPointerDown={startProblemsResize} />
+          <section class="problems-island" style={{ height: `${problemsHeight()}px` }}>
+            <ProblemsPanel />
           </section>
         </Show>
         </div>
@@ -534,6 +570,7 @@ function StatusBar() {
             <Show when={state.notice} fallback={<span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>}>
               <span class="notice">{state.notice}</span>
             </Show>
+            <ProblemsStatus />
             <LanguageStatus />
           </>
         )}
@@ -585,6 +622,7 @@ function CommitStatus() {
           >
             <span class="notice">{state.notice}</span>
           </Show>
+          <ProblemsStatus />
           <LanguageStatus />
         </>
       )}
