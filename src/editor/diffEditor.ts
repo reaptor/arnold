@@ -5,7 +5,7 @@
 // history).
 
 import { historyField } from "@codemirror/commands";
-import { forEachDiagnostic } from "@codemirror/lint";
+import { forEachDiagnostic, setDiagnosticsEffect } from "@codemirror/lint";
 import {
   type Chunk,
   getChunks,
@@ -42,7 +42,15 @@ import { semanticHighlight, semanticRanges, type SemanticRange, setSemanticRange
 import { matchingLine } from "./matchingLine";
 import { type LineSelection, resetEdits, type TextEdit } from "./resetLines";
 import { cardPlaces, draftCardId, markedPositions, showThreadMarks, threadCardId, type ThreadMark, threadMarks } from "./threads";
-import { canCollapseUnchanged, collapseAllUnchanged, foldsUnchanged, unchangedLines } from "./unchangedLines";
+import {
+  canCollapseUnchanged,
+  collapseAllUnchanged,
+  foldsUnchanged,
+  keepUnchangedLines,
+  otherSidePos,
+  unchangedLines,
+} from "./unchangedLines";
+import { unusedOpenPositions } from "../lsp/diagnostics";
 import { type AiSuggestion, locate, suggestionCardId } from "./aiSuggestions";
 import { linesExtent, type MarkKind, type OverviewBand, OverviewRuler, overviewUpdates, partAbove, textPart } from "./overviewRuler";
 import type { LineRange, NewThreadPlace, PrThread } from "../ipc/commands";
@@ -869,6 +877,11 @@ export class DiffEditor {
       // Tab indents where text can be typed; elsewhere it moves the focus.
       document.editable ? tabIndentation(Text.of(doc.split("\n"))) : [],
       this.supportSlot.of(this.support),
+      // The unused opens stay shown, even among unchanged lines.
+      EditorState.transactionExtender.of((tr) => {
+        const effect = tr.effects.find((candidate) => candidate.is(setDiagnosticsEffect));
+        return effect ? { effects: keepUnchangedLines.of(unusedOpenPositions(effect.value)) } : null;
+      }),
       editFrames(document.committed ?? null, document.suggest ? (block) => this.callbacks.onSuggest?.(block) : undefined),
       keymap.of([
         {
@@ -880,6 +893,9 @@ export class DiffEditor {
       EditorView.updateListener.of((update) => {
         if (update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSemanticRanges)))) {
           this.mirrorSemanticRanges();
+        }
+        for (const tr of update.transactions) {
+          for (const effect of tr.effects) if (effect.is(keepUnchangedLines)) this.mirrorKeptLines(effect.value);
         }
         const edited = update.transactions.some((tr) => tr.docChanged && !tr.annotation(fromOutside));
         if (update.docChanged) this.syncChangesButton(update.state.doc.toString());
@@ -1056,6 +1072,16 @@ export class DiffEditor {
       mirrored.push({ from: range.from + offset, to: range.to + offset, kind: range.kind });
     }
     merge.a.dispatch({ effects: setSemanticRanges.of(mirrored) });
+  }
+
+  /** Keeps the base side's lines beside the working side's kept lines shown too, so the sides stay lined up. */
+  private mirrorKeptLines(positions: readonly number[]) {
+    const merge = this.merge;
+    if (!merge) return;
+    const chunks = merge.chunks;
+    const unchanged = positions.filter((pos) => !chunks.some((chunk) => pos >= chunk.fromB && pos < chunk.toB));
+    const mirrored = unchanged.map((pos) => otherSidePos(pos, chunks, merge.b.state.doc, merge.a.state.doc, false));
+    merge.a.dispatch({ effects: keepUnchangedLines.of(mirrored) });
   }
 
   private hasMoves(): boolean {

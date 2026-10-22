@@ -1,6 +1,6 @@
 import { Text } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { toDiagnostic } from "./diagnostics";
+import { toDiagnostic, unusedOpenPositions } from "./diagnostics";
 
 const doc = Text.of(["module Orders", "", "  open System.IO", "let x = 1", "let y = (x + 1)"]);
 const at = (line: number, column: number) => doc.line(line).from + column;
@@ -46,5 +46,14 @@ describe("toDiagnostic", () => {
 
   it("treats a missing severity as an error", () => {
     expect(toDiagnostic({ range, message: "?" }, 0, 1, doc).severity).toBe("error");
+  });
+});
+
+describe("unusedOpenPositions", () => {
+  it("finds where the unused opens start", () => {
+    const unused = { range, severity: 4, code: "FSAC0001", message: "Unused open statement", tags: [1] };
+    const other = { range, severity: 1, code: 1, message: "Type mismatch" };
+    const diagnostics = [toDiagnostic(other, at(4, 8), at(4, 9), doc), toDiagnostic(unused, at(3, 7), at(3, 16), doc)];
+    expect(unusedOpenPositions(diagnostics)).toEqual([at(3, 2)]);
   });
 });

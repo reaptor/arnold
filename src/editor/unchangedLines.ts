@@ -15,6 +15,9 @@
 // without being asked, so text never folds away under the cursor.
 //
 // In the split view both sides fold and unfold together, so they stay lined up.
+//
+// Some unchanged lines can be kept shown (the file's unused opens): the runs
+// fold around them.
 
 import { type Chunk, getChunks, mergeViewSiblings, uncollapseUnchanged } from "@codemirror/merge";
 import { type EditorState, type Extension, Facet, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
@@ -35,16 +38,31 @@ export interface LineSpan {
 /**
  * The runs of unchanged lines that fold, in a text of `lineCount` lines with
  * `changes` (each from the line it starts on to the line it ends on, as
- * @codemirror/merge counts them: the line after its last one).
+ * @codemirror/merge counts them: the line after its last one). The `kept`
+ * lines are never folded: a run is split around them.
  */
-export function unchangedRuns(lineCount: number, changes: readonly LineSpan[], { margin, minSize }: FoldConfig): LineSpan[] {
+export function unchangedRuns(
+  lineCount: number,
+  changes: readonly LineSpan[],
+  { margin, minSize }: FoldConfig,
+  kept: readonly number[] = [],
+): LineSpan[] {
   const runs: LineSpan[] = [];
+  const sortedKept = [...kept].sort((a, b) => a - b);
+  const add = (from: number, to: number) => {
+    for (const line of sortedKept) {
+      if (line < from || line > to) continue;
+      if (line - from >= minSize) runs.push({ from, to: line - 1 });
+      from = line + 1;
+    }
+    if (to - from + 1 >= minSize) runs.push({ from, to });
+  };
   let after = 1;
   for (let index = 0; index <= changes.length; index++) {
     const change = index < changes.length ? changes[index] : null;
     const from = index > 0 ? after + margin : 1;
     const to = change ? change.from - 1 - margin : lineCount;
-    if (to - from + 1 >= minSize) runs.push({ from, to });
+    if (to - from + 1 >= minSize) add(from, to);
     if (change) after = change.to;
   }
   return runs;
@@ -85,6 +103,19 @@ export const collapseAllUnchanged = StateEffect.define<readonly number[]>({
   map: (positions, changes) => positions.map((pos) => changes.mapPos(pos)),
 });
 
+/** Sets the positions of the unchanged lines kept shown (replacing those set before). */
+export const keepUnchangedLines = StateEffect.define<readonly number[]>({
+  map: (positions, changes) => positions.map((pos) => changes.mapPos(pos)),
+});
+
+const keptField = StateField.define<readonly number[]>({
+  create: () => [],
+  update(kept, tr) {
+    for (const effect of tr.effects) if (effect.is(keepUnchangedLines)) kept = effect.value;
+    return tr.docChanged ? kept.map((pos) => tr.changes.mapPos(pos)) : kept;
+  },
+});
+
 interface Run {
   from: number;
   to: number;
@@ -101,7 +132,8 @@ function runsOf(state: EditorState): Run[] {
     from: doc.lineAt(onA ? chunk.fromA : chunk.fromB).number,
     to: doc.lineAt(Math.min(doc.length, onA ? chunk.toA : chunk.toB)).number,
   }));
-  return unchangedRuns(doc.lines, changes, state.facet(foldConfig)).map((run) => ({
+  const kept = state.field(keptField).map((pos) => doc.lineAt(Math.min(pos, doc.length)).number);
+  return unchangedRuns(doc.lines, changes, state.facet(foldConfig), kept).map((run) => ({
     from: doc.line(run.from).from,
     to: doc.line(run.to).to,
     lines: run.to - run.from + 1,
@@ -218,6 +250,10 @@ const foldingField = StateField.define<Folding>({
         folds = folds.update({ filter: (from) => from !== effect.value });
       } else if (effect.is(collapseAllUnchanged)) {
         folds = foldAll(tr.state, effect.value);
+      } else if (effect.is(keepUnchangedLines)) {
+        // The folded runs fold again around the lines kept; unfolded ones stay so.
+        const previous = folds;
+        folds = Decoration.set(runsOf(tr.state).filter((run) => isFolded(previous, run)).map(fold));
       } else if (effect.is(collapseUnchangedAt)) {
         const run = runsOf(tr.state).find((candidate) => effect.value >= candidate.from && effect.value <= candidate.to);
         if (run && !isFolded(folds, run)) folds = folds.update({ add: [fold(run)] });
@@ -243,7 +279,7 @@ const foldingField = StateField.define<Folding>({
 
 /** Folds long runs of unchanged lines of a merge view's editor (each side of the split view has it). */
 export function unchangedLines(config: FoldConfig): Extension {
-  return [foldConfig.of(config), foldingField];
+  return [foldConfig.of(config), keptField, foldingField];
 }
 
 /** Whether the text folds its unchanged lines. */

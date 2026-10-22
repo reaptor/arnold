@@ -61,6 +61,11 @@ export function toDiagnostic(item: ServerDiagnostic, from: number, to: number, d
   };
 }
 
+/** Where the unused opens among `diagnostics` start, so their lines are never folded away as unchanged. */
+export function unusedOpenPositions(diagnostics: readonly Diagnostic[]): number[] {
+  return diagnostics.filter((diagnostic) => (diagnostic as FromServer).lsp?.item.code === UNUSED_OPEN).map((diagnostic) => diagnostic.from);
+}
+
 const parenMark = Decoration.mark({ class: "cm-unnecessaryParen" });
 
 function parenMarks(view: EditorView): DecorationSet {
