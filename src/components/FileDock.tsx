@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile, state } from "../state/review";
+import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile, showOverview, state } from "../state/review";
 import { isOpen } from "../editor/threads";
 import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
@@ -83,7 +83,9 @@ export function FileDock(props: { width: number; hidden?: boolean }) {
     const list = files();
     const index = list.findIndex((file) => file.path === state.selected);
     const next = list[Math.min(Math.max(index + delta, 0), list.length - 1)];
-    if (next && next.path !== state.selected) void selectFile(next.path);
+    if (!next) return;
+    showOverview(false);
+    if (next.path !== state.selected) void selectFile(next.path);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

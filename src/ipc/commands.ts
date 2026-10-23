@@ -139,6 +139,7 @@ const ACTIVITY: Record<string, string> = {
   create_pull_request_thread: "Posting the comment",
   reply_to_pull_request_thread: "Posting the reply",
   delete_pull_request_comment: "Deleting the comment",
+  accept_pull_request_suggestion: "Accepting the suggestion",
   review_patch: "Collecting the changes",
   review_context: "Collecting the changes",
 };
@@ -681,6 +682,20 @@ export const replyToPullRequestThread = (
 /** Deletes comment `comment` of thread `thread`: one the token's owner wrote. */
 export const deletePullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number) =>
   invoke<null>("delete_pull_request_comment", { root, remote, id, thread, comment });
+
+/** A suggestion accepted: the commit that applied it, and whether its discussion was marked resolved too. */
+export interface AcceptedSuggestion {
+  commit: string;
+  resolved: boolean;
+}
+
+/**
+ * Commits the suggested lines of thread `thread` to the pull request's source
+ * branch on the host, on top of `commit` (its latest push; refused if the
+ * branch has moved on), and marks the thread resolved.
+ */
+export const acceptPullRequestSuggestion = (root: string, remote: string, id: number, thread: number, commit: string) =>
+  invoke<AcceptedSuggestion>("accept_pull_request_suggestion", { root, remote, id, thread, commit });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
