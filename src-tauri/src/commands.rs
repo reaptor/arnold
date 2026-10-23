@@ -141,16 +141,18 @@ pub async fn compare_branches(
     Ok(comparison)
 }
 
-/// Where pull request `id` is checked out to be edited in (the opened folder
-/// or `.arnold/worktrees/pr-<id>`), moved to `commit` when it has no edits
-/// (or with `discard` placement, after throwing them away). With `create`
-/// it is checked out as `placement` says when it is nowhere; without,
-/// `None` then.
+/// Where pull request `id` is checked out to be edited in: with `branch`
+/// (your own pull request's source branch) where that is checked out, else
+/// the opened folder or `.arnold/worktrees/pr-<id>`, moved to `commit` when
+/// it has no edits (or with `discard` placement, after throwing them away).
+/// With `create` it is checked out as `placement` says when it is nowhere;
+/// without, `None` then.
 #[tauri::command]
 pub async fn pull_request_checkout(
     root: String,
     id: u64,
     commit: String,
+    branch: Option<String>,
     create: bool,
     placement: Placement,
     state: State<'_, AppState>,
@@ -159,7 +161,7 @@ pub async fn pull_request_checkout(
     if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("not a commit id: {commit}"));
     }
-    let checkout = arnold_git::pull_request_checkout(&root, id, &commit, create, placement).await.map_err(text_error)?;
+    let checkout = arnold_git::pull_request_checkout(&root, id, &commit, branch.as_deref(), create, placement).await.map_err(text_error)?;
     if let Some(CheckedOut::Done(worktree)) = &checkout {
         state.allow_root(&worktree.path);
     }

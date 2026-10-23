@@ -498,7 +498,8 @@ function documentOf(
     editable,
     // Frames the uncommitted edits; a file the last commit lacks is all edits, framed by nothing.
     committed: editable ? ((texts.committed === undefined ? session.pair.committed : texts.committed) ?? null) : null,
-    suggest: editable && state.source === "pullRequest",
+    // Your own pull request edited on its branch: edits to commit, as in Branches.
+    suggest: editable && state.source === "pullRequest" && prEditBranch() === null,
     threads: fileThreads(file.path),
     draft: drafts.get(file.path) ?? null,
     aiSuggestions: deleted ? [] : openFor(file.path),
@@ -1322,7 +1323,8 @@ export async function undoFileEdits(path: string) {
   const target = editorFor(path);
   if (target?.undoEdits(true)) return target.focus();
   const checkout = state.comparison?.checkout;
-  const branch = state.source === "pullRequest" ? `pull request !${state.pullRequest?.id}` : state.comparison?.head;
+  const branch =
+    state.source === "pullRequest" ? (prEditBranch() ?? `pull request !${state.pullRequest?.id}`) : state.comparison?.head;
   if (!checkout || !branch) return;
   const sure = await confirm(
     `Undo every uncommitted edit to ${path}? It goes back to the last commit of ${branch}; a file no commit has is deleted. This cannot be undone.`,
@@ -1357,6 +1359,13 @@ export function editBlocked(): { reason: string; action: EditAction | null } | n
     const pullRequest = state.pullRequest;
     if (!pullRequest) return null;
     const worktree = prWorktreeOf(pullRequest);
+    if (worktree?.branch && worktree.head !== pullRequest.sourceCommit) {
+      const where = worktree.path === repo.root ? "the opened folder" : (relativeTo(repo.root, worktree.path) ?? worktree.path);
+      return {
+        reason: `${worktree.branch} in ${where} is at ${worktree.head.slice(0, 8)}, not at this pull request's latest push (${(pullRequest.sourceCommit ?? "").slice(0, 8)}). Push or pull it, so they match, to edit your pull request there.`,
+        action: null,
+      };
+    }
     if (worktree?.edited && worktree.head !== pullRequest.sourceCommit) {
       return {
         reason: `Your edits in ${worktree.path} were made to an earlier push of this pull request (${worktree.head.slice(0, 8)}), so their lines no longer match it. Throw them away to edit the latest push.`,
@@ -1453,6 +1462,21 @@ export function checkedOutText(root: string, what: string, path: string, stashed
 const prWorktreeOf = (pullRequest: ReviewedPullRequest) =>
   state.prWorktree?.pullRequest === pullRequest.id ? state.prWorktree : null;
 
+/**
+ * Your own pull request's local branch, when the diff is edited on it where
+ * it is checked out (the opened folder or a linked worktree): its edits are
+ * then uncommitted edits to commit, as in Branches, not suggestions. Null
+ * for anyone else's pull request, or one checked out detached.
+ */
+export function prEditBranch(): string | null {
+  const pullRequest = state.pullRequest;
+  if (state.source !== "pullRequest" || !pullRequest || !state.comparison?.checkout) return null;
+  return prWorktreeOf(pullRequest)?.branch ?? null;
+}
+
+/** Whether edits in the diff are uncommitted edits to commit (Branches, or your own pull request on its branch). */
+export const editsToCommit = () => state.source === "branches" || prEditBranch() !== null;
+
 /** The pull request's worktree, when it is at the commit reviewed (so its files can be compared and edited). */
 function prCheckout(): string | null {
   const pullRequest = state.pullRequest;
@@ -1466,7 +1490,8 @@ function prCheckout(): string | null {
  * or its worktree), or with `create` checks it out: in the opened folder,
  * or when that has uncommitted changes, where the user picks. One without
  * edits moves to the pull request's latest push, and with `discard` one
- * with edits does too, throwing them away.
+ * with edits does too, throwing them away. Your own pull request is edited
+ * on its branch where that is checked out, which is never moved or reset.
  */
 async function loadPrWorktree(create: boolean, discard = false) {
   const repo = state.repo;
@@ -1474,7 +1499,9 @@ async function loadPrWorktree(create: boolean, discard = false) {
   if (!repo || !pullRequest?.sourceCommit) return;
   const key = checkoutKey(repo.root, `!${pullRequest.id}`);
   const commit = pullRequest.sourceCommit;
-  const check = (create: boolean, placement: Placement) => ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, create, placement);
+  const own = pullRequest.yours ? pullRequest.sourceBranch : null;
+  const check = (create: boolean, placement: Placement) =>
+    ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, own, create, placement);
   try {
     let worktree: Worktree | null;
     let stashed = false;
@@ -1484,7 +1511,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
         // Edits on an earlier push are thrown away only when asked to (`discard`).
         async (placement) => (await check(true, discard ? "discard" : placement))!,
       );
-      worktree = made && { path: made.path, head: made.head, edited: made.edited };
+      worktree = made && { path: made.path, head: made.head, edited: made.edited, branch: made.branch };
       stashed = made?.stashed ?? false;
       if (!worktree) setCheckoutProblem({ key, error: CANCELLED });
     } else {
@@ -1495,7 +1522,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
     if (worktree && create) {
       setCheckoutProblem(null);
-      if (worktree.path === repo.root) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id}`, worktree.path, stashed));
+      if (worktree.path === repo.root && !worktree.branch) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id}`, worktree.path, stashed));
     }
   } catch (error) {
     setCheckoutProblem({ key, error: String(error) });
@@ -1661,7 +1688,7 @@ export async function suggestChange(path: string, block: LineBlock) {
   const target = editorFor(path);
   const committed = target?.committedText();
   const working = target?.texts()?.working;
-  if (state.source !== "pullRequest" || !state.comparison?.checkout || committed == null || working === undefined) return;
+  if (state.source !== "pullRequest" || !state.comparison?.checkout || prEditBranch() || committed == null || working === undefined) return;
   await flushSave();
   const suggestion = suggestionsFor(path, committed, working).find((candidate) =>
     candidate.block.toB > candidate.block.fromB
@@ -2538,10 +2565,14 @@ export function openFileMenu(path: string, x: number, y: number): boolean {
   return true;
 }
 
-/** What "Add to .gitignore" would act on for `path`; undefined in Pull request mode, which never writes to the repository's files. */
+/**
+ * What "Add to .gitignore" would act on for `path`; undefined in Pull
+ * request mode, which never writes to the repository's files (but for your
+ * own pull request edited on its branch, as in Branches).
+ */
 export function ignoreTarget(path: string, folder: boolean): NonNullable<State["menu"]>["ignore"] {
   if (state.source === "commit") return { path, folder, checkout: state.checkout };
-  if (state.source === "branches") return { path, folder, checkout: state.comparison?.checkout ?? null };
+  if (editsToCommit()) return { path, folder, checkout: state.comparison?.checkout ?? null };
   return undefined;
 }
 

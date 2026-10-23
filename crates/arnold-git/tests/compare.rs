@@ -472,33 +472,73 @@ async fn checks_pull_requests_out_in_the_opened_folder() {
         Some(CheckedOut::Done(done)) => done,
         other => panic!("not checked out: {other:?}"),
     };
-    assert_eq!(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap(), None);
+    assert_eq!(pull_request_checkout(root, 7, &main_tip, None, false, Placement::Here).await.unwrap(), None);
 
     // Detached in the folder.
-    let made = done(pull_request_checkout(root, 7, &main_tip, true, Placement::Here).await.unwrap());
+    let made = done(pull_request_checkout(root, 7, &main_tip, None, true, Placement::Here).await.unwrap());
     assert_eq!((made.path.as_path(), made.head.as_str(), made.edited), (root, main_tip.as_str(), false));
     assert_eq!(open(root).await.unwrap().current_branch, None);
     // Found again without `create`, and moved along with a new push while clean.
-    let moved = done(pull_request_checkout(root, 7, &feature_tip, false, Placement::Here).await.unwrap());
+    let moved = done(pull_request_checkout(root, 7, &feature_tip, None, false, Placement::Here).await.unwrap());
     assert_eq!((moved.path.as_path(), moved.head.as_str()), (root, feature_tip.as_str()));
     // Edited: it stays where it is, until the edits are thrown away.
     write(root, "a.txt", "edited\n");
-    let kept = done(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap());
+    let kept = done(pull_request_checkout(root, 7, &main_tip, None, false, Placement::Here).await.unwrap());
     assert_eq!((kept.head.as_str(), kept.edited), (feature_tip.as_str(), true));
-    let fresh = done(pull_request_checkout(root, 7, &main_tip, false, Placement::Discard).await.unwrap());
+    let fresh = done(pull_request_checkout(root, 7, &main_tip, None, false, Placement::Discard).await.unwrap());
     assert_eq!((fresh.head.as_str(), fresh.edited), (main_tip.as_str(), false));
 
     // Another pull request while the folder has edits: refused, or a worktree.
     write(root, "a.txt", "edited\n");
     assert_eq!(
-        pull_request_checkout(root, 8, &feature_tip, true, Placement::Here).await.unwrap(),
+        pull_request_checkout(root, 8, &feature_tip, None, true, Placement::Here).await.unwrap(),
         Some(CheckedOut::Changes { files: 1, untracked: 0 })
     );
-    let aside = done(pull_request_checkout(root, 8, &feature_tip, true, Placement::Worktree).await.unwrap());
+    let aside = done(pull_request_checkout(root, 8, &feature_tip, None, true, Placement::Worktree).await.unwrap());
     assert!(aside.path.ends_with(".arnold/worktrees/pr-8"));
     assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
 
     // The folder switched away: no longer the pull request's checkout.
     git(root, &["checkout", "--quiet", "--force", "main"]);
-    assert_eq!(pull_request_checkout(root, 7, &main_tip, false, Placement::Here).await.unwrap(), None);
+    assert_eq!(pull_request_checkout(root, 7, &main_tip, None, false, Placement::Here).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn edits_your_own_pull_request_on_its_checked_out_branch() {
+    use arnold_git::{pull_request_checkout, CheckedOut, Placement, Worktree};
+    let dir = fixture();
+    let root = dir.path();
+    let main_tip = String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim().to_string();
+    let feature_tip = String::from_utf8(git_output(root, &["rev-parse", "feature"])).unwrap().trim().to_string();
+    let done = |checkout: Option<CheckedOut<Worktree>>| match checkout {
+        Some(CheckedOut::Done(done)) => done,
+        other => panic!("not checked out: {other:?}"),
+    };
+
+    // The folder has the branch, with edits: used as it is, edits and all, even when asked to discard.
+    write(root, "a.txt", "edited\n");
+    for placement in [Placement::Here, Placement::Discard] {
+        let found = done(pull_request_checkout(root, 7, &feature_tip, Some("feature"), true, placement).await.unwrap());
+        // As git names it (canonical, as `list_branches` gives it).
+        assert_eq!(found.path.canonicalize().unwrap(), root.canonicalize().unwrap());
+        assert_eq!((found.head.as_str(), found.edited), (feature_tip.as_str(), true));
+        assert_eq!(found.branch.as_deref(), Some("feature"));
+    }
+    assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
+    // Not moved to a newer push either: the branch stays where it is.
+    let kept = done(pull_request_checkout(root, 7, &main_tip, Some("feature"), false, Placement::Here).await.unwrap());
+    assert_eq!((kept.head.as_str(), kept.branch.as_deref()), (feature_tip.as_str(), Some("feature")));
+
+    // A branch checked out in a linked worktree is used there.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let linked = elsewhere.path().join("main");
+    git(root, &["worktree", "add", "--quiet", linked.to_str().unwrap(), "main"]);
+    let there = done(pull_request_checkout(root, 8, &main_tip, Some("main"), false, Placement::Here).await.unwrap());
+    assert_eq!(there.path.canonicalize().unwrap(), linked.canonicalize().unwrap());
+    assert_eq!((there.head.as_str(), there.branch.as_deref()), (main_tip.as_str(), Some("main")));
+
+    // A branch checked out nowhere: as any pull request.
+    git(root, &["branch", "elsewhere", "main"]);
+    assert_eq!(pull_request_checkout(root, 9, &main_tip, Some("elsewhere"), false, Placement::Here).await.unwrap(), None);
 }

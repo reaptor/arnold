@@ -8,7 +8,8 @@
 //! - `branch_checkout` / `branch_worktree`: a branch checked out nowhere;
 //! - `pull_request_checkout` / `detached_worktree`: detached at a commit,
 //!   where a pull request is checked out (its edits become suggestions on the
-//!   pull request rather than commits).
+//!   pull request rather than commits); your own pull request is edited on
+//!   its branch instead, where that is checked out.
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +28,9 @@ pub struct Worktree {
     pub head: String,
     /// Whether it has uncommitted changes (edits not suggested yet).
     pub edited: bool,
+    /// The local branch checked out there, for your own pull request edited
+    /// on its branch; `None` when detached at the pull request's commit.
+    pub branch: Option<String>,
 }
 
 /// `<root>/.arnold/worktrees/<name>`.
@@ -51,7 +55,7 @@ async fn describe(path: &Path) -> Result<Worktree> {
         run_text(path, &["rev-parse", "--verify", "HEAD^{commit}"]),
         run(path, &["status", "--porcelain", "-z", "--untracked-files=normal"]),
     )?;
-    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty() })
+    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty(), branch: None })
 }
 
 /// The app's worktree `name`, if it has been made.
@@ -103,8 +107,10 @@ async fn follow(found: Worktree, commit: &str, discard: bool) -> Result<Worktree
     Ok(found)
 }
 
-/// Where pull request `id` is checked out: the opened folder, when Arnold
-/// detached it there and it still is, else its worktree
+/// Where pull request `id` is checked out: with `branch` (the source branch
+/// of your own pull request), wherever that local branch is checked out,
+/// as it is (never moved, nor its edits thrown away); else the opened
+/// folder, when Arnold detached it there and it still is, else its worktree
 /// `.arnold/worktrees/pr-<id>`. Moved to `commit` as `detached_worktree`
 /// says (`Placement::Discard` throws edits away). Checked out nowhere, it
 /// is checked out at `commit` as `placement` says when `create`, else `None`.
@@ -112,9 +118,18 @@ pub async fn pull_request_checkout(
     root: &Path,
     id: u64,
     commit: &str,
+    branch: Option<&str>,
     create: bool,
     placement: Placement,
 ) -> Result<Option<CheckedOut<Worktree>>> {
+    if let Some(branch) = branch {
+        // Worktrees deleted by hand, whose branches git would still call checked out.
+        run(root, &["worktree", "prune"]).await?;
+        if let Some(path) = checked_out_at(root, branch, has_branch(root, branch).await?).await? {
+            let found = describe(&path).await?;
+            return Ok(Some(CheckedOut::Done(Worktree { branch: Some(branch.to_string()), ..found })));
+        }
+    }
     let discard = placement == Placement::Discard;
     let marker = app_folder(root).await?.join("pull-request");
     if let Some(found) = in_folder(root, &marker, id).await? {
