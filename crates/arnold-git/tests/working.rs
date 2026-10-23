@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, delete_files, discard, ignore, ignored_paths, is_tracked, read_index, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
+    commit, delete_files, discard, ignore, ignored_paths, is_tracked, read_index, read_stage, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, FileStatus,
 };
 
@@ -65,6 +65,60 @@ async fn lists_unstaged_untracked_and_staged_changes() {
     );
     assert_eq!(status.unstaged[1].additions, Some(2));
     assert_eq!(summary(&status.staged), vec![("b.txt", FileStatus::Deleted)]);
+}
+
+/// main and `other` both change the second line of a.txt; `other` also adds
+/// c.txt. Merging `other` into main stops with a.txt conflicted.
+fn conflicted_merge() -> tempfile::TempDir {
+    let dir = fixture();
+    let root = dir.path();
+    git(root, &["checkout", "--quiet", "-b", "other"]);
+    write(root, "a.txt", "one\nTWO\nthree\n");
+    write(root, "c.txt", "sea\n");
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "--quiet", "-m", "theirs"]);
+    git(root, &["checkout", "--quiet", "main"]);
+    write(root, "a.txt", "one\n2\nthree\n");
+    git(root, &["commit", "--quiet", "-am", "ours"]);
+    let merge = Command::new("git").current_dir(root).args(["merge", "--no-edit", "other"]).output().unwrap();
+    assert!(!merge.status.success(), "the merge conflicts");
+    dir
+}
+
+#[tokio::test]
+async fn lists_a_merge_conflict_once_until_it_is_staged() {
+    let dir = conflicted_merge();
+    let root = dir.path();
+
+    let status = working_status(root).await.unwrap();
+    assert_eq!(summary(&status.unstaged), vec![("a.txt", FileStatus::Conflicted)]);
+    assert_eq!(summary(&status.staged), vec![("c.txt", FileStatus::Added)]);
+    assert_eq!(status.merge_message.as_deref(), Some("Merge branch 'other'"));
+    assert_eq!(read_stage(root, "a.txt", 2).await.unwrap().as_deref(), Some(&b"one\n2\nthree\n"[..]));
+    assert_eq!(read_stage(root, "b.txt", 2).await.unwrap(), None);
+    assert!(read(root, "a.txt").contains("<<<<<<< HEAD\n2\n=======\nTWO\n>>>>>>> other\n"));
+
+    // Resolved and staged: an ordinary staged change, and the merge commits.
+    write(root, "a.txt", "one\n2 and TWO\nthree\n");
+    stage(root, &["a.txt".to_string()]).await.unwrap();
+    let status = working_status(root).await.unwrap();
+    assert!(status.unstaged.is_empty());
+    assert_eq!(summary(&status.staged), vec![("a.txt", FileStatus::Modified), ("c.txt", FileStatus::Added)]);
+    commit(root, "Merge branch 'other'").await.unwrap();
+    assert_eq!(git(root, &["rev-list", "--parents", "-n", "1", "HEAD"]).split_whitespace().count(), 3);
+    assert_eq!(working_status(root).await.unwrap().merge_message, None);
+}
+
+#[tokio::test]
+async fn resetting_a_conflicted_file_brings_its_conflicts_back() {
+    let dir = conflicted_merge();
+    let root = dir.path();
+    write(root, "a.txt", "one\nhalf done\nthree\n");
+    discard(root, &["a.txt".to_string(), "b.txt".to_string()]).await.unwrap();
+    // Git names the sides ours and theirs this time.
+    assert_eq!(read(root, "a.txt"), "one\n<<<<<<< ours\n2\n=======\nTWO\n>>>>>>> theirs\nthree\n");
+    let status = working_status(root).await.unwrap();
+    assert_eq!(summary(&status.unstaged), vec![("a.txt", FileStatus::Conflicted)]);
 }
 
 #[tokio::test]

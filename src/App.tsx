@@ -26,7 +26,7 @@ import { licensesOpen } from "./state/licenses";
 import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
 import { startUpdateChecks } from "./state/updates";
 import { notifyQuestion, startNotifications } from "./state/prNotifications";
-import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
+import { deletable, type FileAction, filesAction, lineAction, listOf, shownFile } from "./state/commitMode";
 import {
   addComment,
   addToGitignore,
@@ -622,6 +622,7 @@ function CommitStatus() {
   const hint = () => {
     if (state.workSide === null) return "Against the last commit · stage and reset in Unstaged and Staged · F7 next change";
     if (state.workSide === "staged") return "U unstage · R reset lines · S/U/R in the lists · F7 next change";
+    if (shownFile()?.status === "conflicted") return "Accept current, incoming or both on each conflict, or edit · S in the list stages it resolved · F7 next change";
     return `S stage · R reset selected lines (${isMac ? "⌥" : "Alt+"}S/R: the cursor's line) · F7 next change`;
   };
   return (

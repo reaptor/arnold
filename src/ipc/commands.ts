@@ -23,8 +23,11 @@ export interface RepoInfo {
   worktrees: string[];
 }
 
-/** `unchanged` is used only by the UI, for files opened from outside the diff. */
-export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "unchanged";
+/**
+ * `unchanged` is used only by the UI, for files opened from outside the diff;
+ * `conflicted` only in Commit mode's unstaged list, for a file git could not merge.
+ */
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "conflicted" | "unchanged";
 
 export interface ChangedFile {
   path: string;
@@ -282,12 +285,14 @@ export interface WorkingStatus {
   branch: string | null;
   /** The commit checked out; null before the first commit. */
   head: string | null;
-  /** Working tree against the index; untracked files are `added`. */
+  /** Working tree against the index; untracked files are `added`, files with merge conflicts `conflicted`. */
   unstaged: ChangedFile[];
   /** Index against HEAD: what a commit takes. */
   staged: ChangedFile[];
   /** Where the branch is pushed and how far it is ahead; null when detached or without a remote. */
   sync: BranchSync | null;
+  /** While a merge is under way: the message git prepared for its commit. */
+  mergeMessage: string | null;
 }
 
 /** Where the checked-out branch is pushed, and how it stands against it. */
@@ -320,9 +325,18 @@ export const uncommittedCount = (checkout: string) => invoke<number>("uncommitte
 
 export const stopWatchingCheckout = () => invoke<void>("stop_watching_checkout");
 
-/** `committed`: the last commit → the working tree, whatever is staged. */
+/**
+ * `committed`: the last commit → the working tree, whatever is staged. An
+ * unstaged file with merge conflicts shows ours (the text of the branch
+ * checked out) → the working tree, conflicts and all.
+ */
 export const readWorkingPair = (checkout: string, file: ChangedFile, side: WorkingSide | "committed") =>
-  invoke<FilePair>("read_working_pair", { checkout, path: file.path, oldPath: file.oldPath, side });
+  invoke<FilePair>("read_working_pair", {
+    checkout,
+    path: file.path,
+    oldPath: file.oldPath,
+    side: side === "unstaged" && file.status === "conflicted" ? "conflicted" : side,
+  });
 
 export const worktreeFiles = (checkout: string) => invoke<string[]>("worktree_files", { checkout });
 

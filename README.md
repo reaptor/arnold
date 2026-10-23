@@ -106,6 +106,8 @@ Where the text can be typed in (the working side of an unstaged file), plain `S`
 
 Within a change, lines work one by one: selecting some of a change stages or resets only those lines, selecting all of it the whole change.
 
+**Merge conflicts.** When a merge stops on conflicts (run in a terminal, say), each file git could not merge is listed in *Unstaged* with a red `!`. Picked, it shows the branch's own text (ours) against the file with its conflicts: the current side's lines are tinted blue, the incoming side's amber, and the first marker line of each conflict has *Accept current*, *Accept incoming* and *Accept both*, edits that undo brings back like any other; the file can also be edited by hand. `S` stages the resolved file (asking first while it still has conflict markers), and *Reset* brings its conflicts back as git first wrote them. While a merge is under way, git's merge message fills an empty commit message, and *Commit* waits until no file has conflicts left.
+
 Write the message at the bottom of *Staged* (drag its top edge to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
 
 When the branch is pushed to Azure DevOps and has required branch policies there (reviewers, a build, linked work items…), a push to it would be refused: such a branch takes changes only through pull requests. With a token set up, Arnold checks this before it commits and, if so, offers to *Create branch and commit*, with a name taken from the commit message, or *Cancel*. The new branch starts from the current one and keeps the staged and unstaged changes. If the policies cannot be read (no token, no network), the commit goes ahead as usual.

@@ -835,6 +835,44 @@ const headMap = () => head!;
 let index = new Map<string, string>();
 let worktree = new Map<string, string>();
 
+// `?conflicts`: main is being merged into the agent's branch. Orders.fs has
+// two merge conflicts (and a change of main's that merged cleanly); main's
+// change to Pricing.fs merged and is staged.
+const conflicted = new Set<string>();
+let mergeMessage: string | null = null;
+
+/** Orders.fs as the merge left it, from the branch's text (ours). */
+function ordersInConflict(ours: string): string {
+  return ours
+    .replace("open System.IO\n", "open System.IO\nopen System.Globalization\n")
+    .replace(
+      `/// Total including VAT, rounded to two decimals.
+let total (order: Order) : decimal =
+    order |> netTotal |> Pricing.withVat |> Pricing.roundMoney
+`,
+      `<<<<<<< HEAD
+/// Total including VAT, rounded to two decimals.
+let total (order: Order) : decimal =
+    order |> netTotal |> Pricing.withVat |> Pricing.roundMoney
+=======
+/// Total including VAT at the order's own rate.
+let total (order: Order) : decimal =
+    order |> netTotal |> Pricing.withVatFor order.Country
+>>>>>>> main
+`,
+    )
+    .replace(
+      `let maxLinesPerOrder: int = "ten"
+`,
+      `<<<<<<< HEAD
+let maxLinesPerOrder: int = "ten"
+=======
+let maxLinesPerOrder = 50
+>>>>>>> main
+`,
+    );
+}
+
 /** Files in other languages than the shop's, for trying syntax highlighting. */
 const OTHER_LANGUAGES: Record<string, string> = {
   "web/checkout.ts": `import { formatMoney } from "./money";
@@ -948,6 +986,15 @@ function checkoutState() {
   head = new Map([...files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
   index = new Map(head);
   worktree = new Map(head);
+  if (searchParams.has("conflicts")) {
+    worktree.set("Orders.fs", ordersInConflict(head.get("Orders.fs")!));
+    conflicted.add("Orders.fs");
+    const pricing = head.get("Pricing.fs")! + "\n/// VAT by country.\nlet withVatFor (country: string) (net: decimal) : decimal =\n    withVat net\n";
+    index.set("Pricing.fs", pricing);
+    worktree.set("Pricing.fs", pricing);
+    mergeMessage = "Merge branch 'main' into feature/agent-work";
+    return;
+  }
   if (!searchParams.has("uncommitted") && !searchParams.has("dirtyfolder")) return;
   worktree.set(
     "Orders.fs",
@@ -1066,9 +1113,13 @@ function workingStatus(): WorkingStatus {
   return {
     branch: committedOn,
     head: commits[0].sha,
-    unstaged: diffOf(index, worktree).filter((file) => !isIgnored(file.path, worktree)),
-    staged: diffOf(head!, index),
+    unstaged: [
+      ...diffOf(index, worktree).filter((file) => !isIgnored(file.path, worktree) && !conflicted.has(file.path)),
+      ...[...conflicted].map((path): ChangedFile => ({ path, oldPath: null, status: "conflicted", additions: null, deletions: null, binary: false })),
+    ].sort((x, y) => x.path.localeCompare(y.path)),
+    staged: diffOf(head!, index).filter((file) => !conflicted.has(file.path)),
     sync: agentWorkSync(),
+    mergeMessage,
   };
 }
 
@@ -1151,7 +1202,9 @@ function commitStaged(message: string) {
   checkoutState();
   if (searchParams.has("failcommit")) throw "git commit failed: pre-commit hook rejected the commit (dev mock)";
   const staged = diffOf(head!, index);
-  if (staged.length === 0) throw "git commit failed: nothing to commit";
+  if (conflicted.size > 0) throw "git commit failed: Committing is not possible because you have unmerged files.";
+  if (staged.length === 0 && mergeMessage === null) throw "git commit failed: nothing to commit";
+  mergeMessage = null;
   const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
   const subject = message.split("\n")[0];
   for (const file of staged) {
@@ -1980,7 +2033,7 @@ export function install() {
           return null;
         case "read_working_pair": {
           checkoutState();
-          const side = (payload as { side: WorkingSide | "committed" }).side;
+          const side = (payload as { side: WorkingSide | "committed" | "conflicted" }).side;
           const [from, to] = side === "unstaged" ? [index, worktree] : side === "staged" ? [head!, index] : [head!, worktree];
           return {
             base: from.get(args.oldPath ?? args.path) ?? null,
@@ -1998,6 +2051,7 @@ export function install() {
             const text = worktree.get(path);
             if (text === undefined) index.delete(path);
             else index.set(path, text);
+            conflicted.delete(path);
           }
           return checkoutChanged(null);
         case "unstage_files":
@@ -2012,7 +2066,8 @@ export function install() {
           checkoutState();
           for (const path of (payload as { paths: string[] }).paths) {
             const text = index.get(path);
-            if (text === undefined) worktree.delete(path);
+            if (conflicted.has(path)) worktree.set(path, ordersInConflict(head!.get(path)!));
+            else if (text === undefined) worktree.delete(path);
             else worktree.set(path, text);
           }
           return checkoutChanged(null);
