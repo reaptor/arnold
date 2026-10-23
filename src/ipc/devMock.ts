@@ -1381,8 +1381,8 @@ const asSeenByYou = (pullRequest: PullRequest): PullRequest =>
   });
 
 // `?favorites`: more favorite repositories, for the dashboard of their pull requests (with `?devops`
-// for shop-api's own): web-shop and billing on Azure DevOps, infra without a token, notes with no
-// Azure DevOps remote. Opened, they show shop-api's files; their pull requests have its commits.
+// for shop-api's own): web-shop and billing on Azure DevOps, docs there without active ones, infra
+// without a token, notes with no Azure DevOps remote. Opened, they show shop-api's files; their pull requests have its commits.
 const favoriteRepos = searchParams.has("favorites");
 
 interface FavoriteRepo {
@@ -1475,6 +1475,7 @@ const FAVORITES: Record<string, FavoriteRepo> = {
       }),
     ],
   },
+  "/src/docs": { remote: favoriteRemote("contoso", "Shop", "docs", "keychain"), pullRequests: [] },
   "/src/infra": { remote: favoriteRemote("fabrikam", "Platform", "infra", null), pullRequests: [] },
   "/src/notes": { remote: null, pullRequests: [] },
 };

@@ -9,6 +9,7 @@ import {
   type RepoPullRequests,
   setAttentionOnly,
   setHiddenCreators,
+  setHideDrafts,
   showDashboard,
   shownOf,
 } from "../state/dashboard";
@@ -31,12 +32,19 @@ async function setUpToken(root: string) {
 /**
  * The main area in place of the open repository: the active pull requests of
  * every favorite repository, where each stands and which wait on the user.
- * A click reviews one, as picking it in its repository's list does.
+ * A click reviews one, as picking it in its repository's list does. Only the
+ * repositories with pull requests to show (or a problem) get a section; the
+ * others are named at the bottom.
  */
 export function PullRequestDashboard() {
   const all = () => dashboard.repos.flatMap((repo) => repo.list ?? []);
-  const listed = () => dashboard.repos.filter((repo) => repo.remote !== null || repo.error !== null);
+  const active = () => dashboard.repos.filter((repo) => (repo.list?.length ?? 0) > 0);
+  const listed = () => dashboard.repos.filter((repo) => repo.error !== null || shownOf(repo).length > 0);
   const withoutRemote = () => dashboard.repos.filter((repo) => repo.remote === null && repo.error === null);
+  const noneActive = () => dashboard.repos.filter((repo) => repo.remote !== null && repo.list?.length === 0);
+  const filteredOut = () =>
+    dashboard.repos.filter((repo) => repo.error === null && (repo.list?.length ?? 0) > 0 && shownOf(repo).length === 0);
+  const names = (repos: RepoPullRequests[]) => repos.map((repo) => folderName(repo.root)).join(", ");
 
   return (
     <div class="pr-panel dashboard" data-tauri-drag-region="false">
@@ -59,7 +67,7 @@ export function PullRequestDashboard() {
           </Match>
           <Match when={true}>
             <p class="pr-subtitle">
-              {all().length} active in {listed().length} {listed().length === 1 ? "repository" : "repositories"}
+              {all().length} active in {active().length} {active().length === 1 ? "repository" : "repositories"}
               <Show when={attentionCount() > 0}>
                 {" · "}
                 <span class="dashboard-attention-count">{attentionCount()} waiting on you</span>
@@ -77,6 +85,15 @@ export function PullRequestDashboard() {
                 <span class="attention-dot" />
                 Waiting on you
               </button>
+              <button
+                class="dashboard-filter"
+                classList={{ on: dashboard.hideDrafts }}
+                aria-pressed={dashboard.hideDrafts}
+                onClick={() => setHideDrafts(!dashboard.hideDrafts)}
+                title="Leave out the draft pull requests"
+              >
+                Hide drafts
+              </button>
               <span class="toolbar-space" />
               <button
                 class="dashboard-filter"
@@ -90,10 +107,17 @@ export function PullRequestDashboard() {
               </button>
             </div>
             <For each={listed()}>{(repo) => <RepoSection repo={repo} />}</For>
+            <Show when={listed().length === 0}>
+              <p class="dashboard-empty">No pull requests to show.</p>
+            </Show>
+            <Show when={noneActive().length > 0}>
+              <p class="connect-note">No active pull requests: {names(noneActive())}.</p>
+            </Show>
+            <Show when={filteredOut().length > 0}>
+              <p class="connect-note">None the filters leave: {names(filteredOut())}.</p>
+            </Show>
             <Show when={withoutRemote().length > 0}>
-              <p class="connect-note">
-                Without an Azure DevOps remote: {withoutRemote().map((repo) => folderName(repo.root)).join(", ")}.
-              </p>
+              <p class="connect-note">Without an Azure DevOps remote: {names(withoutRemote())}.</p>
             </Show>
           </Match>
         </Switch>
@@ -139,15 +163,6 @@ function RepoSection(props: { repo: RepoPullRequests }) {
         </Match>
         <Match when={props.repo.error}>
           {(error) => <p class="connect-problem">{prErrorText(error())}</p>}
-        </Match>
-        <Match when={props.repo.list?.length === 0}>
-          <p class="dashboard-empty">No active pull requests.</p>
-        </Match>
-        <Match when={shown().length === 0}>
-          <p class="dashboard-empty">
-            {dashboard.attentionOnly ? "None waiting on you" : "None"}
-            {dashboard.hiddenCreators.length > 0 ? " from the chosen creators" : ""}.
-          </p>
         </Match>
         <Match when={true}>
           <ul class="dashboard-list">
