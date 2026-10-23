@@ -596,6 +596,10 @@ export const favoritePullRequestRemotes = (path: string) =>
 export const listFavoritePullRequests = (path: string, remote: string) =>
   invoke<PullRequest[]>("list_favorite_pull_requests", { path, remote });
 
+/** How many discussions of a favorite's pull request are still to be resolved (the dashboard). */
+export const favoritePullRequestOpenThreads = (path: string, remote: string, id: number) =>
+  invoke<number>("favorite_pull_request_open_threads", { path, remote, id });
+
 /** Checks the token with the host and, if it works, saves it. Resolves to the active pull requests. */
 export const setPullRequestToken = (root: string, remote: string, token: string) =>
   invoke<PullRequest[]>("set_pull_request_token", { root, remote, token });

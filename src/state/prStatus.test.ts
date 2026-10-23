@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PullRequest, Reviewer } from "../ipc/commands";
-import { attention, attentionFirst, byCreators, creatorsOf, prStatus } from "./prStatus";
+import { attention, attentionFirst, byCreators, creatorsOf, newCreators, prStatus } from "./prStatus";
 
 const reviewer = (name: string, vote: Reviewer["vote"] = "none", you = false): Reviewer => ({
   id: name.toLowerCase(),
@@ -100,5 +100,12 @@ describe("creators", () => {
       ["Ada", 1, false],
       ["Grace", 2, false],
     ]);
+  });
+
+  it("finds who is new: neither known nor hidden", () => {
+    const found = creatorsOf(list);
+    expect(newCreators(found, [{ id: "ME", name: "Me" }], [{ id: "grace", name: "Grace" }]).map((each) => each.name)).toEqual(["Ada"]);
+    expect(newCreators(found, [], [])).toEqual(found);
+    expect(newCreators([{ id: "", name: "Bo" }], [{ id: "bo", name: "Bo" }], [])).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import type { PullRequest } from "../ipc/commands";
 import {
   attentionCount,
   dashboard,
+  includeUnknownCreators,
   loadDashboard,
   openFromDashboard,
   openingKey,
@@ -12,14 +13,15 @@ import {
   setHideDrafts,
   showDashboard,
   shownOf,
+  unknownCreators,
 } from "../state/dashboard";
 import { favorites, folderName } from "../state/favorites";
-import { attention, attentionFirst, type Creator, creatorsOf, prStatus } from "../state/prStatus";
+import { attention, attentionFirst, type Creator, creatorsOf, prStatus, sameCreator } from "../state/prStatus";
 import { prErrorText } from "../state/pullRequests";
 import { openRepoAt, setSource, state } from "../state/review";
 import { ago } from "./CommitPicker";
 import { openInBrowser } from "./DevOpsSetup";
-import { ChevronDownIcon, ExternalIcon, PullRequestIcon, RefreshIcon } from "./icons";
+import { ChevronDownIcon, CommentIcon, ExternalIcon, PullRequestIcon, RefreshIcon } from "./icons";
 import { votes } from "./PullRequestList";
 
 /** Opens a favorite in Pull request mode, where its token is set up. */
@@ -106,6 +108,16 @@ export function PullRequestDashboard() {
                 {dashboard.loading ? "Reading…" : "Reload"}
               </button>
             </div>
+            <Show when={unknownCreators().length > 0}>
+              <div class="dashboard-question">
+                <span>
+                  New in the dashboard: <strong>{unknownCreators().map((creator) => creator.name).join(", ")}</strong>. Show
+                  {unknownCreators().length === 1 ? " their" : " each one's"} pull requests?
+                </span>
+                <button onClick={() => includeUnknownCreators(true)}>Include</button>
+                <button onClick={() => includeUnknownCreators(false)}>Exclude</button>
+              </div>
+            </Show>
             <For each={listed()}>{(repo) => <RepoSection repo={repo} />}</For>
             <Show when={listed().length === 0}>
               <p class="dashboard-empty">No pull requests to show.</p>
@@ -177,6 +189,7 @@ function RepoSection(props: { repo: RepoPullRequests }) {
 function PullRequestRow(props: { repo: RepoPullRequests; pullRequest: PullRequest }) {
   const status = () => prStatus(props.pullRequest);
   const needs = () => attention(props.pullRequest);
+  const openThreads = () => props.repo.openThreads[props.pullRequest.id] ?? 0;
   const remote = () => props.repo.remote!.remote;
   const opening = () => dashboard.opening === openingKey(props.repo.root, remote(), props.pullRequest.id);
   const current = () =>
@@ -199,6 +212,15 @@ function PullRequestRow(props: { repo: RepoPullRequests; pullRequest: PullReques
         <div class="pr-line">
           <span class="picker-name">{props.pullRequest.title}</span>
           <Show when={needs()}>{(what) => <span class="attention-tag">{what()}</span>}</Show>
+          <Show when={openThreads() > 0}>
+            <span
+              class="open-threads-tag"
+              title={`${openThreads()} ${openThreads() === 1 ? "discussion" : "discussions"} still to resolve`}
+            >
+              <CommentIcon />
+              {openThreads()} unresolved
+            </span>
+          </Show>
           <Show
             when={opening()}
             fallback={
@@ -215,7 +237,6 @@ function PullRequestRow(props: { repo: RepoPullRequests; pullRequest: PullReques
           <span class="pr-branches">
             {props.pullRequest.sourceBranch} → {props.pullRequest.targetBranch}
           </span>
-          <span class="pr-author">{props.pullRequest.yours ? `${props.pullRequest.author} (you)` : props.pullRequest.author}</span>
           <Show when={votes(props.pullRequest)}>
             {(summary) => (
               <span class="pr-votes" title={summary().title}>
@@ -224,17 +245,20 @@ function PullRequestRow(props: { repo: RepoPullRequests; pullRequest: PullReques
             )}
           </Show>
         </div>
+        <div class="pr-line pr-details">
+          <span class="dashboard-author">
+            {props.pullRequest.yours ? `${props.pullRequest.author} (you)` : props.pullRequest.author}
+          </span>
+        </div>
       </div>
     </li>
   );
 }
 
-const sameCreator = (a: Creator, b: Creator) =>
-  a.id && b.id ? a.id.toLowerCase() === b.id.toLowerCase() : a.name === b.name;
-
 /**
  * Narrows the dashboard to the pull requests of some people. Who is unticked is
- * kept between starts, so someone new is ticked from their first pull request.
+ * kept between starts, so someone new is ticked from their first pull request
+ * (and, unless everyone is, the dashboard asks whether to keep them).
  */
 function CreatorFilter() {
   const [open, setOpen] = createSignal(false);

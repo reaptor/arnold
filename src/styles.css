@@ -2503,6 +2503,25 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   color: var(--muted);
 }
 
+/* Whether to show the pull requests of people new to the dashboard. */
+.dashboard-question {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+.dashboard-question > span {
+  flex: 1;
+}
+
+.dashboard-question strong {
+  font-weight: 600;
+}
+
 .dashboard-list {
   list-style: none;
   margin: 0;
@@ -2591,6 +2610,34 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
+  white-space: nowrap;
+}
+
+/* Discussions still to resolve. */
+.open-threads-tag {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--modified);
+  border-radius: 8px;
+  color: var(--modified);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.open-threads-tag .icon {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+}
+
+.dashboard-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

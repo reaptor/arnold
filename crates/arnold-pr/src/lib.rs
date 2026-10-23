@@ -201,6 +201,13 @@ pub struct Thread {
     pub comments: Vec<Comment>,
 }
 
+impl Thread {
+    /// Still to be resolved: `active`, `pending` or a status Arnold does not know.
+    pub fn is_open(&self) -> bool {
+        matches!(self.status.as_str(), "active" | "pending" | "unknown")
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadPosition {
