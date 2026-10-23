@@ -20,7 +20,7 @@ import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
 import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
 import { startupPath, type WorkingSide } from "./ipc/commands";
-import { isMac } from "./platform";
+import { fileManager, isMac, revealLabel } from "./platform";
 import { prs } from "./state/pullRequests";
 import { licensesOpen } from "./state/licenses";
 import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
@@ -36,6 +36,8 @@ import {
   goToDefinition,
   removeUnusedOpensInFile,
   renameSymbol,
+  revealInFileManager,
+  shownCheckout,
   showQuickFixes,
   openRepoAt,
   overviewShown,
@@ -472,6 +474,14 @@ export function App() {
                 </Show>
               </li>
             </Show>
+            <Show when={revealable(menu())}>
+              <Show when={hasActions(menu())}>
+                <li class="menu-separator" />
+              </Show>
+              <li onClick={() => void revealInFileManager(menu().reveal ?? menu().file!)}>
+                <span>{revealLabel}</span>
+              </li>
+            </Show>
           </ul>
         )}
       </Show>
@@ -479,9 +489,15 @@ export function App() {
   );
 }
 
-/** Whether a context menu has items besides "Explain…". */
-const hasOtherItems = (menu: NonNullable<typeof state.menu>) =>
+/** Whether a context menu has items besides "Explain…" and "Reveal in Finder". */
+const hasActions = (menu: NonNullable<typeof state.menu>) =>
   !menu.file || !!(menu.undo || menu.lines?.length || (menu.side && menu.files) || menu.ignore || menu.comment !== undefined);
+
+/** Whether a file's or folder's menu has "Reveal in Finder": its files are on disk. */
+const revealable = (menu: NonNullable<typeof state.menu>) => !!menu.file && !!shownCheckout();
+
+/** Whether a context menu has items besides "Explain…". */
+const hasOtherItems = (menu: NonNullable<typeof state.menu>) => hasActions(menu) || revealable(menu);
 
 const ACTION_LABELS: Record<LineAction, string> = { stage: "Stage", unstage: "Unstage", reset: "Reset" };
 
@@ -551,7 +567,7 @@ function StatusBar() {
             >
               {(checkout) => (
                 <span class="status-path" title={`From ${comparison().mergeBase} to the files of ${checkout()}, uncommitted edits included`}>
-                  from {comparison().mergeBase.slice(0, 8)} to {checkout()}
+                  from {comparison().mergeBase.slice(0, 8)} to <CheckoutLink path={checkout()} />
                 </span>
               )}
             </Show>
@@ -587,6 +603,15 @@ function ActivityStatus() {
   );
 }
 
+/** A checkout's folder in the status bar: a click opens it in Finder (File Explorer, the file manager). */
+function CheckoutLink(props: { path: string }) {
+  return (
+    <button class="checkout-link" title={`Open ${props.path} in ${fileManager}`} onClick={() => void revealInFileManager()}>
+      {props.path}
+    </button>
+  );
+}
+
 /** The status bar in Commit mode: the checkout, how much is uncommitted, what the keys do. */
 function CommitStatus() {
   const hint = () => {
@@ -602,7 +627,7 @@ function CommitStatus() {
             {work().unstaged.length} unstaged · {work().staged.length} staged
           </span>
           <span class="status-path" title="The checkout whose changes are listed">
-            {state.checkout}
+            <CheckoutLink path={state.checkout!} />
           </span>
           <span class="toolbar-space" />
           <Show

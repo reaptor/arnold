@@ -17,6 +17,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
+import { fileManager } from "../platform";
 import type {
   Branch,
   ChangedFile,
@@ -253,6 +254,8 @@ interface State {
      * kept by `takeExplainTarget`.
      */
     explain?: { code?: string; files: string };
+    /** What "Reveal in Finder" shows instead of `file`: the file of a solution's or project's row. */
+    reveal?: string;
   } | null;
 }
 
@@ -2534,8 +2537,19 @@ export function ignoreTarget(path: string, folder: boolean): NonNullable<State["
   return undefined;
 }
 
-/** Right-click on a row of the explorer: a file's menu (see `openFileMenu`) and adding it to `.gitignore`. */
-export function openTreeMenu(path: string, folder: boolean, x: number, y: number): boolean {
+/**
+ * Right-click on a row of the explorer: a file's menu (see `openFileMenu`)
+ * and adding it to `.gitignore`. A solution's or project's row reveals its
+ * `projectFile`; with no folder (`path` ""), that is all its menu has.
+ */
+export function openTreeMenu(path: string, folder: boolean, x: number, y: number, projectFile = ""): boolean {
+  if (!path) {
+    if (!projectFile || !shownCheckout()) return false;
+    menuTarget = null;
+    menuComment = null;
+    setState("menu", { x, y, definition: false, file: projectFile });
+    return true;
+  }
   const ignore = ignoreTarget(path, folder);
   if (!folder && state.source !== "commit" && openFileMenu(path, x, y)) {
     if (ignore) setState("menu", "ignore", ignore);
@@ -2545,6 +2559,7 @@ export function openTreeMenu(path: string, folder: boolean, x: number, y: number
     const explain = explainFilesItem([path], folder, null);
     setState("menu", { x, y, definition: false, file: path, ignore, explain });
   }
+  if (projectFile) setState("menu", "reveal", projectFile);
   if (!ignore) return true;
   const checkout = ignore.checkout;
   if (checkout) {
@@ -2556,6 +2571,29 @@ export function openTreeMenu(path: string, folder: boolean, x: number, y: number
     );
   }
   return true;
+}
+
+/**
+ * Where the files shown are on disk: Commit mode's checkout, or the
+ * checkout a branch or pull request is read from; null when the diff is
+ * read from commits only.
+ */
+export const shownCheckout = () => (state.source === "commit" ? state.checkout : (state.comparison?.checkout ?? null));
+
+/**
+ * "Reveal in Finder" in a file's or folder's menu, or a click on the
+ * checkout in the status bar: `path` (the checkout itself when null) in the
+ * system's file manager.
+ */
+export async function revealInFileManager(path: string | null = null) {
+  setState("menu", null);
+  const checkout = shownCheckout();
+  if (!checkout) return;
+  try {
+    await ipc.revealPath(checkout, path);
+  } catch (error) {
+    fail(`Showing ${path ?? checkout} in ${fileManager}: ${String(error)}`);
+  }
 }
 
 /**

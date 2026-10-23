@@ -1996,6 +1996,10 @@ export function install() {
           return trackedUnder(args.checkout, args.path).length > 0;
         case "untrack_path":
           return untrackPath(args.checkout, args.path);
+        case "reveal_path":
+          // No file manager in the browser preview.
+          console.info("devMock: reveal", args.checkout, args.path);
+          return null;
         case "undo_file_edits": {
           checkoutState();
           const tree = treeOf(args.checkout);
