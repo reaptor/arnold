@@ -67,6 +67,8 @@ Without a folder they open the current one. Terminals that were open during the 
 
 A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
 
+Arnold is light or dark as the operating system is set, in JetBrains' Islands look (the dark editor in Rider's own colors). The button at the right end of the status bar picks *Light* or *Dark* instead (or *System* again); the choice is remembered.
+
 ### The whole way: from an agent's work to a pull request
 
 1. **Commit:** the repository opens in *Commit* when the agent left uncommitted changes. Go through *Unstaged*, fix what needs fixing right in the diff, stage with `S` (files, or selected lines), write the message and commit with `Ctrl+Enter` (`⌘Enter`). If the repository uses Fantomas and the code base is not formatted, Arnold asks first: *Run Fantomas and commit*, *Commit without formatting* or *Cancel*.

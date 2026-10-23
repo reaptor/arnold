@@ -328,3 +328,26 @@ export const InfoIcon = (props: IconProps) => (
     <path d="M8 7v4.5M8 4.75v.25" />
   </Icon>
 );
+
+/** The light theme. */
+export const SunIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="2.75" />
+    <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.06 1.06M11.54 11.54l1.06 1.06M3.4 12.6l1.06-1.06M11.54 4.46l1.06-1.06" />
+  </Icon>
+);
+
+/** The dark theme. */
+export const MoonIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M13.5 9.6A5.75 5.75 0 1 1 6.4 2.5a4.5 4.5 0 0 0 7.1 7.1Z" />
+  </Icon>
+);
+
+/** The system's theme: a circle half light, half dark. */
+export const SystemThemeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 2.5a5.5 5.5 0 0 1 0 11Z" fill="currentColor" />
+  </Icon>
+);
