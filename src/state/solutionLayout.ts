@@ -40,6 +40,8 @@ export type TreeNode =
       icon: GroupIcon;
       /** The real folder it stands for, if any (for its context menu). */
       dir: string | null;
+      /** The solution or project file it stands for, which "Reveal in Finder" shows. */
+      projectFile?: string;
       children: TreeNode[];
       /** Open until closed by hand. */
       open?: boolean;
@@ -375,6 +377,7 @@ export function buildSolutionTree(
       label: withoutExtension(projectName),
       icon: iconOf(project),
       dir: dir || null,
+      projectFile: project,
       children,
       note: project,
     };
@@ -403,6 +406,7 @@ export function buildSolutionTree(
       label: withoutExtension(nameOf(solutionPath)),
       icon: "solution",
       dir: null,
+      projectFile: solutionPath,
       children: [fileNode(solutionPath), ...entryNodes(solution)],
       open: true,
       note: solutionPath,

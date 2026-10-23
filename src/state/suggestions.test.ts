@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linesOf, suggestedCode, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
+import { linesOf, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
 
 const committed = "one\ntwo\nthree\nfour\nfive\n";
 
@@ -53,30 +53,5 @@ describe("withoutBlocks", () => {
     const [only] = suggestionsFor("a.fs", committed, working);
     expect(withoutBlocks(committed, working, [only.block])).toBe("one\ntwo\nthree\nfour\nfive");
     expect(linesOf("")).toEqual([]);
-  });
-});
-
-describe("suggestedCode", () => {
-  it("reads the lines of the suggestion block", () => {
-    expect(suggestedCode("Shorter:\n\n```suggestion\n    max 0m reduced\n```")).toEqual(["    max 0m reduced"]);
-    expect(suggestedCode("```suggestion\r\na\r\n\r\nb\r\n```\r\nAfter")).toEqual(["a", "", "b"]);
-    expect(suggestedCode("~~~~ suggestion\n```\ncode\n```\n~~~~")).toEqual(["```", "code", "```"]);
-    expect(suggestedCode("  ```suggestion\n    indented\n  ```")).toEqual(["  indented"]);
-  });
-
-  it("reads an empty block as removing the lines, and an unclosed one to the end", () => {
-    expect(suggestedCode("```suggestion\n```")).toEqual([]);
-    expect(suggestedCode("```suggestion\nleft open")).toEqual(["left open"]);
-  });
-
-  it("finds none in other comments", () => {
-    expect(suggestedCode("Looks good")).toBeNull();
-    expect(suggestedCode("```fsharp\nlet a = 1\n```")).toBeNull();
-    expect(suggestedCode("    ```suggestion\n    code\n    ```")).toBeNull();
-  });
-
-  it("round-trips the comments Arnold posts", () => {
-    const [only] = suggestionsFor("a.fs", committed, "one\nTWO\n2b\nthree\nfour\nfive\n");
-    expect(suggestedCode(suggestionComment(only, "Better:"))).toEqual(["TWO", "2b"]);
   });
 });

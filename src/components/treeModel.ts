@@ -18,6 +18,8 @@ export interface Row {
   key: string;
   /** The file, or the real folder a group stands for ("" when none). */
   path: string;
+  /** The solution or project file a group stands for ("" when none). */
+  projectFile: string;
   label: string;
   /** Folder shown after the name: of a file found by the filter, or one shown away from its folder. */
   detail: string;
@@ -91,6 +93,7 @@ const fileRow = (path: string, depth: number, extra: Partial<Row> = {}): Row => 
   kind: "file",
   key: path,
   path,
+  projectFile: "",
   label: nameOf(path),
   detail: "",
   depth,
@@ -125,7 +128,7 @@ function flattenFolder(
     }
     const key = prefix + shown.path;
     const open = !!expanded[key];
-    rows.push({ kind: "folder", key, path: shown.path, label, detail: "", depth, open, icon: iconOf(shown.path), note: "", unlisted: "" });
+    rows.push({ kind: "folder", key, path: shown.path, projectFile: "", label, detail: "", depth, open, icon: iconOf(shown.path), note: "", unlisted: "" });
     if (open) flattenFolder(shown, expanded, depth + 1, rows, prefix, iconOf);
   }
   for (const path of folder.files) rows.push(fileRow(path, depth));
@@ -232,6 +235,7 @@ export function solutionModel(solution: SolutionTree, paths: readonly string[]):
           kind: "folder",
           key: node.key,
           path: node.dir ?? "",
+          projectFile: node.projectFile ?? "",
           label: node.label,
           detail: "",
           depth,

@@ -140,7 +140,7 @@ The commit picker narrows the diff to one or more consecutive commits of the bra
 The left side has two parts:
 
 - **Changes:** every file in the diff, with its status (A, M, D, R) and line counts.
-- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit* and *Branches*): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk.
+- **All files:** a file explorer with every file of the reviewed commit. Changed files are marked with their status and folders holding changes with a dot. Files outside the diff open without a diff, for reading around. Right-click a file or folder for *Add to .gitignore* (in *Commit* and *Branches*): a line ignoring just it goes at the end of the checkout's root `.gitignore`. Git keeps tracking files already committed; *Stop tracking…* (after asking) takes a file or a folder's files out of the repository, staging their removal for the next commit and leaving them on disk. When the files shown are on disk (in every mode, unless the diff is read from commits only), *Reveal in Finder* (*Reveal in File Explorer* on Windows) in the menu of a file or folder, here and in the lists of changes, shows it in its folder (for a solution or project of the Solution view, its `.sln` or project file), and a click on the checkout's path in the status bar opens that folder.
 
 In a repository with a .NET solution (`.sln` or `.slnx`) or project files, *All files* starts in the **Solution view**, as Rider's solution explorer: the solution's folders and projects in the order of the solution file, each F# project's files in the order of its project file (its compile order, with a folder showing again where its files are listed apart), C# projects by folder, and everything else under *Files outside projects*. An F# file in a project's folder that the project does not list is marked *not in X.fsproj*, as it is not compiled. Changes, and in *Commit* Unstaged and Staged, are listed in the same order. The grid button on the *All files* heading switches to the plain folder tree (files by name) and back; the choice is remembered.
 
@@ -161,7 +161,7 @@ The toolbar switches between one file at a time and *All files*: every file of t
 - Compared line by line first, so small edits far apart stay small. Changed words are marked red and green, as in Azure DevOps.
 - Added and deleted files show whole; deleted ones are tinted red.
 - `F7` / `Shift+F7` step through the changes; in the all-files view they carry on into the next or previous file.
-- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them.
+- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them. Go to definition into folded lines unfolds them.
 - Marks along the scrollbar show where the changes are (red and green as in the gutter), with errors and discussions in a narrow lane beside them; click one to go there. In the all-files view they cover the whole list, faint for files not loaded yet.
 - Syntax highlighting for F#, C#, T-SQL, project and other XML files, JSON and Markdown (with code blocks in their own language), and for about 140 more languages through [`@codemirror/language-data`](https://github.com/codemirror/language-data): JavaScript and TypeScript, Python, Rust, Go, Java, Kotlin, C and C++, PHP, Ruby, Swift, HTML, CSS, YAML, TOML, shell, PowerShell, Dockerfiles and others, chosen by file name. Each is loaded the first time a file needs it.
 
@@ -196,7 +196,7 @@ When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudi
 
 ### Connecting
 
-Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, accepting suggestions, voting and completing need **Code (Read & write)**; showing a linked work item's title needs **Work Items (Read)** as well (optional). Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
+Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, voting and completing need **Code (Read & write)**; showing a linked work item's title needs **Work Items (Read)** as well (optional). Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
 
 1. In Azure DevOps, open *User settings → Personal access tokens* (`https://dev.azure.com/<organization>/_usersSettings/tokens`) and select *New Token*.
 2. Pick the organization and an expiry date, choose *Custom defined* scopes and tick *Code → Read & write* (or *Read* only, to only read). Create it and copy the token.
@@ -220,11 +220,15 @@ The list shows the active pull requests with their descriptions, branches, autho
 
 The one you pick is compared the way Azure DevOps does it: the merge-base of its target and source → the source branch's last commit, with the same commit picker. Commits the repository lacks are fetched from Azure DevOps into its object store only; no branch, remote-tracking branch or `FETCH_HEAD` changes. Arnold checks the pull request for new pushes, votes and discussions every minute while its window is shown, and when you come back to it.
 
+### The overview
+
+A pull request opens on its overview, in place of its files: the title, who wants to merge which branch into which, its state, the description, and on the right its status (merge conflicts, the target branch's required policies not met yet, active discussions), the reviewers with their votes and a summary of the changes. Below the description are all of its discussions: those about the pull request as a whole, then those about each file, each with *Reply*, *Accept suggestion* for an open suggestion, and *Show in diff*, which opens the file at the discussion. The overview button in the toolbar, left of *One file* and *All files*, comes back to it; picking a file in the dock, `F7` or those buttons leave it.
+
 ### Discussions and comments
 
 Discussions show as cards under the lines they are about, with resolved ones folded and the unchanged lines around them unfolded. Discussions about a whole file sit at the top of its diff. The comment button in the toolbar lists every discussion, including those about the pull request as a whole, and jumps to the others.
 
-To comment, right-click a line or a selection and choose *Add comment*, or right-click a file under *Changes* to comment on the whole file. Every discussion has *Reply*, and the toolbar list takes comments on the pull request as a whole. Your own comments and suggestions have *Delete* when you point at them (after asking). Comments are Azure DevOps Markdown, with a preview: emoji shortcodes, `#123` work items, `!123` pull requests, suggestion blocks and task lists. `Ctrl+Enter` (`⌘+Enter`) sends.
+To comment, right-click a line or a selection and choose *Add comment*, or right-click a file under *Changes* to comment on the whole file. Every discussion has *Reply*, and the toolbar list takes comments on the pull request as a whole. Your own comments and suggestions have *Edit* (to change their text in place) and *Delete* (after asking) when you point at them; others' comments have neither. Comments are Azure DevOps Markdown, with a preview: emoji shortcodes, `#123` work items, `!123` pull requests, suggestion blocks and task lists. `Ctrl+Enter` (`⌘+Enter`) sends.
 
 ![A new comment being written under a changed line, next to an existing discussion](docs/screenshots/comment.png)
 
@@ -236,9 +240,13 @@ Rather than describing a fix, make it: type into the diff. Opening a pull reques
 
 Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
 
-An open suggestion has *Accept suggestion* beside *Reply*, as *Apply change* on the pull request's page in Azure DevOps: after asking, Arnold commits the suggested code in place of the lines to the pull request's source branch on Azure DevOps and resolves the discussion. The commit goes on top of the push you are shown only, so a push you have not seen is never built on; the new push then shows like any other (a checkout without edits follows it). It needs the token's Code (Read & write) scope and permission to push to the branch.
+Open suggestions, your colleagues' or your own, have *Accept suggestion*, in the diff and in the overview. After asking, Arnold commits the suggested lines to the source branch on Azure DevOps, on top of the latest push you were shown (as Azure DevOps' own *Apply change* does; if the branch has moved on since, nothing is committed), and marks the discussion resolved. The new push then shows as any other does. The button is disabled, with the reason as its tooltip, while the pull request is not active or has a push newer than the one shown. Accepting needs a token with *Code → Read & write*.
 
 A checkout without edits follows new pushes by itself. If the pull request gets a new push while you have edits, the checkout keeps them on the earlier push (their lines no longer match it) and the diff turns read-only; *Read-only* in the status bar offers to throw them away and edit the latest push. Arnold does not remove worktrees.
+
+### Notifications
+
+*Notify me* on a pull request's overview turns on notifications of the operating system about it; Arnold asks whether to turn them on for all pull requests in the repository instead (new ones included). *Notify me of all* under the list of pull requests (the bell in the toolbar's pull request list) does that directly, and turns them off again. Every two minutes, also while Arnold is in the background, it checks the followed pull requests of the repository open in Arnold for new comments by others, votes, pushes by others, a draft being published, you being added as a reviewer, merge conflicts in yours, completion and abandoning, and, when following all, for new pull requests. A notification tells what changed; clicking it brings Arnold to the front and opens the pull request (checking it out, as picking it does), at the new comment. What has changed by the time notifications are turned on, or Arnold is started, is the starting point and not notified; nor is what the pull request open in the focused window shows already. On Windows a click is noticed while the notification is on screen, not later from the Action Center.
 
 ### Voting and completing
 
@@ -328,7 +336,7 @@ The panel lists the suggestions under a short summary of the changes, as a start
 | `Enter` / `Shift+Enter`, `F3` / `Shift+F3`, `Ctrl+G` / `Ctrl+Shift+G` (`Cmd+G` / `Cmd+Shift+G`) | Next / previous match, wrapping around |
 | `Alt+C` / `Alt+W` / `Alt+R` (`⌥C` / `⌥W` / `⌥R`) | In the find box: match case / whole words / regular expression |
 | `Ctrl+H` (`Cmd+Alt+F`) | Find and replace, where the diff can be edited |
-| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#) |
+| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#); folded unchanged lines open for it |
 | `Shift+F12` | Find references (F#) |
 | `Alt+Enter`, `Ctrl+.` (`Cmd+.`) | Quick fixes and refactorings for the cursor's line or the selection (F#, where the diff can be edited) |
 | `F2`, `Ctrl+R` `Ctrl+R` | Rename the symbol under the cursor in every file (F#, where the diff can be edited) |
@@ -440,7 +448,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 
 | Option | What it does |
 |---|---|
-| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, two discussions holding a suggestion), for trying editing, *Suggest changes* and *Accept suggestion*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
+| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `nosolution` | The stand-in repository has no solution or project files, so *All files* shows only the folder tree |
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is checked out in it when compared; `dirtyfolder` also gives `main` uncommitted changes, so Arnold asks whether to use a worktree or discard them; `checkoutfail` makes checking out fail, so the comparison is read-only |

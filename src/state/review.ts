@@ -17,6 +17,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
+import { fileManager } from "../platform";
 import type {
   Branch,
   ChangedFile,
@@ -43,7 +44,7 @@ import { removeUnusedOpens, type ServerDiagnostic, showFixes, unusedOpenCount } 
 import { applyTextEdits, onEditFile, onRenameError, startRename } from "../lsp/rename";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { clearSolution, fileOrder, loadSolution } from "./solutionView";
-import { type Suggestion, suggestedCode, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
+import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
 import type { LineBlock } from "../editor/lineDiff";
 import { isSuggestion, placeName, setThreadActions } from "../editor/threads";
 import { azureHostLinks, setHostLinks } from "../components/Markdown";
@@ -132,6 +133,11 @@ interface State {
   head: string;
   /** Reviewed when `source` is "pullRequest"; null until one is picked. */
   pullRequest: ReviewedPullRequest | null;
+  /**
+   * The pull request's overview (title, description, status, every
+   * discussion) is shown in place of its files: where a pull request opens.
+   */
+  overview: boolean;
   /**
    * The worktree of Arnold's own the pull request under review is edited in
    * (`.arnold/worktrees/pr-<id>`), once made; edits there become suggestions.
@@ -248,6 +254,8 @@ interface State {
      * kept by `takeExplainTarget`.
      */
     explain?: { code?: string; files: string };
+    /** What "Reveal in Finder" shows instead of `file`: the file of a solution's or project's row. */
+    reveal?: string;
   } | null;
 }
 
@@ -284,6 +292,7 @@ export const [state, setState] = createStore<State>({
   base: "",
   head: "",
   pullRequest: null,
+  overview: false,
   prWorktree: null,
   openingPullRequest: null,
   updatingPullRequest: null,
@@ -691,6 +700,7 @@ export function attachEditor(host: HTMLElement) {
     reply,
     createThread,
     cancelDraft,
+    editComment,
     deleteComment,
     acceptSuggestion,
     whyNotAccept: whyNotAcceptSuggestion,
@@ -876,7 +886,14 @@ export async function openPullRequest(remote: string, id: number) {
     if (state.source === "commit") commitMode.leave();
     resetSessions();
     drafts.clear();
-    setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, prWorktree: null, range: null, selected: null });
+    setState({
+      source: "pullRequest",
+      pullRequest: { ...pullRequest, remote },
+      overview: true,
+      prWorktree: null,
+      range: null,
+      selected: null,
+    });
     rememberReview(repo.root, { source: "pullRequest", pullRequest: { remote, id } });
     setHostLinks(azureHostLinks(pullRequest.url));
     void loadThreads();
@@ -898,6 +915,17 @@ export function closePullRequest() {
   resetSessions();
   setState({ pullRequest: null, prWorktree: null, range: null, selected: null });
 }
+
+/** Whether the overview of the pull request under review is shown, in place of its files. */
+export const overviewShown = () => state.source === "pullRequest" && state.pullRequest !== null && state.overview;
+
+/** Shows the overview of the pull request under review, or its files again. */
+export function showOverview(on: boolean) {
+  setState({ overview: on, menu: null });
+}
+
+/** A file is about to be shown: the overview gives way to the files. */
+const leaveOverview = () => overviewShown() && showOverview(false);
 
 /** The two commits or branches compared, or null when nothing is picked yet. */
 function compared(): { base: string; head: string } | null {
@@ -1072,6 +1100,7 @@ const unchangedFile = (path: string): ChangedFile => ({
 /** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
 /** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
 export async function openFile(path: string) {
+  leaveOverview();
   if (path !== activePath() || (state.source === "commit" && state.workSide !== null)) noteDeparture();
   if (state.source === "commit") return commitMode.openTreeFile(path);
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
@@ -1945,6 +1974,7 @@ export const previousChange = () => stepChange(-1);
  * out, and stops at the last one.
  */
 async function stepChange(direction: 1 | -1) {
+  leaveOverview();
   if (state.view === "all" && state.source === "commit") return commitMode.stepChange(direction);
   if (state.view !== "all") {
     if (direction > 0) editor?.nextChange();
@@ -2407,6 +2437,7 @@ async function travel(from: NavigationPlace[], to: NavigationPlace[]) {
 
 /** Shows the file of `place` and returns its editor. */
 async function showPlace(place: NavigationPlace): Promise<DiffEditor | null> {
+  leaveOverview();
   if (state.source === "commit") {
     if (place.side === null) await commitMode.openTreeFile(place.path);
     else await commitMode.selectWorkFile(place.side, place.path);
@@ -2514,8 +2545,19 @@ export function ignoreTarget(path: string, folder: boolean): NonNullable<State["
   return undefined;
 }
 
-/** Right-click on a row of the explorer: a file's menu (see `openFileMenu`) and adding it to `.gitignore`. */
-export function openTreeMenu(path: string, folder: boolean, x: number, y: number): boolean {
+/**
+ * Right-click on a row of the explorer: a file's menu (see `openFileMenu`)
+ * and adding it to `.gitignore`. A solution's or project's row reveals its
+ * `projectFile`; with no folder (`path` ""), that is all its menu has.
+ */
+export function openTreeMenu(path: string, folder: boolean, x: number, y: number, projectFile = ""): boolean {
+  if (!path) {
+    if (!projectFile || !shownCheckout()) return false;
+    menuTarget = null;
+    menuComment = null;
+    setState("menu", { x, y, definition: false, file: projectFile });
+    return true;
+  }
   const ignore = ignoreTarget(path, folder);
   if (!folder && state.source !== "commit" && openFileMenu(path, x, y)) {
     if (ignore) setState("menu", "ignore", ignore);
@@ -2525,6 +2567,7 @@ export function openTreeMenu(path: string, folder: boolean, x: number, y: number
     const explain = explainFilesItem([path], folder, null);
     setState("menu", { x, y, definition: false, file: path, ignore, explain });
   }
+  if (projectFile) setState("menu", "reveal", projectFile);
   if (!ignore) return true;
   const checkout = ignore.checkout;
   if (checkout) {
@@ -2536,6 +2579,29 @@ export function openTreeMenu(path: string, folder: boolean, x: number, y: number
     );
   }
   return true;
+}
+
+/**
+ * Where the files shown are on disk: Commit mode's checkout, or the
+ * checkout a branch or pull request is read from; null when the diff is
+ * read from commits only.
+ */
+export const shownCheckout = () => (state.source === "commit" ? state.checkout : (state.comparison?.checkout ?? null));
+
+/**
+ * "Reveal in Finder" in a file's or folder's menu, or a click on the
+ * checkout in the status bar: `path` (the checkout itself when null) in the
+ * system's file manager.
+ */
+export async function revealInFileManager(path: string | null = null) {
+  setState("menu", null);
+  const checkout = shownCheckout();
+  if (!checkout) return;
+  try {
+    await ipc.revealPath(checkout, path);
+  } catch (error) {
+    fail(`Showing ${path ?? checkout} in ${fileManager}: ${String(error)}`);
+  }
 }
 
 /**
@@ -2648,6 +2714,19 @@ async function reply(thread: PrThread, text: string) {
   await loadThreads();
 }
 
+/** Changes the text of a comment of the token's owner. Throws the error text. */
+async function editComment(thread: PrThread, comment: PrComment, text: string) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    await ipc.editPullRequestComment(repo.root, pullRequest.remote, pullRequest.id, thread.id, comment.id, text);
+  } catch (error) {
+    throw writeErrorText(error, "the change of the comment");
+  }
+  await loadThreads();
+}
+
 /**
  * Deletes a comment of the token's owner from the pull request, after
  * asking. Deleting the first comment of a suggestion removes the suggestion.
@@ -2672,13 +2751,12 @@ async function deleteComment(thread: PrThread, comment: PrComment) {
   await loadThreads();
 }
 
-/** Why the suggestion of `thread` cannot be accepted; null when it can. */
-function whyNotAcceptSuggestion(thread: PrThread): string | null {
+/** Why open suggestions cannot be accepted now; null when they can. */
+export function whyNotAcceptSuggestion(): string | null {
   const pullRequest = state.pullRequest;
   if (state.source !== "pullRequest" || !pullRequest) return "No pull request is open.";
   if (pullRequest.status !== "active") return `The pull request is ${pullRequest.status}.`;
-  if (!thread.path || thread.position?.side !== "head") return "Azure DevOps no longer knows which lines this suggestion replaces.";
-  if (suggestedCode(thread.comments[0].content) === null) return "The suggested code could not be read.";
+  // The suggestion's lines are of the push shown; never commit on top of one not seen.
   if (!pullRequest.sourceCommit || state.comparison?.tipCommit !== pullRequest.sourceCommit) {
     return "The pull request has a new push. Look at it before accepting suggestions.";
   }
@@ -2686,53 +2764,36 @@ function whyNotAcceptSuggestion(thread: PrThread): string | null {
 }
 
 /**
- * Accepts a suggestion, after asking: its code replaces the lines in a new
- * commit on the pull request's source branch on Azure DevOps (as "Apply
- * change" does on its page), and the discussion is resolved. The new push
- * then shows like any other.
+ * Accepts a suggestion, after asking: its lines are committed to the pull
+ * request's source branch on the host and its discussion is resolved, as
+ * Azure DevOps' own "Apply change" does. The new push then shows as any does.
  */
 async function acceptSuggestion(thread: PrThread) {
   const repo = state.repo;
   const pullRequest = state.pullRequest;
-  if (!repo || !pullRequest) return;
-  const blocked = whyNotAcceptSuggestion(thread);
-  const { path, position } = thread;
-  const lines = suggestedCode(thread.comments[0].content);
-  if (blocked || !path || !position || !lines || !pullRequest.sourceCommit) return fail(blocked ?? "This suggestion cannot be accepted.");
-  const where = position.startLine === position.endLine ? `line ${position.startLine}` : `lines ${position.startLine}–${position.endLine}`;
+  if (!repo || !pullRequest?.sourceCommit) return;
+  const blocked = whyNotAcceptSuggestion();
+  if (blocked) return fail(blocked);
   const sure = await confirm(
-    `Commit this suggestion to ${pullRequest.sourceBranch}? It replaces ${where} of ${path} in a new push to pull request !${pullRequest.id}, and resolves the discussion.`,
-    { title: "Accept suggestion", kind: "info", okLabel: "Commit" },
+    `Commit ${thread.comments[0].author}'s suggestion for ${thread.path} to ${pullRequest.sourceBranch} on Azure DevOps, and resolve the discussion?`,
+    { title: "Accept suggestion", kind: "info", okLabel: "Accept" },
   );
   if (!sure) return;
-  let commit: string;
   try {
-    commit = await ipc.acceptPullRequestSuggestion(repo.root, pullRequest.remote, pullRequest.id, {
-      thread: thread.id,
-      path,
-      sourceCommit: pullRequest.sourceCommit,
-      startLine: position.startLine,
-      endLine: position.endLine,
-      lines,
-      message: `Apply suggestion from ${thread.comments[0].author}\n\nOn ${path} in pull request !${pullRequest.id}.`,
-    });
+    const accepted = await ipc.acceptPullRequestSuggestion(repo.root, pullRequest.remote, pullRequest.id, thread.id, pullRequest.sourceCommit);
+    commitMode.notify(
+      accepted.resolved
+        ? `Suggestion accepted: commit ${accepted.commit.slice(0, 8)} on ${pullRequest.sourceBranch}`
+        : `Suggestion accepted (commit ${accepted.commit.slice(0, 8)}), but its discussion could not be marked resolved`,
+    );
   } catch (error) {
-    fail(writeErrorText(error, "the commit of the suggestion"));
-    await loadThreads();
+    fail(writeErrorText(error, "the suggestion"));
     return;
   }
   await loadThreads();
-  await followPush(pullRequest, commit);
-}
-
-/** Checks the pull request until the host has taken in the push of `commit` (it does so after answering), so it shows. */
-async function followPush(pullRequest: ReviewedPullRequest, commit: string) {
-  for (let tries = 0; tries < 8; tries++) {
-    await new Promise((done) => window.setTimeout(done, tries === 0 ? 300 : 1500));
-    if (pullRequestKey(state.pullRequest) !== pullRequestKey(pullRequest)) return;
-    await checkPullRequest();
-    if (state.pullRequest?.sourceCommit === commit) return;
-  }
+  await checkPullRequest();
+  // The host may take a moment to see the push as one of the pull request's.
+  window.setTimeout(() => void checkPullRequest(), 3000);
 }
 
 function cancelDraft(place: NewThreadPlace) {
@@ -2748,6 +2809,7 @@ export const createGeneralThread = (text: string) => createThread(null, text);
 export async function revealThread(thread: PrThread) {
   const path = thread.path;
   if (!path || !isChanged(path)) return;
+  leaveOverview();
   if (state.range !== null) await setRange(null);
   if (state.view === "all") {
     const target = await showFileSection(path);
@@ -2759,6 +2821,12 @@ export async function revealThread(thread: PrThread) {
   if (state.selected !== path) await selectFile(path);
   editor?.revealThread(thread.id);
 }
+
+const [discussionsWanted, setDiscussionsWanted] = createSignal(0);
+/** Counts the requests to open the toolbar's list of discussions. */
+export { discussionsWanted };
+/** Opens the toolbar's list of discussions (where those about the whole pull request are). */
+export const openDiscussions = () => setDiscussionsWanted((count) => count + 1);
 
 // ------------------------------------------------------ voting and completing
 

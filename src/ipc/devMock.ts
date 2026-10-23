@@ -6,7 +6,6 @@ import type { Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
-  AcceptedSuggestion,
   Branch,
   Fetched,
   PullOutcome,
@@ -1517,6 +1516,14 @@ const threadsOf = (id: unknown) => ownDiffs.get(Number(id))?.threads ?? pullRequ
 const tipOf = (own: OwnDiff) =>
   new Map([...own.files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
 
+/** A new commit on top of `own`'s branch, of the files changed in it already; resolves to its sha. */
+function pushCommit(own: OwnDiff, pullRequest: PullRequest, subject: string, author: string, paths: string[]) {
+  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author, date: new Date().toISOString(), paths });
+  pullRequest.sourceCommit = sha;
+  return sha;
+}
+
 /** `arnoldMock.newPush(id)`: a new commit on pull request `id` (one with its own diff). */
 function newPush(id = 1291) {
   const own = ownDiffs.get(id);
@@ -1529,37 +1536,47 @@ function newPush(id = 1291) {
   console.info(`devMock: pushed ${sha.slice(0, 7)} to !${id}; reload the pull request list or refocus the window`);
 }
 
-/** A new commit at the tip of `own`'s pull request, for files changed already; returns it. */
-function pushCommit(own: OwnDiff, pullRequest: PullRequest, subject: string, author: string, paths: string[]): string {
-  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author, date: new Date().toISOString(), paths });
-  pullRequest.sourceCommit = sha;
-  return sha;
+/** The lines of the first ```suggestion block of a comment, as the backend reads them. */
+function suggestedLines(content: string): string[] | null {
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => /^\s*(`{3,}|~{3,})\s*suggestion\b/.test(line));
+  if (start < 0) return null;
+  const fence = lines[start].trim().match(/^(`{3,}|~{3,})/)![1];
+  const end = lines.findIndex((line, index) => index > start && line.trim().startsWith(fence) && /^[`~]+$/.test(line.trim()));
+  return lines.slice(start + 1, end < 0 ? undefined : end);
 }
 
-/** Accepting a suggestion of !1291: its code replaces the lines in a new commit, and the thread is resolved. */
-function acceptSuggestion(id: number, suggestion: AcceptedSuggestion): string {
-  const own = ownDiffs.get(id);
-  const pullRequest = mockPullRequests.find((candidate) => candidate.id === id);
-  const file = own?.files.get(suggestion.path);
-  if (!own || !pullRequest || !file?.working) throw { kind: "other", message: `devMock: only the suggestions of !1291 can be accepted.` };
-  if (pullRequest.sourceCommit !== suggestion.sourceCommit) {
-    throw { kind: "other", message: `${pullRequest.sourceBranch} has a new push on Azure DevOps. Look at it before accepting suggestions.` };
+/**
+ * Accepting thread `threadId`'s suggestion on pull request `id`: its lines
+ * committed on top of `commit`, the thread resolved.
+ */
+function acceptSuggestion(id: unknown, threadId: number, commit: string) {
+  const pullRequest = findPullRequest(id);
+  const own = ownDiffs.get(pullRequest.id);
+  if (commit !== pullRequest.sourceCommit) {
+    throw { kind: "other", message: `Azure DevOps answered with status 409: TF401028: The reference 'refs/heads/${pullRequest.sourceBranch}' has already been updated by another client.` };
   }
-  const lines = file.working.replace(/\n$/, "").split("\n");
-  const replaced = suggestion.endLine - suggestion.startLine + 1;
-  lines.splice(suggestion.startLine - 1, replaced, ...suggestion.lines);
-  file.working = `${lines.join("\n")}\n`;
-  // The host follows the other threads' lines.
-  for (const thread of own.threads) {
-    if (thread.id === suggestion.thread) thread.status = "fixed";
-    else if (thread.path === suggestion.path && thread.position && thread.position.startLine > suggestion.endLine) {
-      thread.position.startLine += suggestion.lines.length - replaced;
-      thread.position.endLine += suggestion.lines.length - replaced;
-    }
+  const thread = threadsOf(id).find((candidate) => candidate.id === threadId);
+  const file = thread?.path ? own?.files.get(thread.path) : undefined;
+  const lines = thread ? suggestedLines(thread.comments[0].content) : null;
+  if (!own || !thread?.position || !file?.working || !lines) {
+    throw { kind: "other", message: "This discussion holds no suggestion that can be accepted." };
   }
-  console.info(`devMock: committed the suggestion of thread ${suggestion.thread} to !${id}`, suggestion);
-  return pushCommit(own, pullRequest, suggestion.message.split("\n")[0], YOU.name, [suggestion.path]);
+  const text = file.working.split("\n");
+  const { startLine, endLine } = thread.position;
+  text.splice(startLine - 1, endLine - startLine + 1, ...lines);
+  file.working = text.join("\n");
+  thread.status = "fixed";
+  // The host moves the other discussions of the file below it along.
+  const shift = lines.length - (endLine - startLine + 1);
+  for (const other of threadsOf(id)) {
+    if (other === thread || other.path !== thread.path || !other.position || other.position.startLine <= endLine) continue;
+    other.position.startLine += shift;
+    other.position.endLine += shift;
+  }
+  const author = thread.comments[0].author;
+  const sha = pushCommit(own, pullRequest, `Apply suggestion from ${author} to ${thread.path}`, YOU.name, [thread.path!]);
+  return { commit: sha, resolved: true };
 }
 /** `arnoldMock.devopsRemote(false)` removes origin's Azure DevOps remote, `(true)` adds it, as `git remote` would. */
 function devopsRemote(on = true) {
@@ -1567,7 +1584,29 @@ function devopsRemote(on = true) {
   setTimeout(() => void emit("config-changed"), 50);
 }
 
-(window as unknown as { arnoldMock: unknown }).arnoldMock = { newPush, devopsRemote };
+/** `arnoldMock.newComment(id)`: someone else answers the first discussion of pull request `id` (!1284 is yours). */
+function newComment(id = 1284, author = "Bo Svensson", content = "Could you add a test for an order **without** any lines?") {
+  const thread = threadsOf(id)[0];
+  if (!thread) return console.warn(`devMock: !${id} has no discussions`);
+  const last = thread.comments[thread.comments.length - 1];
+  thread.comments.push(comment(Math.max(...thread.comments.map((each) => each.id)) + 1, author, content, 0, last?.id ?? 0));
+  console.info(`devMock: ${author} commented on !${id}; \`arnoldMock.checkNotifications()\` checks for news now`);
+}
+
+/** The notifications shown, newest last; `arnoldMock.clickNotification()` clicks the last one. */
+const notifications: { title: string; body: string; key: string }[] = [];
+const clickNotification = (index = notifications.length - 1) =>
+  void emit("notification-clicked", notifications[index]?.key ?? "");
+const checkNotifications = () => import("../state/prNotifications").then((module) => module.checkForNews());
+
+(window as unknown as { arnoldMock: unknown }).arnoldMock = {
+  newPush,
+  devopsRemote,
+  newComment,
+  notifications,
+  clickNotification,
+  checkNotifications,
+};
 
 // Branches on the mock Azure DevOps. feature/agent-work has !1287 open
 // already; feature/agent-work-wt is not pushed, or with `?serverbranch=behind`
@@ -1987,6 +2026,10 @@ export function install() {
           return trackedUnder(args.checkout, args.path).length > 0;
         case "untrack_path":
           return untrackPath(args.checkout, args.path);
+        case "reveal_path":
+          // No file manager in the browser preview.
+          console.info("devMock: reveal", args.checkout, args.path);
+          return null;
         case "undo_file_edits": {
           checkoutState();
           const tree = treeOf(args.checkout);
@@ -2069,6 +2112,15 @@ export function install() {
             checkToken();
             return asSeenByYou(findPullRequest(args.id));
           }, 700);
+        case "read_pull_request":
+          return slowly(() => {
+            checkToken();
+            return asSeenByYou(findPullRequest(args.id));
+          }, 300);
+        case "notify":
+          notifications.push({ title: args.title, body: args.body, key: args.key });
+          console.info(`devMock: notification "${args.title}": ${args.body}`);
+          return null;
         case "vote_on_pull_request":
           return slowly(() => {
             checkToken();
@@ -2188,6 +2240,20 @@ export function install() {
             found.comments.push(comment(found.comments.length + 1, "You", content, 0, parent));
             return null;
           }, 600);
+        case "edit_pull_request_comment":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { thread, comment: id, content } = payload as { thread: number; comment: number; content: string };
+            const found = threadsOf(args.id)
+              .find((candidate) => candidate.id === thread)
+              ?.comments.find((candidate) => candidate.id === id);
+            if (!found) throw { kind: "notFound", message: `Comment ${id} does not exist.` };
+            if (!found.you) throw { kind: "other", message: "Only its author may edit a comment." };
+            found.content = content;
+            found.edited = true;
+            return null;
+          }, 600);
         case "delete_pull_request_comment":
           return slowly(() => {
             checkToken();
@@ -2207,7 +2273,8 @@ export function install() {
           return slowly(() => {
             checkToken();
             checkWrite();
-            return acceptSuggestion(Number(args.id), (payload as { suggestion: AcceptedSuggestion }).suggestion);
+            const { thread, commit } = payload as { thread: number; commit: string };
+            return acceptSuggestion(args.id, thread, commit);
           }, 900);
         case "pull_request_threads":
           return slowly(() => {

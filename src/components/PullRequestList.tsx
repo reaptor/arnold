@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { PullRequest } from "../ipc/commands";
 import { ago } from "./CommitPicker";
 import { Markdown } from "./Markdown";
+import { plainText } from "../state/prNews";
 
 interface Props {
   pullRequests: PullRequest[];
@@ -66,18 +67,6 @@ const VOTE_NAMES: Record<string, string> = {
   waitingForAuthor: "waiting for author",
   rejected: "rejected",
 };
-
-/** The description's text without its Markdown marks, on one line, for the tooltip. */
-function plainText(markdown: string): string {
-  return markdown
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
-    .replace(/(\*{1,3}|`+|~~)(\S(?:.*?\S)?)\1/g, "$2")
-    .replace(/(^|\W)_{1,3}(\S(?:.*?\S)?)_{1,3}(?=\W|$)/g, "$1$2")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** A searchable list of pull requests; arrow keys move, Enter or a click picks. */
 export function PullRequestList(props: Props) {

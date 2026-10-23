@@ -10,7 +10,9 @@ use std::sync::Mutex;
 
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
-use arnold_pr::{CompletionPolicies, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Thread, Vote, WorkItemLookup};
+use arnold_pr::{
+    suggestion, CompletionPolicies, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Side, Thread, Vote, WorkItemLookup,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -169,7 +171,16 @@ pub async fn list_pull_requests(
 ) -> Result<Vec<PullRequest>, PrError> {
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
-    blocking(move || azure::active_pull_requests(&repo, &token)).await?
+    let list = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::active_pull_requests(&repo, &token)).await??
+    };
+    // Which are the user's to follow (notifications); the user is asked once per token.
+    let mut marked = Vec::with_capacity(list.len());
+    for pull_request in list {
+        marked.push(prs.mark_you(&repo, &token, pull_request).await);
+    }
+    Ok(marked)
 }
 
 /// Checks `token` against `remote`, then saves it for the remote's
@@ -262,6 +273,25 @@ pub async fn open_pull_request(
     Ok(prs.mark_you(&repo, &token, pull_request).await)
 }
 
+/// Pull request `id` of `remote` as the host has it now, whatever its state
+/// (completed, abandoned). Unlike `open_pull_request`, nothing is fetched.
+#[tauri::command]
+pub async fn read_pull_request(
+    root: String,
+    remote: String,
+    id: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<PullRequest, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let pull_request = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::pull_request(&repo, &token, id)).await??
+    };
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
 /// Votes on pull request `id` as the token's owner; `none` resets the vote.
 /// Resolves to the pull request with the votes as they are now.
 #[tauri::command]
@@ -337,7 +367,7 @@ pub async fn pull_request_threads(
         let (repo, token) = (repo.clone(), token.clone());
         blocking(move || azure::threads(&repo, &token, id)).await??
     };
-    // Who may delete what; without knowing, nobody's comments are marked.
+    // Who may edit and delete what; without knowing, nobody's comments are marked.
     if let Ok(user) = prs.user(&repo, &token).await {
         for comment in threads.iter_mut().flat_map(|thread| thread.comments.iter_mut()) {
             comment.you = !comment.author_id.is_empty() && comment.author_id.eq_ignore_ascii_case(&user);
@@ -362,6 +392,25 @@ pub async fn delete_pull_request_comment(
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
     blocking(move || azure::delete_comment(&repo, &token, id, thread, comment)).await?
+}
+
+/// Changes the text of comment `comment` of thread `thread` of pull request
+/// `id`: one the token's owner wrote (the host refuses others).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri passes each argument and state separately.
+pub async fn edit_pull_request_comment(
+    root: String,
+    remote: String,
+    id: u64,
+    thread: u64,
+    comment: u64,
+    content: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<(), PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::edit_comment(&repo, &token, id, thread, comment, &content)).await?
 }
 
 /// Starts a discussion on pull request `id`, about `place` in a file or, without
@@ -399,53 +448,67 @@ pub async fn reply_to_pull_request_thread(
     blocking(move || azure::reply(&repo, &token, id, thread, parent, &content)).await?
 }
 
-/// A suggestion of a discussion, to commit.
-#[derive(Debug, Deserialize)]
+/// A suggestion accepted: the commit that applied it, and whether its
+/// thread could be marked resolved too.
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedSuggestion {
-    thread: u64,
-    path: String,
-    /// The pull request's latest push, which the lines are of.
-    source_commit: String,
-    /// The lines replaced, 1-based and both included.
-    start_line: u32,
-    end_line: u32,
-    /// What they become.
-    lines: Vec<String>,
-    /// The commit's message.
-    message: String,
+    commit: String,
+    resolved: bool,
 }
 
-/// Accepts a suggestion on pull request `id`: commits it to the source
-/// branch on the host, on top of the push it was shown with (never over a
-/// push not seen), then resolves its discussion. Resolves to the new commit.
+/// Accepts the suggestion of thread `thread` of pull request `id`, as the
+/// web page's "Apply change" does: commits the suggested lines to the source
+/// branch on top of `commit` (its latest push, which the suggestion's lines
+/// are of; the host refuses if the branch has moved on), then marks the
+/// thread resolved.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri passes each argument and state separately.
 pub async fn accept_pull_request_suggestion(
     root: String,
     remote: String,
     id: u64,
-    suggestion: AcceptedSuggestion,
+    thread: u64,
+    commit: String,
     app: State<'_, AppState>,
     prs: State<'_, PrState>,
-) -> Result<String, PrError> {
+) -> Result<AcceptedSuggestion, PrError> {
     let (root, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
-    let AcceptedSuggestion { thread, path, source_commit, start_line, end_line, lines, message } = suggestion;
-    let file = arnold_git::read_blob(&root, &source_commit, &path)
+    let (pull_request, threads) = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || Ok::<_, PrError>((azure::pull_request(&repo, &token, id)?, azure::threads(&repo, &token, id)?))).await??
+    };
+    if pull_request.source_commit.as_deref() != Some(commit.as_str()) {
+        return Err(PrError::Other(
+            "The pull request has a new push since its suggestions were read. Look at it first, then accept the suggestion again.".into(),
+        ));
+    }
+    let found = threads
+        .into_iter()
+        .find(|candidate| candidate.id == thread)
+        .ok_or_else(|| PrError::NotFound("The suggestion is no longer on the pull request.".into()))?;
+    let suggested = found.comments.first().and_then(|first| suggestion::suggested_lines(&first.content));
+    let (Some(path), Some(position), Some(lines)) = (found.path.as_deref(), found.position, suggested) else {
+        return Err(PrError::Other("This discussion holds no suggestion that can be accepted.".into()));
+    };
+    if position.side != Side::Head {
+        return Err(PrError::Other("The suggestion is about lines the pull request removes, so it cannot be applied.".into()));
+    }
+    let original = arnold_git::read_blob(&root, &commit, path)
         .await
         .map_err(other)?
-        .ok_or_else(|| PrError::Other(format!("{path} is not in the pull request's latest push.")))?;
-    let content = arnold_pr::replace_lines(&file, start_line, end_line, &lines)
-        .ok_or_else(|| PrError::Other(format!("Lines {start_line}–{end_line} of {path} cannot be replaced: they are not there as text.")))?;
+        .ok_or_else(|| PrError::NotFound(format!("{path} is not in the pull request's latest push.")))?;
+    let content = suggestion::replace_lines(&original, position.start_line, position.end_line, &lines).map_err(PrError::Other)?;
+    let author = &found.comments[0].author;
+    let message = format!("Apply suggestion from {author} to {path}");
+    let branch = pull_request.source_branch.clone();
+    let path = path.to_string();
     blocking(move || {
-        let pull_request = azure::pull_request(&repo, &token, id)?;
-        if pull_request.source_commit.as_deref() != Some(source_commit.as_str()) {
-            return Err(PrError::Other("The pull request has a new push. Look at it before accepting suggestions.".into()));
-        }
-        let commit = azure::commit_file(&repo, &token, &pull_request.source_branch, &source_commit, &path, &content, &message)?;
-        azure::resolve_thread(&repo, &token, id, thread)
-            .map_err(|error| PrError::Other(format!("The suggestion was committed, but its discussion could not be resolved: {error}")))?;
-        Ok(commit)
+        let commit = azure::push_file(&repo, &token, &branch, &commit, &path, &content, &message)?;
+        // The change is in; a thread left open is no reason to report a failure.
+        let resolved = azure::resolve_thread(&repo, &token, id, thread).is_ok();
+        Ok(AcceptedSuggestion { commit, resolved })
     })
     .await?
 }

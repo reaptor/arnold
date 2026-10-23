@@ -77,24 +77,3 @@ export function withoutBlocks(committed: string, working: string, blocks: readon
   const lineBreak = working.endsWith("\n") || (working === "" && committed.endsWith("\n"));
   return b.length === 0 ? "" : b.join("\n") + (lineBreak ? "\n" : "");
 }
-
-/**
- * The code of the first ```suggestion block of a comment, as lines (none:
- * the suggestion removes the lines); null when the comment has none. Fences
- * are read the way Markdown does: ``` or ~~~, closed by a fence at least as
- * long, or by the end of the comment.
- */
-export function suggestedCode(content: string): string[] | null {
-  const lines = content.split(/\r\n|\r|\n/);
-  const start = lines.findIndex((line) => /^ {0,3}(`{3,}|~{3,})[ \t]*suggestion(\s|$)/.test(line));
-  if (start < 0) return null;
-  const [, indent, fence] = /^( {0,3})(`{3,}|~{3,})/.exec(lines[start])!;
-  const closing = new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
-  const code: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    if (closing.test(line)) break;
-    // Lines lose as much indentation as the opening fence has.
-    code.push(line.replace(new RegExp(`^ {0,${indent.length}}`), ""));
-  }
-  return code;
-}

@@ -150,6 +150,14 @@ export const FilesIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A page with a title and lines of text: a pull request's overview. */
+export const OverviewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 2.5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z" />
+    <path d="M5 5.5h6M5 8h6M5 10.5h3.5" />
+  </Icon>
+);
+
 /** A pull request: a branch merged back into another. */
 export const PullRequestIcon = (props: IconProps) => (
   <Icon {...props}>
@@ -179,6 +187,13 @@ export const KeyIcon = (props: IconProps) => (
   <Icon {...props}>
     <circle cx="5" cy="11" r="2.5" />
     <path d="M6.8 9.2 13 3M11 5l1.5 1.5M9.5 6.5 11 8" />
+  </Icon>
+);
+
+/** Notifications. */
+export const BellIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0" />
   </Icon>
 );
 

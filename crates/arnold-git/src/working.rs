@@ -516,6 +516,17 @@ fn resolve(checkout: &Path, relative: &str) -> Result<PathBuf> {
     Ok(full)
 }
 
+/// Where `relative` is on disk inside `checkout`, for showing it in the
+/// file manager: the path itself, or the nearest folder above it that exists
+/// (a deleted file). Refused as `resolve` refuses; `true` when it is the path itself.
+pub fn on_disk(checkout: &Path, relative: &str) -> Result<(PathBuf, bool)> {
+    let mut full = resolve(checkout, relative)?;
+    let exact = full.exists();
+    // `resolve` made sure a folder inside the checkout holds it.
+    while !full.exists() && full.pop() {}
+    Ok((full, exact))
+}
+
 /// `relative` inside `checkout` if it exists there.
 fn existing(checkout: &Path, relative: &str) -> Result<Option<PathBuf>> {
     let full = resolve(checkout, relative)?;
@@ -550,5 +561,15 @@ mod tests {
         assert!(resolve(dir.path(), "/etc/passwd").is_err());
         assert!(resolve(dir.path(), ".git/config").is_err());
         assert!(resolve(dir.path(), "src/new.fs").is_ok());
+    }
+
+    #[test]
+    fn finds_the_nearest_folder_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/a.fs"), "").unwrap();
+        assert_eq!(on_disk(dir.path(), "src/a.fs").unwrap(), (dir.path().join("src/a.fs"), true));
+        assert_eq!(on_disk(dir.path(), "src/gone/b.fs").unwrap(), (dir.path().join("src"), false));
+        assert!(on_disk(dir.path(), "../x").is_err());
     }
 }

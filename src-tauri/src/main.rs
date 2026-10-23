@@ -7,6 +7,7 @@ mod commands;
 mod formatting;
 mod fsio;
 mod lsp;
+mod notifications;
 mod pull_requests;
 mod watcher;
 mod workspace;
@@ -96,6 +97,7 @@ fn main() {
             working::ignore_path,
             working::path_tracked,
             working::untrack_path,
+            working::reveal_path,
             working::set_index_text,
             working::save_worktree_file,
             working::commit_staged,
@@ -111,11 +113,13 @@ fn main() {
             pull_requests::set_pull_request_token,
             pull_requests::remove_pull_request_token,
             pull_requests::open_pull_request,
+            pull_requests::read_pull_request,
             pull_requests::pull_request_threads,
             pull_requests::create_pull_request_thread,
             pull_requests::reply_to_pull_request_thread,
-            pull_requests::delete_pull_request_comment,
+            pull_requests::edit_pull_request_comment,
             pull_requests::accept_pull_request_suggestion,
+            pull_requests::delete_pull_request_comment,
             pull_requests::vote_on_pull_request,
             pull_requests::update_pull_request,
             pull_requests::completion_policies,
@@ -130,6 +134,7 @@ fn main() {
             lsp::lsp_send,
             lsp::lsp_open_background,
             lsp::lsp_stop,
+            notifications::notify,
             updates::updater_info,
             updates::check_for_update,
             updates::download_update,

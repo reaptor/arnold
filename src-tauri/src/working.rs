@@ -168,6 +168,29 @@ pub async fn untrack_path(checkout: String, path: String, state: State<'_, AppSt
     arnold_git::untrack(&checkout, &path).await.map_err(text_error)
 }
 
+/// Shows `path` of the checkout (a file or folder; the checkout itself
+/// without one) in Finder, File Explorer or the file manager: selected in
+/// its folder, or the nearest folder above it when it is not on disk.
+#[tauri::command]
+pub async fn reveal_path(checkout: String, path: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+    let checkout = state.checked_root(&checkout)?;
+    let (shown, exact) = match path {
+        Some(path) => arnold_git::on_disk(&checkout, &path).map_err(text_error)?,
+        None => (checkout, false),
+    };
+    // Both block on the system's file manager (D-Bus on Linux).
+    tauri::async_runtime::spawn_blocking(move || {
+        if exact {
+            tauri_plugin_opener::reveal_item_in_dir(&shown)
+        } else {
+            tauri_plugin_opener::open_path(&shown, None::<&str>)
+        }
+    })
+    .await
+    .map_err(text_error)?
+    .map_err(text_error)
+}
+
 /// Gives `path` this text in the index: some of its lines staged or unstaged.
 #[tauri::command]
 pub async fn set_index_text(checkout: String, path: String, text: String, state: State<'_, AppState>) -> Result<(), String> {

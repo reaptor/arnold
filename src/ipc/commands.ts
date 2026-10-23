@@ -139,6 +139,7 @@ const ACTIVITY: Record<string, string> = {
   create_pull_request_thread: "Posting the comment",
   reply_to_pull_request_thread: "Posting the reply",
   delete_pull_request_comment: "Deleting the comment",
+  accept_pull_request_suggestion: "Accepting the suggestion",
   review_patch: "Collecting the changes",
   review_context: "Collecting the changes",
 };
@@ -253,6 +254,9 @@ export const pathTracked = (checkout: string, path: string) => invoke<boolean>("
 
 /** Stops tracking `path` (a file, or a folder's files) in `checkout`, keeping it on disk; resolves to how many files. */
 export const untrackPath = (checkout: string, path: string) => invoke<number>("untrack_path", { checkout, path });
+
+/** Shows `path` of `checkout` (a file or folder; the checkout itself when null) in Finder, File Explorer or the file manager. */
+export const revealPath = (checkout: string, path: string | null) => invoke<void>("reveal_path", { checkout, path });
 
 /** Where a branch is checked out. */
 export interface BranchCheckout {
@@ -525,7 +529,7 @@ export interface PrComment {
   /** ISO 8601. */
   published: string;
   edited: boolean;
-  /** Written by the token's owner, who may delete it. */
+  /** Written by the token's owner, who may edit or delete it. */
   you: boolean;
 }
 
@@ -568,6 +572,10 @@ export const removePullRequestToken = (root: string, remote: string) =>
 /** Reads the pull request and fetches its commits into the repository if they are missing. */
 export const openPullRequest = (root: string, remote: string, id: number) =>
   invoke<PullRequest>("open_pull_request", { root, remote, id });
+
+/** The pull request as the host has it now, whatever its state (completed, abandoned); nothing is fetched. */
+export const readPullRequest = (root: string, remote: string, id: number) =>
+  invoke<PullRequest>("read_pull_request", { root, remote, id });
 
 /** Votes as the token's owner (`none` resets the vote); resolves to the pull request as it is now. */
 export const voteOnPullRequest = (root: string, remote: string, id: number, vote: Vote) =>
@@ -675,37 +683,42 @@ export const replyToPullRequestThread = (
   content: string,
 ) => invoke<null>("reply_to_pull_request_thread", { root, remote, id, thread, parent, content });
 
+/** Changes the text of comment `comment` of thread `thread` to `content`: one the token's owner wrote. */
+export const editPullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number, content: string) =>
+  invoke<null>("edit_pull_request_comment", { root, remote, id, thread, comment, content });
+
 /** Deletes comment `comment` of thread `thread`: one the token's owner wrote. */
 export const deletePullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number) =>
   invoke<null>("delete_pull_request_comment", { root, remote, id, thread, comment });
 
-/** A suggestion of a discussion, to commit. */
+/** A suggestion accepted: the commit that applied it, and whether its discussion was marked resolved too. */
 export interface AcceptedSuggestion {
-  thread: number;
-  path: string;
-  /** The pull request's latest push, which the lines are of. */
-  sourceCommit: string;
-  /** The lines replaced, 1-based and both included. */
-  startLine: number;
-  endLine: number;
-  /** What they become. */
-  lines: string[];
-  /** The commit's message. */
-  message: string;
+  commit: string;
+  resolved: boolean;
 }
 
 /**
- * Commits a suggestion to the pull request's source branch on the host, on
- * top of `sourceCommit` only, then resolves its discussion. Resolves to the new commit.
+ * Commits the suggested lines of thread `thread` to the pull request's source
+ * branch on the host, on top of `commit` (its latest push; refused if the
+ * branch has moved on), and marks the thread resolved.
  */
-export const acceptPullRequestSuggestion = (root: string, remote: string, id: number, suggestion: AcceptedSuggestion) =>
-  invoke<string>("accept_pull_request_suggestion", { root, remote, id, suggestion });
+export const acceptPullRequestSuggestion = (root: string, remote: string, id: number, thread: number, commit: string) =>
+  invoke<AcceptedSuggestion>("accept_pull_request_suggestion", { root, remote, id, thread, commit });
 
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
 
 /** The repository's config changed: a remote was added, removed or changed, or an upstream set. */
 export const onConfigChanged = (handler: () => void): Promise<UnlistenFn> => listen("config-changed", () => handler());
+
+// ---------------------------------------------------------------- notifications
+
+/** Shows a notification of the operating system; a click on it brings Arnold to the front and reports `key`. */
+export const notify = (title: string, body: string, key: string) => invoke<null>("notify", { title, body, key });
+
+/** A notification shown by `notify` was clicked. */
+export const onNotificationClicked = (handler: (key: string) => void): Promise<UnlistenFn> =>
+  listen<string>("notification-clicked", (event) => handler(event.payload));
 
 // ------------------------------------------------------------ language servers
 

@@ -25,3 +25,7 @@ tauri-plugin-window-state = "2"
 thiserror.workspace = true
 tokio.workspace = true
 
+# Notifications about pull requests, with a click on one reported back (the
+# notification plugin of Tauri 2 does not report clicks on desktop).
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+notify-rust = { version = "4.18", default-features = false }
