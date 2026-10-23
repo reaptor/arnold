@@ -569,6 +569,10 @@ export const removePullRequestToken = (root: string, remote: string) =>
 export const openPullRequest = (root: string, remote: string, id: number) =>
   invoke<PullRequest>("open_pull_request", { root, remote, id });
 
+/** The pull request as the host has it now, whatever its state (completed, abandoned); nothing is fetched. */
+export const readPullRequest = (root: string, remote: string, id: number) =>
+  invoke<PullRequest>("read_pull_request", { root, remote, id });
+
 /** Votes as the token's owner (`none` resets the vote); resolves to the pull request as it is now. */
 export const voteOnPullRequest = (root: string, remote: string, id: number, vote: Vote) =>
   invoke<PullRequest>("vote_on_pull_request", { root, remote, id, vote });
@@ -684,6 +688,15 @@ export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => liste
 
 /** The repository's config changed: a remote was added, removed or changed, or an upstream set. */
 export const onConfigChanged = (handler: () => void): Promise<UnlistenFn> => listen("config-changed", () => handler());
+
+// ---------------------------------------------------------------- notifications
+
+/** Shows a notification of the operating system; a click on it brings Arnold to the front and reports `key`. */
+export const notify = (title: string, body: string, key: string) => invoke<null>("notify", { title, body, key });
+
+/** A notification shown by `notify` was clicked. */
+export const onNotificationClicked = (handler: (key: string) => void): Promise<UnlistenFn> =>
+  listen<string>("notification-clicked", (event) => handler(event.payload));
 
 // ------------------------------------------------------------ language servers
 

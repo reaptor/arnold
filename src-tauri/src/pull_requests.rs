@@ -169,7 +169,16 @@ pub async fn list_pull_requests(
 ) -> Result<Vec<PullRequest>, PrError> {
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
-    blocking(move || azure::active_pull_requests(&repo, &token)).await?
+    let list = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::active_pull_requests(&repo, &token)).await??
+    };
+    // Which are the user's to follow (notifications); the user is asked once per token.
+    let mut marked = Vec::with_capacity(list.len());
+    for pull_request in list {
+        marked.push(prs.mark_you(&repo, &token, pull_request).await);
+    }
+    Ok(marked)
 }
 
 /// Checks `token` against `remote`, then saves it for the remote's
@@ -259,6 +268,25 @@ pub async fn open_pull_request(
             ));
         }
     }
+    Ok(prs.mark_you(&repo, &token, pull_request).await)
+}
+
+/// Pull request `id` of `remote` as the host has it now, whatever its state
+/// (completed, abandoned). Unlike `open_pull_request`, nothing is fetched.
+#[tauri::command]
+pub async fn read_pull_request(
+    root: String,
+    remote: String,
+    id: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<PullRequest, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let pull_request = {
+        let (repo, token) = (repo.clone(), token.clone());
+        blocking(move || azure::pull_request(&repo, &token, id)).await??
+    };
     Ok(prs.mark_you(&repo, &token, pull_request).await)
 }
 

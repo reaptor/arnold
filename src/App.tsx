@@ -24,6 +24,7 @@ import { prs } from "./state/pullRequests";
 import { licensesOpen } from "./state/licenses";
 import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
 import { startUpdateChecks } from "./state/updates";
+import { startNotifications } from "./state/prNotifications";
 import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
   addComment,
@@ -136,6 +137,7 @@ export function App() {
     attachEditor(editorHost);
     void startWatching();
     startUpdateChecks();
+    startNotifications();
     void startupPath().then((fromCommandLine) => {
       const path = fromCommandLine ?? localStorage.getItem("arnold.lastRepo");
       if (path) void openRepoAt(path);

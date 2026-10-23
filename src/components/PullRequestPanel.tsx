@@ -9,9 +9,10 @@ import {
   prs,
   selectRemote,
 } from "../state/pullRequests";
+import { notificationsOn, setNotificationsOn } from "../state/prNotifications";
 import { openPullRequest, setSource, state } from "../state/review";
 import { DevOpsSetup, openInBrowser } from "./DevOpsSetup";
-import { ExternalIcon, KeyIcon, PullRequestIcon } from "./icons";
+import { BellIcon, ExternalIcon, KeyIcon, PullRequestIcon } from "./icons";
 import { PullRequestList } from "./PullRequestList";
 
 const useBranches = () => void setSource("branches");
@@ -35,6 +36,28 @@ export function RemoteSelect() {
         </For>
       </select>
     </Show>
+  );
+}
+
+/**
+ * Turns notifications about the pull requests the user opened or reviews on
+ * or off. `compact`: the bell alone.
+ */
+export function NotifyButton(props: { compact?: boolean }) {
+  const title = () =>
+    notificationsOn()
+      ? "On: Arnold notifies you of new comments, votes, pushes and completion of the pull requests you opened or review, also while it is in the background. Click to turn them off."
+      : "Get notified of new comments, votes, pushes and completion of the pull requests you opened or review, while Arnold is open.";
+  return (
+    <button
+      classList={{ "notify-button": true, on: notificationsOn() }}
+      aria-pressed={notificationsOn()}
+      onClick={() => setNotificationsOn(!notificationsOn())}
+      title={title()}
+    >
+      <BellIcon />
+      <Show when={!props.compact}>{notificationsOn() ? "Notifications on" : "Notify me"}</Show>
+    </button>
   );
 }
 
@@ -95,6 +118,7 @@ export function PullRequestPanel() {
               <button onClick={() => void loadPullRequests()} disabled={prs.loading}>
                 {prs.loading ? "Reading…" : "Check again"}
               </button>
+              <NotifyButton />
               <button onClick={() => openInBrowser(`${currentRemote()!.webUrl}/pullrequests`)}>
                 Open in Azure DevOps
                 <ExternalIcon />
@@ -130,6 +154,7 @@ export function PullRequestPanel() {
                   <button onClick={() => void loadPullRequests()} disabled={prs.loading}>
                     {prs.loading ? "Reading…" : "Reload"}
                   </button>
+                  <NotifyButton />
                   <span class="toolbar-space" />
                   <button onClick={useBranches}>Compare branches instead</button>
                 </div>

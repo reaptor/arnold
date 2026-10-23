@@ -238,6 +238,10 @@ Editing works as in [Editing while comparing](#editing-while-comparing): saved a
 
 A checkout without edits follows new pushes by itself. If the pull request gets a new push while you have edits, the checkout keeps them on the earlier push (their lines no longer match it) and the diff turns read-only; *Read-only* in the status bar offers to throw them away and edit the latest push. Arnold does not remove worktrees.
 
+### Notifications
+
+*Notify me* under the list of pull requests (the bell in the toolbar's pull request list) turns on notifications of the operating system about the pull requests you opened or are a reviewer of, in the repository open in Arnold. Every two minutes, also while Arnold is in the background, it checks them for new comments by others, votes, pushes by others, a draft being published, merge conflicts in yours, completion and abandoning, and for new pull requests that have you as a reviewer. A notification tells what changed; clicking it brings Arnold to the front and opens the pull request (checking it out, as picking it does), at the new comment. What has changed by the time notifications are turned on, or Arnold is started, is the starting point and not notified; nor is what the pull request open in the focused window shows already. On Windows a click is noticed while the notification is on screen, not later from the Action Center.
+
 ### Voting and completing
 
 As in Azure DevOps, the toolbar has *Approve* and *Complete*:

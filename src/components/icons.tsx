@@ -182,6 +182,13 @@ export const KeyIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** Notifications. */
+export const BellIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11ZM6.5 13.5a1.5 1.5 0 0 0 3 0" />
+  </Icon>
+);
+
 /** Done, approved. */
 export const CheckIcon = (props: IconProps) => (
   <Icon {...props}>

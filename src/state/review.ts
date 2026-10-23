@@ -2690,6 +2690,12 @@ export async function revealThread(thread: PrThread) {
   editor?.revealThread(thread.id);
 }
 
+const [discussionsWanted, setDiscussionsWanted] = createSignal(0);
+/** Counts the requests to open the toolbar's list of discussions. */
+export { discussionsWanted };
+/** Opens the toolbar's list of discussions (where those about the whole pull request are). */
+export const openDiscussions = () => setDiscussionsWanted((count) => count + 1);
+
 // ------------------------------------------------------ voting and completing
 
 /** How the owner of the token voted on the pull request under review. */
