@@ -2746,6 +2746,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   line-height: 1.5;
 }
 
+/* A click on the comments of a changed file's discussion shows it in the diff. */
+.discussion-item.jumps .thread-comment {
+  cursor: pointer;
+}
+
+.discussion-item.jumps .thread-comment:hover {
+  background: var(--hover);
+}
+
 .discussion-picker .picker-value {
   flex: none;
 }
