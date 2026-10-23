@@ -660,6 +660,56 @@ pub fn delete_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comme
     classify(status, &text).map(|_| ())
 }
 
+/// Commits `content` as the new text of `path` to `branch`, on top of
+/// `old_commit`: the host refuses when the branch has moved on since.
+/// Resolves to the new commit.
+pub fn commit_file(
+    repo: &AzureRepo,
+    token: &str,
+    branch: &str,
+    old_commit: &str,
+    path: &str,
+    content: &[u8],
+    message: &str,
+) -> Result<String, PrError> {
+    let url = repo.api(&format!("/pushes?api-version={API_VERSION}"));
+    let answer = post(&url, token, &push_body(branch, old_commit, path, content, message)).map_err(|error| match error {
+        // TF401028: the reference was updated by another client.
+        PrError::Other(text) if text.starts_with("Azure DevOps answered with status 409") => {
+            PrError::Other(format!("{branch} has a new push on Azure DevOps. Look at it before accepting suggestions."))
+        }
+        other => other,
+    })?;
+    answer["commits"][0]["commitId"]
+        .as_str()
+        .or_else(|| answer["refUpdates"][0]["newObjectId"].as_str())
+        .map(str::to_string)
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+fn push_body(branch: &str, old_commit: &str, path: &str, content: &[u8], message: &str) -> Value {
+    json!({
+        "refUpdates": [{ "name": format!("refs/heads/{branch}"), "oldObjectId": old_commit }],
+        "commits": [{
+            "comment": message,
+            "changes": [{
+                "changeType": "edit",
+                "item": { "path": repo_path(path) },
+                // Bytes as they are: line ends and encoding stay the file's own.
+                "newContent": { "content": base64::engine::general_purpose::STANDARD.encode(content), "contentType": "base64encoded" },
+            }],
+        }],
+    })
+}
+
+/// Marks thread `thread` of pull request `id` as resolved.
+pub fn resolve_thread(repo: &AzureRepo, token: &str, id: u64, thread: u64) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/threads/{thread}?api-version={API_VERSION}"));
+    // 2: fixed, shown as Resolved.
+    send(agent().patch(&url), &url, token, &json!({ "status": 2 }))?;
+    Ok(())
+}
+
 /// The host's id for `path` in the changes of iteration `iteration`; a
 /// thread without it still shows, so failing here is not an error.
 fn change_tracking_id(repo: &AzureRepo, token: &str, id: u64, iteration: u64, path: &str) -> Option<u64> {
@@ -1177,6 +1227,24 @@ mod tests {
         let general = thread_body(None, "Looks good", None, None);
         assert!(general.get("threadContext").is_none());
         assert!(general.get("pullRequestThreadContext").is_none());
+    }
+
+    #[test]
+    fn builds_push_bodies() {
+        assert_eq!(
+            push_body("feature/x", "abc123", "src/Discounts.fs", b"let a = 1\r\n", "Apply suggestion"),
+            json!({
+                "refUpdates": [{ "name": "refs/heads/feature/x", "oldObjectId": "abc123" }],
+                "commits": [{
+                    "comment": "Apply suggestion",
+                    "changes": [{
+                        "changeType": "edit",
+                        "item": { "path": "/src/Discounts.fs" },
+                        "newContent": { "content": "bGV0IGEgPSAxDQo=", "contentType": "base64encoded" }
+                    }]
+                }]
+            })
+        );
     }
 
     #[test]

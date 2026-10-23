@@ -43,7 +43,7 @@ import { removeUnusedOpens, type ServerDiagnostic, showFixes, unusedOpenCount } 
 import { applyTextEdits, onEditFile, onRenameError, startRename } from "../lsp/rename";
 import { joinPath, pathToUri, relativeTo, uriToPath } from "../lsp/uri";
 import { clearSolution, fileOrder, loadSolution } from "./solutionView";
-import { type Suggestion, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
+import { type Suggestion, suggestedCode, suggestionComment, suggestionPlace, suggestionsFor, withoutBlocks } from "./suggestions";
 import type { LineBlock } from "../editor/lineDiff";
 import { isSuggestion, placeName, setThreadActions } from "../editor/threads";
 import { azureHostLinks, setHostLinks } from "../components/Markdown";
@@ -687,7 +687,14 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected), true);
-  setThreadActions({ reply, createThread, cancelDraft, deleteComment });
+  setThreadActions({
+    reply,
+    createThread,
+    cancelDraft,
+    deleteComment,
+    acceptSuggestion,
+    whyNotAccept: whyNotAcceptSuggestion,
+  });
   lsp.onDisplayFile(displayUri);
   lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
@@ -2663,6 +2670,69 @@ async function deleteComment(thread: PrThread, comment: PrComment) {
     fail(writeErrorText(error, `the deletion of the ${what}`));
   }
   await loadThreads();
+}
+
+/** Why the suggestion of `thread` cannot be accepted; null when it can. */
+function whyNotAcceptSuggestion(thread: PrThread): string | null {
+  const pullRequest = state.pullRequest;
+  if (state.source !== "pullRequest" || !pullRequest) return "No pull request is open.";
+  if (pullRequest.status !== "active") return `The pull request is ${pullRequest.status}.`;
+  if (!thread.path || thread.position?.side !== "head") return "Azure DevOps no longer knows which lines this suggestion replaces.";
+  if (suggestedCode(thread.comments[0].content) === null) return "The suggested code could not be read.";
+  if (!pullRequest.sourceCommit || state.comparison?.tipCommit !== pullRequest.sourceCommit) {
+    return "The pull request has a new push. Look at it before accepting suggestions.";
+  }
+  return null;
+}
+
+/**
+ * Accepts a suggestion, after asking: its code replaces the lines in a new
+ * commit on the pull request's source branch on Azure DevOps (as "Apply
+ * change" does on its page), and the discussion is resolved. The new push
+ * then shows like any other.
+ */
+async function acceptSuggestion(thread: PrThread) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) return;
+  const blocked = whyNotAcceptSuggestion(thread);
+  const { path, position } = thread;
+  const lines = suggestedCode(thread.comments[0].content);
+  if (blocked || !path || !position || !lines || !pullRequest.sourceCommit) return fail(blocked ?? "This suggestion cannot be accepted.");
+  const where = position.startLine === position.endLine ? `line ${position.startLine}` : `lines ${position.startLine}–${position.endLine}`;
+  const sure = await confirm(
+    `Commit this suggestion to ${pullRequest.sourceBranch}? It replaces ${where} of ${path} in a new push to pull request !${pullRequest.id}, and resolves the discussion.`,
+    { title: "Accept suggestion", kind: "info", okLabel: "Commit" },
+  );
+  if (!sure) return;
+  let commit: string;
+  try {
+    commit = await ipc.acceptPullRequestSuggestion(repo.root, pullRequest.remote, pullRequest.id, {
+      thread: thread.id,
+      path,
+      sourceCommit: pullRequest.sourceCommit,
+      startLine: position.startLine,
+      endLine: position.endLine,
+      lines,
+      message: `Apply suggestion from ${thread.comments[0].author}\n\nOn ${path} in pull request !${pullRequest.id}.`,
+    });
+  } catch (error) {
+    fail(writeErrorText(error, "the commit of the suggestion"));
+    await loadThreads();
+    return;
+  }
+  await loadThreads();
+  await followPush(pullRequest, commit);
+}
+
+/** Checks the pull request until the host has taken in the push of `commit` (it does so after answering), so it shows. */
+async function followPush(pullRequest: ReviewedPullRequest, commit: string) {
+  for (let tries = 0; tries < 8; tries++) {
+    await new Promise((done) => window.setTimeout(done, tries === 0 ? 300 : 1500));
+    if (pullRequestKey(state.pullRequest) !== pullRequestKey(pullRequest)) return;
+    await checkPullRequest();
+    if (state.pullRequest?.sourceCommit === commit) return;
+  }
 }
 
 function cancelDraft(place: NewThreadPlace) {

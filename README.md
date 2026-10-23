@@ -196,7 +196,7 @@ When a remote of the repository is on Azure DevOps (dev.azure.com, *.visualstudi
 
 ### Connecting
 
-Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, voting and completing need **Code (Read & write)**; showing a linked work item's title needs **Work Items (Read)** as well (optional). Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
+Arnold needs a personal access token. Listing pull requests needs the **Code (Read)** scope; creating pull requests (and pushing their branch), commenting, accepting suggestions, voting and completing need **Code (Read & write)**; showing a linked work item's title needs **Work Items (Read)** as well (optional). Arnold shows these steps itself when it finds an Azure DevOps remote and has no token:
 
 1. In Azure DevOps, open *User settings → Personal access tokens* (`https://dev.azure.com/<organization>/_usersSettings/tokens`) and select *New Token*.
 2. Pick the organization and an expiry date, choose *Custom defined* scopes and tick *Code → Read & write* (or *Read* only, to only read). Create it and copy the token.
@@ -235,6 +235,8 @@ Discussions show with all changes only: a commit picked in the commit picker has
 Rather than describing a fix, make it: type into the diff. Opening a pull request checks it out detached at its latest push: in the opened folder, or, if that has uncommitted changes and you would rather keep them, in a git worktree of its own, `.arnold/worktrees/pr-<id>` (see [Checking out](#checking-out)). F# language features run in that checkout, so they see your edits.
 
 Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
+
+An open suggestion has *Accept suggestion* beside *Reply*, as *Apply change* on the pull request's page in Azure DevOps: after asking, Arnold commits the suggested code in place of the lines to the pull request's source branch on Azure DevOps and resolves the discussion. The commit goes on top of the push you are shown only, so a push you have not seen is never built on; the new push then shows like any other (a checkout without edits follows it). It needs the token's Code (Read & write) scope and permission to push to the branch.
 
 A checkout without edits follows new pushes by itself. If the pull request gets a new push while you have edits, the checkout keeps them on the earlier push (their lines no longer match it) and the diff turns read-only; *Read-only* in the status bar offers to throw them away and edit the latest push. Arnold does not remove worktrees.
 
@@ -352,7 +354,7 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - while running *Run Fantomas and commit* on a file that also has unstaged changes: a short-lived copy of its staged text beside it (`<name>.arnold-staged.fs`), deleted as soon as Fantomas has formatted it;
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
 - from the remotes, when you select *Fetch* in a branch picker or *Pull* in *Commit*: every branch into the remote-tracking branches (deleted ones dropped), and local branches checked out nowhere that are only behind moved up to their remote; *Pull* also fast-forwards or merges the branch checked out;
-- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
+- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, accepted suggestions (a commit on the pull request's source branch, and the discussion resolved), votes, and completing, abandoning, drafting or publishing a pull request;
 - when you open a pull request: its latest push checked out detached, in the opened folder or (as for a branch) in a registered git worktree, `.arnold/worktrees/pr-<id>`, holding your edits until you suggest or undo them; `.arnold/pull-request` notes which pull request the folder has.
 
 Outside the repository, explaining code and suggesting improvements with AI send the code you ask about (for suggestions, also a few unchanged files beside the changed ones) to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
@@ -438,7 +440,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 
 | Option | What it does |
 |---|---|
-| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
+| `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, two discussions holding a suggestion), for trying editing, *Suggest changes* and *Accept suggestion*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `nosolution` | The stand-in repository has no solution or project files, so *All files* shows only the folder tree |
 | `notcheckedout` | The folder is on `main`, so `feature/agent-work` is checked out in it when compared; `dirtyfolder` also gives `main` uncommitted changes, so Arnold asks whether to use a worktree or discard them; `checkoutfail` makes checking out fail, so the comparison is read-only |

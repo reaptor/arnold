@@ -258,6 +258,38 @@ pub struct Comment {
     pub edited: bool,
 }
 
+/// `file` with lines `start_line`–`end_line` (1-based, both included)
+/// replaced by `lines`, as accepting a suggestion does: the file keeps its
+/// line ends (`\r\n` when it has them), byte order mark and final line
+/// break. `None` when it is not UTF-8 text or lacks those lines.
+pub fn replace_lines(file: &[u8], start_line: u32, end_line: u32, lines: &[String]) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(file).ok()?;
+    let (bom, text) = match text.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", text),
+    };
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let final_break = text.ends_with('\n');
+    let mut all: Vec<&str> = match text.strip_suffix('\n') {
+        _ if text.is_empty() => Vec::new(),
+        Some(body) => body.split('\n').collect(),
+        None => text.split('\n').collect(),
+    };
+    for line in &mut all {
+        *line = line.strip_suffix('\r').unwrap_or(line);
+    }
+    let (start, end) = (start_line as usize, end_line as usize);
+    if start == 0 || end < start || end > all.len() {
+        return None;
+    }
+    all.splice(start - 1..end, lines.iter().map(String::as_str));
+    let mut out = format!("{bom}{}", all.join(eol));
+    if final_break && !all.is_empty() {
+        out.push_str(eol);
+    }
+    Some(out.into_bytes())
+}
+
 /// Why pull requests could not be read. Sent to the webview as
 /// `{ kind, message }`.
 #[derive(Debug, Clone, thiserror::Error, Serialize, PartialEq)]
@@ -278,4 +310,34 @@ pub enum PrError {
     Network(String),
     #[error("{0}")]
     Other(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn replaced(file: &str, start: u32, end: u32, lines: &[&str]) -> Option<String> {
+        let lines: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+        replace_lines(file.as_bytes(), start, end, &lines).map(|bytes| String::from_utf8(bytes).unwrap())
+    }
+
+    #[test]
+    fn replaces_lines_keeping_the_file_as_it_is() {
+        assert_eq!(replaced("a\nb\nc\n", 2, 2, &["B"]).as_deref(), Some("a\nB\nc\n"));
+        assert_eq!(replaced("a\nb\nc", 2, 3, &["x", "y", "z"]).as_deref(), Some("a\nx\ny\nz"));
+        assert_eq!(replaced("a\r\nb\r\nc\r\n", 1, 1, &["A", "A2"]).as_deref(), Some("A\r\nA2\r\nb\r\nc\r\n"));
+        assert_eq!(replaced("\u{feff}a\nb\n", 1, 1, &["A"]).as_deref(), Some("\u{feff}A\nb\n"));
+        // Removing lines, all of them too.
+        assert_eq!(replaced("a\nb\nc\n", 2, 2, &[]).as_deref(), Some("a\nc\n"));
+        assert_eq!(replaced("a\n", 1, 1, &[]).as_deref(), Some(""));
+    }
+
+    #[test]
+    fn refuses_lines_that_are_not_there() {
+        assert_eq!(replaced("a\nb\n", 3, 3, &["x"]), None);
+        assert_eq!(replaced("a\nb\n", 0, 1, &["x"]), None);
+        assert_eq!(replaced("a\nb\n", 2, 1, &["x"]), None);
+        assert_eq!(replaced("", 1, 1, &["x"]), None);
+        assert_eq!(replace_lines(&[0xff, b'\n'], 1, 1, &[]), None);
+    }
 }

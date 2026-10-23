@@ -2849,7 +2849,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 }
 
 .thread-footer:has(> .thread-reply) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 6px;
+}
+
+/* Accept suggestion (threads.ts): commits the suggested code to the pull request. */
+.thread-accept {
+  font-size: 12px;
 }
 
 .thread-reply {

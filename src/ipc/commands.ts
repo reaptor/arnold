@@ -679,6 +679,28 @@ export const replyToPullRequestThread = (
 export const deletePullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number) =>
   invoke<null>("delete_pull_request_comment", { root, remote, id, thread, comment });
 
+/** A suggestion of a discussion, to commit. */
+export interface AcceptedSuggestion {
+  thread: number;
+  path: string;
+  /** The pull request's latest push, which the lines are of. */
+  sourceCommit: string;
+  /** The lines replaced, 1-based and both included. */
+  startLine: number;
+  endLine: number;
+  /** What they become. */
+  lines: string[];
+  /** The commit's message. */
+  message: string;
+}
+
+/**
+ * Commits a suggestion to the pull request's source branch on the host, on
+ * top of `sourceCommit` only, then resolves its discussion. Resolves to the new commit.
+ */
+export const acceptPullRequestSuggestion = (root: string, remote: string, id: number, suggestion: AcceptedSuggestion) =>
+  invoke<string>("accept_pull_request_suggestion", { root, remote, id, suggestion });
+
 /** A branch or remote-tracking branch moved (commit, fetch, reset). */
 export const onRefsChanged = (handler: () => void): Promise<UnlistenFn> => listen("refs-changed", () => handler());
 

@@ -38,6 +38,10 @@ export interface ThreadActions {
   cancelDraft(place: NewThreadPlace): void;
   /** Deletes a comment of the token's owner (asking first). */
   deleteComment(thread: PrThread, comment: PrComment): Promise<void>;
+  /** Commits the code a thread suggests to the pull request (asking first) and resolves the thread. */
+  acceptSuggestion(thread: PrThread): Promise<void>;
+  /** Why the suggestion of `thread` cannot be accepted; null when it can. */
+  whyNotAccept(thread: PrThread): string | null;
 }
 
 let actions: ThreadActions | null = null;
@@ -240,7 +244,23 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
         showFooter();
         onResize?.();
       };
-      return footer.replaceChildren(reply);
+      if (!isSuggestion(thread) || !isOpen(thread)) return footer.replaceChildren(reply);
+      const accept = element("button", "thread-accept primary", "Accept suggestion");
+      const blocked = actions.whyNotAccept(thread);
+      accept.disabled = blocked !== null;
+      accept.title = blocked ?? "Commit the suggested code to the pull request's branch and resolve this discussion";
+      accept.onclick = async () => {
+        accept.disabled = true;
+        accept.textContent = "Accepting…";
+        try {
+          await actions!.acceptSuggestion(thread);
+        } finally {
+          // The card is usually redrawn by then, resolved.
+          accept.disabled = false;
+          accept.textContent = "Accept suggestion";
+        }
+      };
+      return footer.replaceChildren(accept, reply);
     }
     footer.replaceChildren(
       composerElement({

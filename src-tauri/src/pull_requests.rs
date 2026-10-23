@@ -399,6 +399,57 @@ pub async fn reply_to_pull_request_thread(
     blocking(move || azure::reply(&repo, &token, id, thread, parent, &content)).await?
 }
 
+/// A suggestion of a discussion, to commit.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedSuggestion {
+    thread: u64,
+    path: String,
+    /// The pull request's latest push, which the lines are of.
+    source_commit: String,
+    /// The lines replaced, 1-based and both included.
+    start_line: u32,
+    end_line: u32,
+    /// What they become.
+    lines: Vec<String>,
+    /// The commit's message.
+    message: String,
+}
+
+/// Accepts a suggestion on pull request `id`: commits it to the source
+/// branch on the host, on top of the push it was shown with (never over a
+/// push not seen), then resolves its discussion. Resolves to the new commit.
+#[tauri::command]
+pub async fn accept_pull_request_suggestion(
+    root: String,
+    remote: String,
+    id: u64,
+    suggestion: AcceptedSuggestion,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<String, PrError> {
+    let (root, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    let AcceptedSuggestion { thread, path, source_commit, start_line, end_line, lines, message } = suggestion;
+    let file = arnold_git::read_blob(&root, &source_commit, &path)
+        .await
+        .map_err(other)?
+        .ok_or_else(|| PrError::Other(format!("{path} is not in the pull request's latest push.")))?;
+    let content = arnold_pr::replace_lines(&file, start_line, end_line, &lines)
+        .ok_or_else(|| PrError::Other(format!("Lines {start_line}–{end_line} of {path} cannot be replaced: they are not there as text.")))?;
+    blocking(move || {
+        let pull_request = azure::pull_request(&repo, &token, id)?;
+        if pull_request.source_commit.as_deref() != Some(source_commit.as_str()) {
+            return Err(PrError::Other("The pull request has a new push. Look at it before accepting suggestions.".into()));
+        }
+        let commit = azure::commit_file(&repo, &token, &pull_request.source_branch, &source_commit, &path, &content, &message)?;
+        azure::resolve_thread(&repo, &token, id, thread)
+            .map_err(|error| PrError::Other(format!("The suggestion was committed, but its discussion could not be resolved: {error}")))?;
+        Ok(commit)
+    })
+    .await?
+}
+
 // ------------------------------------------------------- creating one
 
 /// What creating a pull request from a reviewed branch would do, worked

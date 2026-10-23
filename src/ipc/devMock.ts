@@ -6,6 +6,7 @@ import type { Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type {
+  AcceptedSuggestion,
   Branch,
   Fetched,
   PullOutcome,
@@ -1524,10 +1525,41 @@ function newPush(id = 1291) {
   const discounts = own.files.get("src/Discounts.fs")!;
   const count = own.commits.length - 1;
   discounts.working += `\n/// Every discount there is (push ${count}).\nlet all${count} = [ seasonal; staff ]\n`;
-  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject: `List every discount (${count})`, author: "Grace Hopper", date: new Date().toISOString(), paths: ["src/Discounts.fs"] });
-  pullRequest.sourceCommit = sha;
+  const sha = pushCommit(own, pullRequest, `List every discount (${count})`, "Grace Hopper", ["src/Discounts.fs"]);
   console.info(`devMock: pushed ${sha.slice(0, 7)} to !${id}; reload the pull request list or refocus the window`);
+}
+
+/** A new commit at the tip of `own`'s pull request, for files changed already; returns it. */
+function pushCommit(own: OwnDiff, pullRequest: PullRequest, subject: string, author: string, paths: string[]): string {
+  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author, date: new Date().toISOString(), paths });
+  pullRequest.sourceCommit = sha;
+  return sha;
+}
+
+/** Accepting a suggestion of !1291: its code replaces the lines in a new commit, and the thread is resolved. */
+function acceptSuggestion(id: number, suggestion: AcceptedSuggestion): string {
+  const own = ownDiffs.get(id);
+  const pullRequest = mockPullRequests.find((candidate) => candidate.id === id);
+  const file = own?.files.get(suggestion.path);
+  if (!own || !pullRequest || !file?.working) throw { kind: "other", message: `devMock: only the suggestions of !1291 can be accepted.` };
+  if (pullRequest.sourceCommit !== suggestion.sourceCommit) {
+    throw { kind: "other", message: `${pullRequest.sourceBranch} has a new push on Azure DevOps. Look at it before accepting suggestions.` };
+  }
+  const lines = file.working.replace(/\n$/, "").split("\n");
+  const replaced = suggestion.endLine - suggestion.startLine + 1;
+  lines.splice(suggestion.startLine - 1, replaced, ...suggestion.lines);
+  file.working = `${lines.join("\n")}\n`;
+  // The host follows the other threads' lines.
+  for (const thread of own.threads) {
+    if (thread.id === suggestion.thread) thread.status = "fixed";
+    else if (thread.path === suggestion.path && thread.position && thread.position.startLine > suggestion.endLine) {
+      thread.position.startLine += suggestion.lines.length - replaced;
+      thread.position.endLine += suggestion.lines.length - replaced;
+    }
+  }
+  console.info(`devMock: committed the suggestion of thread ${suggestion.thread} to !${id}`, suggestion);
+  return pushCommit(own, pullRequest, suggestion.message.split("\n")[0], YOU.name, [suggestion.path]);
 }
 /** `arnoldMock.devopsRemote(false)` removes origin's Azure DevOps remote, `(true)` adds it, as `git remote` would. */
 function devopsRemote(on = true) {
@@ -2171,6 +2203,12 @@ export function install() {
             if (found.comments.length === 0) threads.splice(threads.indexOf(found), 1);
             return null;
           }, 500);
+        case "accept_pull_request_suggestion":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            return acceptSuggestion(Number(args.id), (payload as { suggestion: AcceptedSuggestion }).suggestion);
+          }, 900);
         case "pull_request_threads":
           return slowly(() => {
             checkToken();
