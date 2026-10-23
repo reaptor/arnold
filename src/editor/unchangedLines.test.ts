@@ -10,6 +10,7 @@ import {
   otherSidePos,
   unchangedLines,
   unchangedRuns,
+  unfoldEffects,
 } from "./unchangedLines";
 
 const config = { margin: 3, minSize: 8 };
@@ -151,6 +152,16 @@ describe("unchangedLines", () => {
     state = state.update({ changes: { from: line.from, to: line.to, insert: "edited" } }).state;
     // Lines 1-6 are too few to fold; 14-26 were folded with the edited line.
     expect(shown(state)).toEqual({ folded: ["34-60"], bars: ["14"] });
+  });
+
+  it("unfolds only the folded runs holding the positions given (go-to-definition)", () => {
+    let state = unified();
+    expect(unfoldEffects(state, [state.doc.line(30).from, state.doc.line(31).from])).toEqual([]);
+    state = run(state, ...unfoldEffects(state, [state.doc.line(40).from + 4]));
+    expect(shown(state)).toEqual({ folded: ["1-26"], bars: ["34"] });
+    expect(unfoldEffects(state, [state.doc.line(40).from])).toEqual([]);
+    state = run(state, ...unfoldEffects(state, [0, state.doc.line(26).to]));
+    expect(shown(state)).toEqual({ folded: [], bars: ["1", "34"] });
   });
 
   it("keeps lines shown, folding the runs around them", () => {

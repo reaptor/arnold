@@ -291,22 +291,33 @@ export function canCollapseUnchanged(state: EditorState, keep: readonly number[]
   return !!folds && runsOf(state).some((run) => !isFolded(folds, run) && !keep.some((pos) => pos >= run.from && pos <= run.to));
 }
 
-/** Unfolds the runs holding any of `positions`. */
-export function revealUnchanged(view: EditorView, positions: readonly number[]) {
+/** The effects that unfold the runs holding any of `positions`; none when none of them is folded. */
+export function unfoldEffects(state: EditorState, positions: readonly number[]): StateEffect<number>[] {
   const starts = new Set<number>();
-  view.state.field(foldingField, false)?.folds.between(0, view.state.doc.length, (from, to) => {
+  state.field(foldingField, false)?.folds.between(0, state.doc.length, (from, to) => {
     if (positions.some((pos) => pos >= from && pos <= to)) starts.add(from);
   });
-  if (starts.size > 0) view.dispatch({ effects: [...starts].map((start) => uncollapseUnchanged.of(start)) });
+  return [...starts].map((start) => uncollapseUnchanged.of(start));
 }
 
-/** Unfolds the run holding `pos` and, in the split view, the other side's run beside it, so the sides stay lined up. */
-export function revealUnchangedOnBothSides(view: EditorView, pos: number) {
+/** Unfolds the runs holding any of `positions`; whether any was folded. */
+export function revealUnchanged(view: EditorView, positions: readonly number[]): boolean {
+  const effects = unfoldEffects(view.state, positions);
+  if (effects.length > 0) view.dispatch({ effects });
+  return effects.length > 0;
+}
+
+/**
+ * Unfolds the run holding `pos` and, in the split view, the other side's run
+ * beside it, so the sides stay lined up; whether `pos` was folded.
+ */
+export function revealUnchangedOnBothSides(view: EditorView, pos: number): boolean {
   const siblings = mergeViewSiblings(view);
   const chunks = getChunks(view.state);
-  revealUnchanged(view, [pos]);
-  if (!siblings || !chunks) return;
+  const revealed = revealUnchanged(view, [pos]);
+  if (!siblings || !chunks) return revealed;
   const fromA = siblings.a === view;
   const other = fromA ? siblings.b : siblings.a;
   revealUnchanged(other, [otherSidePos(pos, chunks.chunks, view.state.doc, other.state.doc, fromA)]);
+  return revealed;
 }
