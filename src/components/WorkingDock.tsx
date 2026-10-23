@@ -46,6 +46,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
   const [commitHeight, setCommitHeight] = createSignal(Number(remembered("commitHeight")) || 130);
   const lists: Partial<Record<WorkingSide, HTMLUListElement>> = {};
   let explorer!: HTMLElement;
+  let stagedSection!: HTMLElement;
 
   const needle = () => filter().toLowerCase();
   const matching = (side: WorkingSide) => listOf(side).filter((file) => file.path.toLowerCase().includes(needle()));
@@ -89,20 +90,38 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
     down.preventDefault();
   };
 
-  /** The commit message's top edge: taller takes room from the staged list and the explorer. */
+  /**
+   * The commit message's top edge follows the pointer and its bottom stays put:
+   * taller takes room from the staged list above it, then from the unstaged one.
+   */
   const startCommitResize = (down: PointerEvent) => {
     const startY = down.clientY;
     const startHeight = commitHeight();
-    const below =
-      (open().explorer ? explorer.clientHeight - MIN_EXPLORER_HEIGHT : 0) +
-      (open().staged ? (lists.staged?.clientHeight ?? 0) - MIN_LIST_HEIGHT : 0);
-    const most = startHeight + Math.max(below, 0);
-    const onMove = (move: PointerEvent) =>
-      setCommitHeight(Math.min(Math.max(startHeight - (move.clientY - startY), MIN_COMMIT_HEIGHT), most));
+    const stagedList = open().staged ? lists.staged : undefined;
+    const unstagedList = open().unstaged && sized("unstaged") ? lists.unstaged : undefined;
+    const startStaged = stagedList?.clientHeight ?? 0;
+    const startUnstaged = unstagedList?.clientHeight ?? 0;
+    // Without the explorer, Staged fills the rest of the dock and gives way by itself.
+    const stagedRoom = sized("staged")
+      ? Math.max(startStaged - MIN_LIST_HEIGHT, 0)
+      : Math.max(stagedSection.clientHeight - stagedSection.firstElementChild!.clientHeight - (stagedList ? MIN_LIST_HEIGHT : 0), 0);
+    const unstagedRoom = Math.max(startUnstaged - MIN_LIST_HEIGHT, 0);
+    const most = startHeight + stagedRoom + unstagedRoom;
+    const onMove = (move: PointerEvent) => {
+      const height = Math.min(Math.max(startHeight - (move.clientY - startY), MIN_COMMIT_HEIGHT), most);
+      const taller = height - startHeight;
+      const next = { ...heights() };
+      if (stagedList && sized("staged")) next.staged = startStaged - Math.min(taller, stagedRoom);
+      if (unstagedList) next.unstaged = startUnstaged - Math.max(taller - stagedRoom, 0);
+      setHeights(next);
+      setCommitHeight(height);
+    };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       remember("commitHeight", commitHeight());
+      remember("stagedHeight", heights().staged);
+      remember("unstagedHeight", heights().unstaged);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -365,7 +384,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
       </div>
       <div class="dock-sash" classList={{ fixed: !open().unstaged || !sized("unstaged") }} onPointerDown={(down) => startResize("unstaged", down)} />
       <div class="dock-island" classList={{ grow: !open().explorer }}>
-        <section class="dock-section" classList={{ grow: !open().explorer }}>
+        <section class="dock-section" classList={{ grow: !open().explorer }} ref={stagedSection}>
           <DockHeading
             open={open().staged}
             onToggle={() => toggle("staged")}
