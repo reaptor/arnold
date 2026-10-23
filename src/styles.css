@@ -2531,6 +2531,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   gap: 6px;
 }
 
+/* Whole-pixel lines, so the pills and the title are centered alike on every row. */
 .dashboard-pr {
   display: flex;
   align-items: flex-start;
@@ -2538,6 +2539,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   padding: 8px 10px;
   border: 1px solid var(--popup-border);
   border-radius: 6px;
+  line-height: 18px;
   cursor: pointer;
 }
 
@@ -2566,13 +2568,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 .dashboard-pr .pr-line:first-child .picker-name {
   font-weight: 600;
   font-size: 14px;
+  line-height: 20px;
 }
 
+/* As tall as the title's line, which it sits next to. */
 .pr-status {
   flex: none;
   width: 124px;
-  margin-top: 1px;
   padding: 1px 0;
+  line-height: 16px;
   border: 1px solid currentColor;
   border-radius: 10px;
   font-size: 11px;
