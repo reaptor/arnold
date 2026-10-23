@@ -13,6 +13,7 @@ import { LicensesDialog } from "./components/LicensesDialog";
 import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./components/ProblemsPanel";
 import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
+import { startBuild } from "./state/build";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
@@ -48,6 +49,10 @@ import {
 /** Opens or closes the Problems panel: Ctrl+Shift+M, and Cmd+Shift+M on macOS, as in VS Code. */
 const isProblemsShortcut = (event: KeyboardEvent) =>
   (event.ctrlKey || (isMac && event.metaKey)) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "m";
+
+/** Builds the solution: Ctrl+Shift+B as in Visual Studio and VS Code, and Cmd+Shift+B on macOS. */
+const isBuildShortcut = (event: KeyboardEvent) =>
+  (event.ctrlKey || (isMac && event.metaKey)) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "b";
 
 /** "Go back" as editors have it: Ctrl+- on macOS, Alt+Left elsewhere. */
 const isBackShortcut = (event: KeyboardEvent) =>
@@ -180,6 +185,12 @@ export function App() {
       event.preventDefault();
       event.stopPropagation();
       toggleProblems();
+    } else if (isBuildShortcut(event) && state.repo) {
+      event.preventDefault();
+      event.stopPropagation();
+      // The panel lists what the build reports.
+      if (state.languageSetup) toggleProblems(true);
+      void startBuild();
     }
   };
   const closeMenu = () => setState("menu", null);

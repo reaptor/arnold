@@ -27,6 +27,7 @@ import type {
   RepoInfo,
   Reviewer,
   SetupEvent,
+  BuildEvent,
   Vote,
   WorkingSide,
   WorkingStatus,
@@ -317,6 +318,31 @@ async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: 
     await send({ kind: "output", line: `  Api -> ${path}/src/Api/bin/Debug/net10.0/Api.dll` }, 800);
   }
   return { path };
+}
+
+// A build of the solution (Ctrl+Shift+B) takes a few seconds and reports two
+// errors and two warnings; `?buildok` makes it succeed without any.
+let building = 0;
+
+async function fakeBuild(onEvent: Channel<BuildEvent>, root: string) {
+  const run = ++building;
+  const send = async (event: BuildEvent, ms = 0) => {
+    if (ms) await new Promise((resolve) => setTimeout(resolve, ms));
+    if (run !== building) throw "cancelled";
+    onEvent.onmessage(event);
+  };
+  const ok = searchParams.has("buildok");
+  await send({ kind: "started", target: "Shop.sln" });
+  await send({ kind: "output", line: "  Determining projects to restore..." }, 300);
+  await send({ kind: "output", line: "  All projects are up-to-date for restore." }, 500);
+  await send({ kind: "output", line: `${root}/tests/Tests.fsproj : warning NU1603: Expecto 10.2.1 depends on FsCheck (>= 2.16.5) but FsCheck 2.16.5 was not found. FsCheck 2.16.6 was resolved instead. [${root}/Shop.sln]` }, 300);
+  if (!ok) {
+    await send({ kind: "output", line: `${root}/src/Api/OrderController.cs(15,27): warning CS8602: Dereference of a possibly null reference. [${root}/src/Api/Api.csproj]` }, 700);
+    await send({ kind: "output", line: `${root}/Orders.fs(23,29): error FS0001: This expression was expected to have type    'int'    but here has type    'string' [${root}/Shop.fsproj]` }, 900);
+    await send({ kind: "output", line: `${root}/Orders.fs(31,8): error FS0039: The value, namespace, type or module 'Currency' is not defined. [${root}/Shop.fsproj]` });
+  }
+  await send({ kind: "output", line: `  Api -> ${root}/src/Api/bin/Debug/net10.0/Api.dll` }, 600);
+  return { succeeded: ok };
 }
 
 function publishUnusedOpens(uri: string, text: string) {
@@ -2210,6 +2236,11 @@ export function install() {
             args.root,
             (payload as { inPlace: boolean }).inPlace,
           );
+        case "build_solution":
+          return fakeBuild((payload as { onEvent: Channel<BuildEvent> }).onEvent, args.root);
+        case "cancel_build":
+          building++;
+          return null;
         case "lsp_start": {
           if (!fakeServer) throw new Error("No language server in the browser preview (add ?lsp for a stand-in).");
           serverDocs.clear();

@@ -55,6 +55,7 @@ import { checkOutAsking } from "./checkoutChoice";
 import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions";
 import { loadCreators } from "./branchInfo";
 import { track } from "./activity";
+import { forgetBuild } from "./build";
 import { type Problem, toProblems } from "./problems";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
@@ -2044,6 +2045,7 @@ async function prepareLanguageFeatures(key: string, root: string, name: string, 
   backgroundSent.clear();
   setState("problems", reconcile({}));
   setState("diagnostics", reconcile({}));
+  forgetBuild();
   setSetupOutput([]);
   setState({
     lspStatus: null,

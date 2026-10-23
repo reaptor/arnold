@@ -229,6 +229,14 @@ export const SendIcon = (props: IconProps) => (
 );
 
 /** Stopping an answer. */
+/** Build, as Rider's hammer. */
+export const BuildIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8.5 7.5l-5.2 5.2a1.06 1.06 0 0 0 1.5 1.5L10 9" />
+    <path d="M6.5 4.5L9 2h2.5l2.5 2.5L12.5 6l-1-1L9 7.5 7.5 6z" />
+  </Icon>
+);
+
 export const StopIcon = (props: IconProps) => (
   <Icon {...props}>
     <rect x="4.5" y="4.5" width="7" height="7" rx="1" />

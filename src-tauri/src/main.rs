@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai;
+mod build;
 mod commands;
 mod formatting;
 mod fsio;
@@ -65,6 +66,7 @@ fn main() {
         .manage(commands::AppState::default())
         .manage(lsp::LspState::default())
         .manage(workspace::PrepareState::default())
+        .manage(build::BuildState::default())
         .manage(pull_requests::PrState::default())
         .manage(updates::UpdateState::default())
         .manage(ai::AiState::default())
@@ -121,6 +123,8 @@ fn main() {
             pull_requests::work_item,
             pull_requests::required_branch_policies,
             workspace::prepare_workspace,
+            build::build_solution,
+            build::cancel_build,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_open_background,

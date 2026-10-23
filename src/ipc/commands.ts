@@ -713,6 +713,22 @@ export function prepareWorkspace(
   return invoke<{ path: string | null }>("prepare_workspace", { root, head, commit, inPlace, onEvent: channel });
 }
 
+/** Progress of `buildSolution`. */
+export type BuildEvent = { kind: "started"; target: string } | { kind: "output"; line: string };
+
+/**
+ * Builds the solution in `root` (the folder the language server runs in), or
+ * its F# projects when it has none. Resolves to whether every target built;
+ * fails with "cancelled" when `cancelBuild` stops it.
+ */
+export function buildSolution(root: string, onEvent: (event: BuildEvent) => void) {
+  const channel = new Channel<BuildEvent>();
+  channel.onmessage = onEvent;
+  return invoke<{ succeeded: boolean }>("build_solution", { root, onEvent: channel });
+}
+
+export const cancelBuild = () => invoke<void>("cancel_build");
+
 export type LspEvent =
   | { kind: "status"; text: string | null }
   | { kind: "diagnostics"; uri: string; errors: number; warnings: number }
