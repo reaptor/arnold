@@ -249,7 +249,7 @@ pub struct Comment {
     /// The host's id of the author, for telling the token's owner's comments apart.
     #[serde(skip)]
     pub author_id: String,
-    /// Written by the token's owner, who may delete it.
+    /// Written by the token's owner, who may edit or delete it.
     pub you: bool,
     /// Markdown.
     pub content: String,

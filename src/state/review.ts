@@ -687,7 +687,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected), true);
-  setThreadActions({ reply, createThread, cancelDraft, deleteComment });
+  setThreadActions({ reply, createThread, cancelDraft, editComment, deleteComment });
   lsp.onDisplayFile(displayUri);
   lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
@@ -2637,6 +2637,19 @@ async function reply(thread: PrThread, text: string) {
     await ipc.replyToPullRequestThread(repo.root, pullRequest.remote, pullRequest.id, thread.id, thread.comments[0].id, text);
   } catch (error) {
     throw writeErrorText(error);
+  }
+  await loadThreads();
+}
+
+/** Changes the text of a comment of the token's owner. Throws the error text. */
+async function editComment(thread: PrThread, comment: PrComment, text: string) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    await ipc.editPullRequestComment(repo.root, pullRequest.remote, pullRequest.id, thread.id, comment.id, text);
+  } catch (error) {
+    throw writeErrorText(error, "the change of the comment");
   }
   await loadThreads();
 }

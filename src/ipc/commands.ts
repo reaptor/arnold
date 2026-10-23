@@ -525,7 +525,7 @@ export interface PrComment {
   /** ISO 8601. */
   published: string;
   edited: boolean;
-  /** Written by the token's owner, who may delete it. */
+  /** Written by the token's owner, who may edit or delete it. */
   you: boolean;
 }
 
@@ -674,6 +674,10 @@ export const replyToPullRequestThread = (
   parent: number,
   content: string,
 ) => invoke<null>("reply_to_pull_request_thread", { root, remote, id, thread, parent, content });
+
+/** Changes the text of comment `comment` of thread `thread` to `content`: one the token's owner wrote. */
+export const editPullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number, content: string) =>
+  invoke<null>("edit_pull_request_comment", { root, remote, id, thread, comment, content });
 
 /** Deletes comment `comment` of thread `thread`: one the token's owner wrote. */
 export const deletePullRequestComment = (root: string, remote: string, id: number, thread: number, comment: number) =>

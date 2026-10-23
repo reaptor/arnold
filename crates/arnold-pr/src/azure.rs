@@ -640,6 +640,14 @@ pub fn reply(repo: &AzureRepo, token: &str, id: u64, thread: u64, parent: u64, c
     Ok(())
 }
 
+/// Changes the text of comment `comment` of thread `thread` of pull request
+/// `id` to `content` (Markdown); only its author may.
+pub fn edit_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comment: u64, content: &str) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/threads/{thread}/comments/{comment}?api-version={API_VERSION}"));
+    send(agent().patch(&url), &url, token, &json!({ "content": content }))?;
+    Ok(())
+}
+
 /// Deletes comment `comment` of thread `thread` of pull request `id`; only its
 /// author may. A thread whose comments are all deleted is gone.
 pub fn delete_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comment: u64) -> Result<(), PrError> {
