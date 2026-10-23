@@ -3,6 +3,7 @@ import type { ChangedFile, WorkingSide } from "../ipc/commands";
 import { type FileAction, filesAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
 import { isMac } from "../platform";
 import { allFiles, explainFilesItem, ignoreTarget, noteDeparture, setState, state } from "../state/review";
+import { CommitBox } from "./CommitPanel";
 import { Counts, DockHeading, splitPath, STATUS_LETTER, STATUS_NAME } from "./FileDock";
 import { FileTree, type TreeControls, TreeButtons } from "./FileTree";
 import { StageAllIcon, StageIcon, UnstageAllIcon, UnstageIcon } from "./icons";
@@ -10,6 +11,8 @@ import { StageAllIcon, StageIcon, UnstageAllIcon, UnstageIcon } from "./icons";
 const MIN_LIST_HEIGHT = 44;
 /** Room the file explorer keeps when the lists above it are made taller. */
 const MIN_EXPLORER_HEIGHT = 120;
+/** The commit message: room for a line or two and the Commit button. */
+const MIN_COMMIT_HEIGHT = 96;
 
 const remembered = (key: string) => localStorage.getItem(`arnold.${key}`);
 const remember = (key: string, value: unknown) => localStorage.setItem(`arnold.${key}`, String(value));
@@ -25,7 +28,8 @@ function fileTitle(side: WorkingSide, file: ChangedFile): string {
 
 /**
  * Left dock in Commit mode, in three parts: the unstaged changes, the staged
- * ones (what a commit takes) and every file of the checkout.
+ * ones (what a commit takes) with the commit message under them, and every
+ * file of the checkout.
  */
 export function WorkingDock(props: { width: number; hidden?: boolean }) {
   const [filter, setFilter] = createSignal("");
@@ -39,6 +43,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
     unstaged: Number(remembered("unstagedHeight")) || 200,
     staged: Number(remembered("stagedHeight")) || 160,
   });
+  const [commitHeight, setCommitHeight] = createSignal(Number(remembered("commitHeight")) || 130);
   const lists: Partial<Record<WorkingSide, HTMLUListElement>> = {};
   let explorer!: HTMLElement;
 
@@ -78,6 +83,26 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       remember(`${side}Height`, heights()[side]);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    down.preventDefault();
+  };
+
+  /** The commit message's top edge: taller takes room from the staged list and the explorer. */
+  const startCommitResize = (down: PointerEvent) => {
+    const startY = down.clientY;
+    const startHeight = commitHeight();
+    const below =
+      (open().explorer ? explorer.clientHeight - MIN_EXPLORER_HEIGHT : 0) +
+      (open().staged ? (lists.staged?.clientHeight ?? 0) - MIN_LIST_HEIGHT : 0);
+    const most = startHeight + Math.max(below, 0);
+    const onMove = (move: PointerEvent) =>
+      setCommitHeight(Math.min(Math.max(startHeight - (move.clientY - startY), MIN_COMMIT_HEIGHT), most));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      remember("commitHeight", commitHeight());
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -380,6 +405,13 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
             <List side="staged" />
           </Show>
         </section>
+        {/* At the bottom of Staged, also when the list is folded; its top edge resizes it. */}
+        <Show when={state.checkout}>
+          <div class="dock-commit" style={{ height: `${commitHeight()}px` }}>
+            <div class="commit-grip" onPointerDown={startCommitResize} />
+            <CommitBox />
+          </div>
+        </Show>
       </div>
       <div class="dock-sash" classList={{ fixed: !open().staged || !sized("staged") }} onPointerDown={(down) => startResize("staged", down)} />
       <section class="dock-section dock-island" classList={{ grow: open().explorer }} ref={explorer}>

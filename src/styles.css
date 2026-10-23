@@ -1094,19 +1094,7 @@ button.primary:hover:not(:disabled) {
   cursor: row-resize;
 }
 
-.commit-island {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  /* A short window takes room from the commit message last. */
-  max-height: calc(100% - 120px - var(--island-gap));
-  background: var(--bg);
-  border-radius: var(--island-radius);
-  overflow: hidden;
-}
-
-/* The Problems panel under the diff (and the commit message). */
+/* The Problems panel under the diff. */
 .problems-island {
   flex: none;
   display: flex;
@@ -3543,7 +3531,28 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   stroke: var(--text);
 }
 
-/* Under the diff, as in Git Extensions' commit dialog. */
+/* At the bottom of the Staged island: a short window takes room from the staged files first. */
+.dock-commit {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* The top edge, a little taller than the line, resizes the commit message. */
+.commit-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 7px;
+  cursor: row-resize;
+  z-index: 1;
+}
+
+/* As in Git Extensions' commit dialog. */
 .commit-box {
   flex: 1;
   min-height: 0;
@@ -3553,7 +3562,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   padding: 8px;
 }
 
-/* Sized by the gap above its island, not by a corner of its own. */
+/* Sized by the top edge of its pane, not by a corner of its own. */
 .commit-message {
   flex: 1;
   min-height: 0;

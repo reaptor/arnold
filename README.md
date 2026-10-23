@@ -106,7 +106,7 @@ Where the text can be typed in (the working side of an unstaged file), plain `S`
 
 Within a change, lines work one by one: selecting some of a change stages or resets only those lines, selecting all of it the whole change.
 
-Write the message under the diff (drag the gap above it to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
+Write the message at the bottom of *Staged* (drag its top edge to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
 
 When the branch is pushed to Azure DevOps and has required branch policies there (reviewers, a build, linked work items…), a push to it would be refused: such a branch takes changes only through pull requests. With a token set up, Arnold checks this before it commits and, if so, offers to *Create branch and commit*, with a name taken from the commit message, or *Cancel*. The new branch starts from the current one and keeps the staged and unstaged changes. If the policies cannot be read (no token, no network), the commit goes ahead as usual.
 

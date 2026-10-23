@@ -3,7 +3,7 @@ import { AiPanel } from "./components/AiPanel";
 import { AllFilesView } from "./components/AllFilesView";
 import { WorkingFilesView } from "./components/WorkingFilesView";
 import { CheckoutDialog } from "./components/CheckoutDialog";
-import { CommitBox, ProtectedBranchDialog, UnformattedDialog } from "./components/CommitPanel";
+import { ProtectedBranchDialog, UnformattedDialog } from "./components/CommitPanel";
 import { checkoutQuestion } from "./state/checkoutChoice";
 import { EditStatus } from "./components/EditStatus";
 import { SuggestDialog } from "./components/SuggestDialog";
@@ -91,9 +91,7 @@ function suppressBrowserMenu(event: MouseEvent) {
 
 const MIN_DOCK = 160;
 const MAX_DOCK = 640;
-/** The commit message pane: room for a line or two and the Commit button. */
-const MIN_COMMIT_HEIGHT = 96;
-/** Room the diff keeps when the commit message pane is made taller. */
+/** Room the diff keeps when the Problems panel is made taller. */
 const MIN_DIFF_HEIGHT = 120;
 /** The Problems panel: its header and a line or two. */
 const MIN_PROBLEMS_HEIGHT = 80;
@@ -110,7 +108,6 @@ export function App() {
   };
   let editorHost!: HTMLDivElement;
   let contentColumn!: HTMLDivElement;
-  const [commitHeight, setCommitHeight] = createSignal(Number(localStorage.getItem("arnold.commitHeight")) || 130);
 
   const [problemsHeight, setProblemsHeight] = createSignal(Number(localStorage.getItem("arnold.problemsHeight")) || 180);
 
@@ -124,23 +121,6 @@ export function App() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       localStorage.setItem("arnold.problemsHeight", String(problemsHeight()));
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    down.preventDefault();
-  };
-
-  const startCommitResize = (down: PointerEvent) => {
-    const startY = down.clientY;
-    const startHeight = commitHeight();
-    // The diff keeps some room.
-    const most = Math.max(contentColumn.clientHeight - MIN_DIFF_HEIGHT, MIN_COMMIT_HEIGHT);
-    const onMove = (move: PointerEvent) =>
-      setCommitHeight(Math.min(Math.max(startHeight - (move.clientY - startY), MIN_COMMIT_HEIGHT), most));
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      localStorage.setItem("arnold.commitHeight", String(commitHeight()));
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -274,13 +254,6 @@ export function App() {
             <WorkingFilesView />
           </Show>
         </section>
-        {/* Commit mode: the message under the diff, in an island of its own; the gap between them resizes it. */}
-        <Show when={state.source === "commit" && state.checkout}>
-          <div class="content-sash" onPointerDown={startCommitResize} />
-          <section class="commit-island" style={{ height: `${commitHeight()}px` }}>
-            <CommitBox />
-          </section>
-        </Show>
         {/* Under everything else, as Rider's tool windows. */}
         <Show when={problemsOpen() && state.repo}>
           <div class="content-sash" onPointerDown={startProblemsResize} />
