@@ -17,10 +17,6 @@ export interface News {
   thread: number | null;
 }
 
-/** Pull requests the user opened or is a reviewer of. */
-export const isFollowed = (pullRequest: PullRequest) =>
-  pullRequest.yours || pullRequest.reviewers.some((reviewer) => reviewer.you);
-
 export const commentKeys = (threads: readonly PrThread[]) =>
   new Set(threads.flatMap((thread) => thread.comments.map((comment) => `${thread.id}:${comment.id}`)));
 
@@ -44,6 +40,8 @@ export function newsOf(before: Seen, now: PullRequest, threads: readonly PrThrea
   const lines: string[] = [];
   if (now.status !== was.status && STATUS[now.status]) lines.push(STATUS[now.status]);
   if (was.draft && !now.draft && !now.yours) lines.push("Published: ready for review");
+  const reviewing = (pullRequest: PullRequest) => pullRequest.reviewers.some((reviewer) => reviewer.you);
+  if (!now.yours && reviewing(now) && !reviewing(was)) lines.push("You were added as a reviewer");
   for (const reviewer of now.reviewers) {
     if (reviewer.you) continue;
     const earlier = was.reviewers.find((candidate) => candidate.id === reviewer.id)?.vote ?? "none";
@@ -74,9 +72,11 @@ function newComments(seen: Set<string>, threads: readonly PrThread[]): { line: s
   return { line: `${added.length} new comments from ${listed(authors)}`, thread: first.thread };
 }
 
-/** News of a pull request that was not followed at the last check (the user was added as a reviewer). */
+/** News of a pull request that is new since the last check (followed as one of all in the repository). */
 export function addedNews(now: PullRequest): News {
-  return { lines: now.yours ? [] : [`${now.author} added you as a reviewer`], thread: null };
+  if (now.yours) return { lines: [], thread: null };
+  const reviewing = now.reviewers.some((reviewer) => reviewer.you);
+  return { lines: [reviewing ? `${now.author} added you as a reviewer` : `New pull request by ${now.author}`], thread: null };
 }
 
 /** "A", "A and B", "A, B and C". */

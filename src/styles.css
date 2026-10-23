@@ -3711,7 +3711,8 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   line-height: 1.6;
 }
 
-.protected-dialog .committed-choice span {
+.protected-dialog .committed-choice span,
+.notify-dialog .committed-choice span {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;

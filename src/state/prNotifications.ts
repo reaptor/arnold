@@ -1,14 +1,15 @@
 // Notifications of the operating system about the pull requests the user
-// follows (opened, or is a reviewer of): new comments, votes, pushes and
-// completion. Off until the user turns them on. While on, the active pull
-// requests of the open repository are checked every few minutes, also with
-// Arnold in the background; a click on a notification opens the pull request
-// there, at the comment.
+// follows: new comments, votes, pushes and completion. Off until the user
+// turns them on for a pull request, or for all of them in the repository
+// (which asking when turning on one offers). While any are followed, the
+// active pull requests of the open repository are checked every few minutes,
+// also with Arnold in the background; a click on a notification opens the
+// pull request there, at the comment.
 
 import { createEffect, createRoot, createSignal, on } from "solid-js";
 import * as ipc from "../ipc/commands";
 import type { PullRequest } from "../ipc/commands";
-import { addedNews, commentKeys, isFollowed, type News, newsOf, type Seen } from "./prNews";
+import { addedNews, commentKeys, type News, newsOf, type Seen } from "./prNews";
 import { currentRemote, prErrorText, prs, selectRemote } from "./pullRequests";
 import {
   checkPullRequest,
@@ -35,39 +36,118 @@ interface Target {
   thread: number | null;
 }
 
-const [enabled, setEnabled] = createSignal(readSetting());
-/** Whether the user turned notifications on. */
-export const notificationsOn = enabled;
+/** The pull requests followed in a repository: all of them (new ones too), or those in `ids`. */
+interface Followed {
+  all: boolean;
+  ids: number[];
+}
 
-function readSetting(): boolean {
+/** By repository and remote, `root\nremote`. */
+const [followed, setFollowed] = createSignal<Record<string, Followed>>(readSetting());
+
+function readSetting(): Record<string, Followed> {
   try {
-    return localStorage.getItem(SETTING) === "on";
+    const read = JSON.parse(localStorage.getItem(SETTING) ?? "{}");
+    return read && typeof read === "object" && !Array.isArray(read) ? read : {};
   } catch {
-    return false;
+    return {};
   }
+}
+
+const NONE: Followed = { all: false, ids: [] };
+const keyOf = (root: string, remote: string) => `${root}\n${remote}`;
+const followedIn = (root: string | null, remote: string | null): Followed =>
+  (root && remote && followed()[keyOf(root, remote)]) || NONE;
+/** What is followed in the open repository, at its current remote. */
+const here = () => followedIn(prs.root, prs.remote);
+
+/** Whether the user gets notified about every pull request of the open repository. */
+export const allNotified = () => here().all;
+/** Whether the user gets notified about pull request `id` of the open repository. */
+export const isNotified = (id: number) => here().all || here().ids.includes(id);
+/** The pull requests of the open repository notified about one by one. */
+export const notifiedIds = () => here().ids;
+
+function save(root: string, remote: string, now: Followed) {
+  const turnedOn = !Object.values(followed()).some((each) => each.all || each.ids.length > 0) && (now.all || now.ids.length > 0);
+  const next = { ...followed() };
+  if (now.all || now.ids.length > 0) next[keyOf(root, remote)] = now;
+  else delete next[keyOf(root, remote)];
+  try {
+    localStorage.setItem(SETTING, JSON.stringify(next));
+  } catch {
+    // Kept for this run only.
+  }
+  setFollowed(next);
+  if (turnedOn) {
+    // Shows that they work (and has macOS ask whether Arnold may send them).
+    void ipc
+      .notify(
+        "Notifications are on",
+        now.all
+          ? "Arnold tells you about new comments, votes and pushes on the pull requests of this repository."
+          : "Arnold tells you about new comments, votes and pushes on this pull request.",
+        "",
+      )
+      .catch((error) => ipc.devTrace(`notifying: ${error}`));
+  }
+  void checkForNews();
+}
+
+/** Turns notifications about every pull request of the open repository, new ones too, on or off. */
+export function setAllNotified(on: boolean) {
+  const { root, remote } = prs;
+  if (!root || !remote) return;
+  save(root, remote, on ? { ...here(), all: true } : NONE);
+}
+
+/**
+ * Turns notifications about pull request `id` of the open repository on or
+ * off. Off while all are notified about: the others stay on.
+ */
+export function setNotified(id: number, on: boolean) {
+  const { root, remote } = prs;
+  if (!root || !remote) return;
+  const now = here();
+  const others = (now.all ? (prs.list ?? []).map((pullRequest) => pullRequest.id) : now.ids).filter((each) => each !== id);
+  save(root, remote, { all: on && now.all, ids: on ? [...others, id] : others });
+}
+
+/** The question asked when turning on notifications about one pull request. */
+export interface NotifyQuestion {
+  id: number;
+  title: string;
+  /** The repository's name. */
+  repo: string;
+}
+
+const [notifyQuestion, setNotifyQuestion] = createSignal<NotifyQuestion | null>(null);
+/** Set while the Notifications dialog is open. */
+export { notifyQuestion };
+
+/** Turns on notifications about `pullRequest`, asking whether about all pull requests of the repository instead. */
+export function askToNotify(pullRequest: { id: number; title: string }) {
+  if (!prs.root || !prs.remote) return;
+  const repo = prs.root.split(/[\\/]/).filter(Boolean).pop() ?? prs.root;
+  setNotifyQuestion({ id: pullRequest.id, title: pullRequest.title, repo });
+}
+
+/** The answer to the Notifications dialog: this pull request, all of the repository's, or null to cancel. */
+export function answerNotify(answer: "one" | "all" | null) {
+  const asked = notifyQuestion();
+  setNotifyQuestion(null);
+  if (!asked || !answer) return;
+  if (answer === "all") setAllNotified(true);
+  else setNotified(asked.id, true);
 }
 
 /** The followed pull requests at the last check, of `seenOf`; null until the first check, which notifies nothing. */
 let seen: Map<number, Seen> | null = null;
+/** The ids of every active pull request at the last check. */
+let known = new Set<number>();
 let seenOf = "";
 let checking = false;
 let started = false;
-
-export function setNotificationsOn(value: boolean) {
-  localStorage.setItem(SETTING, value ? "on" : "off");
-  setEnabled(value);
-  seen = null;
-  if (!value) return;
-  // Shows that they work (and has macOS ask whether Arnold may send them).
-  void ipc
-    .notify(
-      "Notifications are on",
-      "Arnold tells you about new comments, votes and pushes on the pull requests you opened or review.",
-      "",
-    )
-    .catch((error) => ipc.devTrace(`notifying: ${error}`));
-  void checkForNews();
-}
 
 /** Starts checking, and going where a clicked notification points. */
 export function startNotifications() {
@@ -89,8 +169,14 @@ export function startNotifications() {
 /** Reads the followed pull requests and notifies about what changed since the last check. */
 export async function checkForNews() {
   const { root, remote } = prs;
-  if (!notificationsOn() || checking || !root || !remote || !currentRemote()?.token) return;
-  const about = `${root}\n${remote}`;
+  if (checking || !root || !remote || !currentRemote()?.token) return;
+  const isFollowed = (id: number) => followedIn(root, remote).all || followedIn(root, remote).ids.includes(id);
+  if (!followedIn(root, remote).all && followedIn(root, remote).ids.length === 0) {
+    // Turned on again later, that is the starting point.
+    seen = null;
+    return;
+  }
+  const about = keyOf(root, remote);
   if (about !== seenOf) {
     seen = null;
     seenOf = about;
@@ -100,20 +186,29 @@ export async function checkForNews() {
     const list = await ipc.listPullRequests(root, remote);
     const before = seen;
     const now = new Map<number, Seen>();
-    for (const pullRequest of list.filter(isFollowed)) {
+    for (const pullRequest of list.filter((each) => isFollowed(each.id))) {
       const threads = await ipc.pullRequestThreads(root, remote, pullRequest.id).catch(() => null);
       now.set(pullRequest.id, { pullRequest, comments: threads && commentKeys(threads) });
       if (!before) continue;
       const earlier = before.get(pullRequest.id);
-      send(root, remote, pullRequest, earlier ? newsOf(earlier, pullRequest, threads) : addedNews(pullRequest));
+      // Just turned on, it is the starting point; new in the repository, it is news.
+      if (earlier) send(root, remote, pullRequest, newsOf(earlier, pullRequest, threads));
+      else if (!known.has(pullRequest.id)) send(root, remote, pullRequest, addedNews(pullRequest));
     }
     // Followed ones that are no longer active: completed or abandoned.
     for (const [id, earlier] of before ?? []) {
-      if (list.some((pullRequest) => pullRequest.id === id)) continue;
+      if (!isFollowed(id) || list.some((pullRequest) => pullRequest.id === id)) continue;
       const pullRequest = await ipc.readPullRequest(root, remote, id).catch(() => null);
       if (pullRequest) send(root, remote, pullRequest, newsOf(earlier, pullRequest, null));
     }
-    if (seenOf === about && notificationsOn()) seen = now;
+    // Picked ones that are gone: nothing more to follow.
+    const left = followedIn(root, remote);
+    const ids = left.ids.filter((id) => list.some((pullRequest) => pullRequest.id === id));
+    if (ids.length < left.ids.length) save(root, remote, { ...left, ids });
+    if (seenOf === about) {
+      seen = now;
+      known = new Set(list.map((pullRequest) => pullRequest.id));
+    }
   } catch (error) {
     ipc.devTrace(`checking pull requests for notifications: ${prErrorText(error)}`);
   } finally {

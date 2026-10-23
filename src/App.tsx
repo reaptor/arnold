@@ -15,7 +15,7 @@ import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
 import { startBuild } from "./state/build";
 import { PullRequestOverview } from "./components/PullRequestOverview";
-import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
+import { NotifyDialog, PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
 import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
@@ -25,7 +25,7 @@ import { prs } from "./state/pullRequests";
 import { licensesOpen } from "./state/licenses";
 import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
 import { startUpdateChecks } from "./state/updates";
-import { startNotifications } from "./state/prNotifications";
+import { notifyQuestion, startNotifications } from "./state/prNotifications";
 import { deletable, type FileAction, filesAction, lineAction, listOf } from "./state/commitMode";
 import {
   addComment,
@@ -299,6 +299,9 @@ export function App() {
       </Show>
       <Show when={checkoutQuestion()}>
         <CheckoutDialog />
+      </Show>
+      <Show when={notifyQuestion()}>
+        <NotifyDialog />
       </Show>
       <Show when={licensesOpen()}>
         <LicensesDialog />

@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch } from "solid-js";
+import { For, Match, onMount, Show, Switch } from "solid-js";
 import {
   closeTokenDialog,
   currentRemote,
@@ -9,10 +9,19 @@ import {
   prs,
   selectRemote,
 } from "../state/pullRequests";
-import { notificationsOn, setNotificationsOn } from "../state/prNotifications";
+import {
+  allNotified,
+  answerNotify,
+  askToNotify,
+  isNotified,
+  notifiedIds,
+  notifyQuestion,
+  setAllNotified,
+  setNotified,
+} from "../state/prNotifications";
 import { openPullRequest, setSource, state } from "../state/review";
 import { DevOpsSetup, openInBrowser } from "./DevOpsSetup";
-import { BellIcon, ExternalIcon, KeyIcon, PullRequestIcon } from "./icons";
+import { BellIcon, CloseIcon, ExternalIcon, KeyIcon, PullRequestIcon } from "./icons";
 import { PullRequestList } from "./PullRequestList";
 
 const useBranches = () => void setSource("branches");
@@ -40,24 +49,97 @@ export function RemoteSelect() {
 }
 
 /**
- * Turns notifications about the pull requests the user opened or reviews on
- * or off. `compact`: the bell alone.
+ * Turns notifications about every pull request of the repository on or off.
+ * `compact`: the bell alone.
  */
 export function NotifyButton(props: { compact?: boolean }) {
+  const some = () => notifiedIds().map((id) => `!${id}`);
   const title = () =>
-    notificationsOn()
-      ? "On: Arnold notifies you of new comments, votes, pushes and completion of the pull requests you opened or review, also while it is in the background. Click to turn them off."
-      : "Get notified of new comments, votes, pushes and completion of the pull requests you opened or review, while Arnold is open.";
+    allNotified()
+      ? "On: Arnold notifies you of new comments, votes, pushes and completion of every pull request in this repository, new ones too, also while it is in the background. Click to turn them off."
+      : `Get notified of new comments, votes, pushes and completion of every pull request in this repository, while Arnold is open.${
+          some().length > 0 ? ` Now only of ${some().join(", ")}.` : ""
+        }`;
   return (
     <button
-      classList={{ "notify-button": true, on: notificationsOn() }}
-      aria-pressed={notificationsOn()}
-      onClick={() => setNotificationsOn(!notificationsOn())}
+      classList={{ "notify-button": true, on: allNotified() }}
+      aria-pressed={allNotified()}
+      onClick={() => setAllNotified(!allNotified())}
       title={title()}
     >
       <BellIcon />
-      <Show when={!props.compact}>{notificationsOn() ? "Notifications on" : "Notify me"}</Show>
+      <Show when={!props.compact}>{allNotified() ? "Notifications on" : "Notify me of all"}</Show>
     </button>
+  );
+}
+
+/** Turns notifications about one pull request on (asking whether about all instead) or off. */
+export function PullRequestNotifyButton(props: { pullRequest: { id: number; title: string } }) {
+  const on = () => isNotified(props.pullRequest.id);
+  const title = () =>
+    on()
+      ? `On${allNotified() ? ", as for every pull request in this repository" : ""}: Arnold notifies you of new comments, votes, pushes and completion of !${props.pullRequest.id}. Click to turn them off.`
+      : `Get notified of new comments, votes, pushes and completion of !${props.pullRequest.id}, while Arnold is open.`;
+  return (
+    <button
+      classList={{ "notify-button": true, on: on() }}
+      aria-pressed={on()}
+      onClick={() => (on() ? setNotified(props.pullRequest.id, false) : askToNotify(props.pullRequest))}
+      title={title()}
+    >
+      <BellIcon />
+      {on() ? "Notifications on" : "Notify me"}
+    </button>
+  );
+}
+
+/** Turning on notifications about one pull request: only about it, or about every pull request of the repository. */
+export function NotifyDialog() {
+  const asked = () => notifyQuestion()!;
+  const cancel = () => answerNotify(null);
+  let first: HTMLButtonElement | undefined;
+  onMount(() => first?.focus());
+  return (
+    <div
+      class="modal-backdrop"
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => event.target === event.currentTarget && cancel()}
+      onKeyDown={(event) => event.key === "Escape" && cancel()}
+    >
+      <div class="modal complete-dialog notify-dialog" role="dialog" aria-label="Notifications">
+        <h2>
+          <BellIcon />
+          Notify you of all pull requests in {asked().repo}?
+        </h2>
+        <p>
+          Arnold can tell you about new comments, votes, pushes and completion of !{asked().id} only, or of every pull
+          request in {asked().repo}, also while it is in the background.
+        </p>
+        <div class="committed-choices">
+          <button ref={first} class="committed-choice primary" onClick={() => answerNotify("one")}>
+            <BellIcon />
+            <span>
+              Only !{asked().id}
+              <small>{asked().title}</small>
+            </span>
+          </button>
+          <button class="committed-choice" onClick={() => answerNotify("all")}>
+            <PullRequestIcon />
+            <span>
+              All pull requests in {asked().repo}
+              <small>Every active one, and new ones as they are created. Turn it off under the list of pull requests.</small>
+            </span>
+          </button>
+          <button class="committed-choice" onClick={cancel}>
+            <CloseIcon />
+            <span>
+              Cancel
+              <small>No notifications are turned on</small>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PrComment, PrThread, PullRequest, Reviewer } from "../ipc/commands";
-import { addedNews, commentKeys, isFollowed, newsOf, type Seen } from "./prNews";
+import { addedNews, commentKeys, newsOf, type Seen } from "./prNews";
 
 const reviewer = (name: string, vote: Reviewer["vote"] = "none", you = false): Reviewer => ({
   id: name.toLowerCase(),
@@ -49,14 +49,6 @@ const thread = (id: number, comments: PrComment[], path: string | null = "Orders
 });
 
 const seen = (now: PullRequest, threads: PrThread[] = []): Seen => ({ pullRequest: now, comments: commentKeys(threads) });
-
-describe("isFollowed", () => {
-  it("follows pull requests the user opened or reviews", () => {
-    expect(isFollowed(pullRequest())).toBe(true);
-    expect(isFollowed(pullRequest({ reviewers: [reviewer("Bo")] }))).toBe(false);
-    expect(isFollowed(pullRequest({ reviewers: [], yours: true }))).toBe(true);
-  });
-});
 
 describe("newsOf", () => {
   const first = thread(11, [comment(1, "Bo", "Looks good", "2026-10-01T11:00:00Z")]);
@@ -112,6 +104,11 @@ describe("newsOf", () => {
     expect(newsOf(seen(after), { ...after, status: "abandoned" }, null).lines).toEqual(["Abandoned"]);
   });
 
+  it("tells the user they were added as a reviewer", () => {
+    const before = pullRequest({ reviewers: [reviewer("Bo")] });
+    expect(newsOf(seen(before), pullRequest(), []).lines).toEqual(["You were added as a reviewer"]);
+  });
+
   it("leaves out the user's own pushes and tells the author of merge conflicts", () => {
     const before = pullRequest({ yours: true });
     const after = pullRequest({ yours: true, sourceCommit: "a2", mergeStatus: "conflicts" });
@@ -120,8 +117,9 @@ describe("newsOf", () => {
 });
 
 describe("addedNews", () => {
-  it("tells a reviewer of a pull request new to them, but not its author", () => {
+  it("tells of a new pull request, a reviewer that they are one, but not its author", () => {
     expect(addedNews(pullRequest()).lines).toEqual(["Ada added you as a reviewer"]);
+    expect(addedNews(pullRequest({ reviewers: [reviewer("Bo")] })).lines).toEqual(["New pull request by Ada"]);
     expect(addedNews(pullRequest({ yours: true })).lines).toEqual([]);
   });
 });
