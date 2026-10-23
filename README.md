@@ -260,7 +260,7 @@ The *Problems* panel under the diff lists them all, as the error list of Rider a
 
 ![A type error in the diff: hovering "ten" shows that the expression was expected to have type int but has type string](docs/screenshots/fsharp.png)
 
-The language server needs the code on disk with its packages restored. It runs in the reviewed branch's checkout (the opened folder, a linked worktree or the branch's own worktree), the pull request's checkout, or *Commit*'s checkout, and sees edits there. While it does, the review goes on as usual; the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
+The language server needs the code on disk with its packages restored. It runs in the reviewed branch's checkout (the opened folder, a linked worktree or the branch's own worktree), the pull request's checkout, or *Commit*'s checkout, and sees edits there. While it does, the review goes on as usual (`dotnet` runs below normal priority, and what it writes to the folders git ignores, such as `obj` and `bin`, does not refresh the lists); the status bar shows how far it has come, and its popup lists each step, problems, the output of `dotnet` and the build log of a project that failed. If something fails, the review goes on without language features, or with gaps.
 
 ![The F# language features popup: restoring, building, starting FsAutoComplete and loading projects](docs/screenshots/language.png)
 

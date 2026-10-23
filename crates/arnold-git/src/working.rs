@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::cli::{run, run_raw, run_text, run_with_input, GitError};
+use crate::cli::{run, run_raw, run_raw_with_input, run_text, run_with_input, GitError};
 use crate::compare::{diff_files, ChangedFile, FileStatus};
 use crate::publish::{branch_sync, BranchSync};
 use crate::Result;
@@ -136,6 +136,29 @@ pub async fn worktree_files(checkout: &Path) -> Result<Vec<String>> {
     paths.sort();
     paths.dedup();
     Ok(paths)
+}
+
+/// Which of `paths` (relative to `checkout`, `/`-separated) git ignores, such
+/// as the `obj/` and `bin/` folders a restore or build writes. Tracked files
+/// never are, whatever the ignore rules say.
+pub async fn ignored_paths(checkout: &Path, paths: &[String]) -> Result<Vec<String>> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let args = ["check-ignore", "-z", "--stdin"];
+    let output = run_raw_with_input(checkout, &args, &path_list(paths)).await?;
+    // Exit code 1 without a message: none of them is ignored.
+    if !output.success && !output.stderr.is_empty() {
+        return Err(GitError::Failed {
+            command: "check-ignore".into(),
+            stderr: output.stderr,
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// Paths go to git through stdin: a long list could pass the command line's limit.

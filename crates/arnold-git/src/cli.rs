@@ -87,6 +87,11 @@ pub(crate) async fn run(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GitError> 
     }
 }
 
+/// Like [`run_raw`], writing `input` to git's stdin.
+pub(crate) async fn run_raw_with_input(cwd: &Path, args: &[&str], input: &[u8]) -> Result<Output, GitError> {
+    run_raw_full(cwd, args, &[], Some(input)).await
+}
+
 /// Like [`run`], writing `input` to git's stdin.
 pub(crate) async fn run_with_input(cwd: &Path, args: &[&str], input: &[u8]) -> Result<Vec<u8>, GitError> {
     let output = run_raw_full(cwd, args, &[], Some(input)).await?;

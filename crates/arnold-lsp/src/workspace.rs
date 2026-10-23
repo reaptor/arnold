@@ -276,7 +276,9 @@ pub async fn run_dotnet(
     args: &[&str],
     on_line: &(dyn Fn(String) + Send + Sync),
 ) -> Result<(), String> {
-    let mut child = dotnet_command(dotnet, dir, args)
+    let mut command = dotnet_command(dotnet, dir, args);
+    in_background(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|e| format!("could not run {}: {e}", dotnet.path.display()))?;
     let stdout = child.stdout.take();
@@ -328,6 +330,23 @@ fn dotnet_command(dotnet: &Dotnet, dir: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// Runs the process, and the build processes it starts, below normal
+/// priority: a restore or build takes every core it can get, and the window
+/// should stay responsive meanwhile. It is not slower when nothing else runs.
+fn in_background(command: &mut Command) {
+    #[cfg(unix)]
+    // SAFETY: `nice` only makes a system call, which is allowed between fork and exec.
+    unsafe {
+        command.pre_exec(|| {
+            // Failing to lower it (never expected) leaves it as it is.
+            let _ = libc::nice(10);
+            Ok(())
+        });
+    }
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000 | 0x0000_4000); // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+}
+
 async fn forward_lines(stream: Option<impl AsyncRead + Unpin>, on_line: &(dyn Fn(String) + Send + Sync)) {
     let Some(stream) = stream else { return };
     let mut lines = BufReader::new(stream).lines();
@@ -341,6 +360,21 @@ async fn forward_lines(stream: Option<impl AsyncRead + Unpin>, on_line: &(dyn Fn
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn background_processes_run_below_normal_priority() {
+        let niceness = |background: bool| async move {
+            let mut command = Command::new("sh");
+            command.args(["-c", "ps -o nice= -p $$"]).stdout(Stdio::piped());
+            if background {
+                in_background(&mut command);
+            }
+            let output = command.output().await.unwrap();
+            String::from_utf8_lossy(&output.stdout).trim().parse::<i32>().unwrap()
+        };
+        assert_eq!(niceness(true).await, niceness(false).await + 10);
+    }
 
     fn files(paths: &[&str]) -> Vec<(String, String)> {
         paths.iter().map(|path| (path.to_string(), format!("id-{path}"))).collect()

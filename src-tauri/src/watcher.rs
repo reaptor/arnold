@@ -7,6 +7,7 @@
 //! Arnold is open changes which hosts it offers pull requests from.
 
 use std::any::Any;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -49,19 +50,34 @@ pub const CHECKOUT_EVENT: &str = "checkout-changed";
 
 /// Watches the files of `checkout` and its index (in `git_dir`, its own
 /// `.git` folder), so the lists of uncommitted changes follow edits made
-/// anywhere: by an agent, an editor or Arnold itself.
+/// anywhere: by an agent, an editor or Arnold itself. Files git ignores do
+/// not count: a restore or build (Arnold's own, for the language server)
+/// writes thousands of them to `obj/` and `bin/`, and every refresh they
+/// set off would run git and redraw the lists while it lasts.
 pub fn watch_checkout(app: AppHandle, checkout: PathBuf, git_dir: PathBuf) -> Result<WatchHandle, String> {
     let (root, git) = (checkout.clone(), git_dir.clone());
     let mut debouncer = new_debouncer(DEBOUNCE, None, move |result: DebounceEventResult| {
         let Ok(events) = result else { return };
-        let changed = events
-            .iter()
-            .filter(|event| !event.kind.is_access())
-            .flat_map(|event| &event.paths)
-            .any(|path| counts_for_checkout(&root, &git, path));
-        if changed {
-            let _ = app.emit(CHECKOUT_EVENT, ());
+        let mut always = false;
+        let mut files = Vec::new();
+        for path in events.iter().filter(|event| !event.kind.is_access()).flat_map(|event| &event.paths) {
+            match checkout_change(&root, &git, path) {
+                Some(Change::Always) => always = true,
+                Some(Change::File(file)) => files.push(file),
+                None => {}
+            }
         }
+        if !always && files.is_empty() {
+            return;
+        }
+        files.sort();
+        files.dedup();
+        let (app, root) = (app.clone(), root.clone());
+        tauri::async_runtime::spawn(async move {
+            if always || !all_ignored(&root, &files).await {
+                let _ = app.emit(CHECKOUT_EVENT, ());
+            }
+        });
     })
     .map_err(|e| e.to_string())?;
     debouncer
@@ -76,17 +92,39 @@ pub fn watch_checkout(app: AppHandle, checkout: PathBuf, git_dir: PathBuf) -> Re
     Ok(WatchHandle(Box::new(debouncer)))
 }
 
+/// A change that may matter to the checkout's uncommitted changes.
+#[derive(Debug, PartialEq)]
+enum Change {
+    /// The index, or the checkout folder itself.
+    Always,
+    /// A file or folder of the checkout (relative, `/`-separated), which
+    /// counts unless git ignores it.
+    File(String),
+}
+
 /// A file of the checkout, or its index; not the rest of `.git`, nor
 /// Arnold's own `.arnold` folder.
-fn counts_for_checkout(checkout: &Path, git_dir: &Path, path: &Path) -> bool {
+fn checkout_change(checkout: &Path, git_dir: &Path, path: &Path) -> Option<Change> {
     if let Ok(inside) = path.strip_prefix(git_dir) {
-        return inside == Path::new("index");
+        return (inside == Path::new("index")).then_some(Change::Always);
     }
-    let Ok(relative) = path.strip_prefix(checkout) else {
-        return false;
-    };
-    let first = relative.components().next().map(|component| component.as_os_str());
-    !matches!(first, Some(name) if name == ".git" || name == ".arnold")
+    let relative = path.strip_prefix(checkout).ok()?;
+    match relative.components().next().map(|component| component.as_os_str()) {
+        None => Some(Change::Always),
+        Some(name) if name == ".git" || name == ".arnold" => None,
+        Some(_) => Some(Change::File(relative.to_string_lossy().replace('\\', "/"))),
+    }
+}
+
+/// Whether git ignores every one of `files`. When git cannot tell, they count.
+async fn all_ignored(checkout: &Path, files: &[String]) -> bool {
+    match arnold_git::ignored_paths(checkout, files).await {
+        Ok(ignored) => {
+            let ignored: HashSet<&str> = ignored.iter().map(String::as_str).collect();
+            files.iter().all(|file| ignored.contains(file.as_str()))
+        }
+        Err(_) => false,
+    }
 }
 
 /// The repository's config (remotes, upstreams); not its lock file.
@@ -116,15 +154,20 @@ mod tests {
     fn checkout_files_and_the_index_count() {
         let checkout = Path::new("/repo");
         let git_dir = Path::new("/repo/.git");
-        let counts = |path: &str| counts_for_checkout(checkout, git_dir, Path::new(path));
-        assert!(counts("/repo/src/a.fs"));
-        assert!(counts("/repo/.git/index"));
-        assert!(!counts("/repo/.git/objects/ab/cd"));
-        assert!(!counts("/repo/.git/index.lock"));
-        assert!(!counts("/repo/.arnold/worktrees/x/a.fs"));
-        assert!(!counts("/elsewhere/a.fs"));
+        let change = |path: &str| checkout_change(checkout, git_dir, Path::new(path));
+        assert_eq!(change("/repo/src/a.fs"), Some(Change::File("src/a.fs".into())));
+        assert_eq!(change("/repo/src/obj"), Some(Change::File("src/obj".into())));
+        assert_eq!(change("/repo/.git/index"), Some(Change::Always));
+        assert_eq!(change("/repo"), Some(Change::Always));
+        assert_eq!(change("/repo/.git/objects/ab/cd"), None);
+        assert_eq!(change("/repo/.git/index.lock"), None);
+        assert_eq!(change("/repo/.arnold/worktrees/x/a.fs"), None);
+        assert_eq!(change("/elsewhere/a.fs"), None);
         // A linked worktree's index.
-        assert!(counts_for_checkout(checkout, Path::new("/main/.git/worktrees/wt"), Path::new("/main/.git/worktrees/wt/index")));
+        assert_eq!(
+            checkout_change(checkout, Path::new("/main/.git/worktrees/wt"), Path::new("/main/.git/worktrees/wt/index")),
+            Some(Change::Always)
+        );
     }
 
     #[test]
