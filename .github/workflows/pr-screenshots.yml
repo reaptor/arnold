@@ -1,0 +1,49 @@
+name: PR screenshots
+
+# Claude's pull requests (head branch claude/issue-<n>) show their screenshots from a branch of
+# their own, pr-screenshots/issue-<n>, so the images never land in the pull request's commits.
+# GitHub offers "had recent pushes · Compare & pull request" for such a branch. Once its pull
+# request is merged or closed the screenshots are not used any more, so the branch is deleted
+# (the images in that pull request's description stop showing). Run the workflow by hand to sweep
+# up every screenshot branch whose pull requests are all closed.
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  delete:
+    # Pull requests from forks get a read-only token and have no screenshot branch here.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete screenshot branches that are not used any more
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            case "$HEAD" in
+              claude/issue-*) branches="pr-screenshots/${HEAD#claude/}" ;;
+              *) echo "$HEAD is not one of Claude's pull requests"; exit 0 ;;
+            esac
+          else
+            branches=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/pr-screenshots/" \
+              --paginate --jq '.[].ref | sub("^refs/heads/"; "")')
+          fi
+          for branch in $branches; do
+            head="claude/${branch#pr-screenshots/}"
+            # Kept while a pull request still shows them, and before the first one is opened.
+            states=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$head" --state all --json state --jq '.[].state')
+            if [ -z "$states" ] || grep -qx OPEN <<<"$states"; then
+              echo "Keeping $branch"
+            elif gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --silent 2>/dev/null; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+              echo "Deleted $branch"
+            fi
+          done
