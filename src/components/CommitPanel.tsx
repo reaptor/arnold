@@ -8,7 +8,7 @@ const COMMIT_KEY = isMac ? "⌘Enter" : "Ctrl+Enter";
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** Commit mode, under the diff: the commit message and the Commit button. */
+/** Commit mode, at the bottom of Staged: the commit message and the Commit button. */
 export function CommitBox() {
   const staged = () => state.work?.staged.length ?? 0;
   const hint = () => {
@@ -40,7 +40,9 @@ export function CommitBox() {
         }}
       />
       <div class="commit-bar">
-        <span class="commit-hint">{hint()}</span>
+        <span class="commit-hint" title={hint()}>
+          {hint()}
+        </span>
         <button type="submit" class="primary" disabled={!canCommit()} title={`Commit the staged changes (${COMMIT_KEY})`}>
           <CommitIcon />
           <span>Commit</span>
