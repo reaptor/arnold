@@ -186,13 +186,19 @@ export const compareBranches = (
   checkout: string | null = null,
 ) => invoke<Comparison>("compare_branches", { root, base, head, range, checkout });
 
-/** A detached checkout of a pull request: the opened folder, or a worktree of Arnold's own in `.arnold/worktrees`. */
+/**
+ * A checkout of a pull request: detached in the opened folder or a worktree
+ * of Arnold's own in `.arnold/worktrees`, or, for your own pull request,
+ * its branch wherever that is checked out.
+ */
 export interface Worktree {
   path: string;
   /** The commit checked out there. */
   head: string;
   /** It has uncommitted changes. */
   edited: boolean;
+  /** Your own pull request's local branch checked out there; null when detached at the pull request's commit. */
+  branch: string | null;
 }
 
 /**
@@ -208,14 +214,21 @@ export type Placement = "here" | "stash" | "discard" | "worktree";
 export type CheckedOut<T> = ({ kind: "done" } & T) | { kind: "changes"; files: number; untracked: number };
 
 /**
- * Where pull request `id` is checked out to be edited (the opened folder,
- * detached, or `.arnold/worktrees/pr-<id>`), moved to `commit` when it has
- * no edits (or with `discard`, after throwing them away). Checked out
- * nowhere, `create` checks it out as `placement` says; otherwise that
- * resolves to null.
+ * Where pull request `id` is checked out to be edited: with `branch` (your
+ * own pull request's source branch) wherever that is checked out, as it is;
+ * else the opened folder, detached, or `.arnold/worktrees/pr-<id>`, moved to
+ * `commit` when it has no edits (or with `discard`, after throwing them
+ * away). Checked out nowhere, `create` checks it out as `placement` says;
+ * otherwise that resolves to null.
  */
-export const pullRequestCheckout = (root: string, id: number, commit: string, create: boolean, placement: Placement) =>
-  invoke<CheckedOut<Worktree> | null>("pull_request_checkout", { root, id, commit, create, placement });
+export const pullRequestCheckout = (
+  root: string,
+  id: number,
+  commit: string,
+  branch: string | null,
+  create: boolean,
+  placement: Placement,
+) => invoke<CheckedOut<Worktree> | null>("pull_request_checkout", { root, id, commit, branch, create, placement });
 
 /** Every file of the compared commit, or of the checkout the comparison reads. */
 export const listFiles = (root: string, comparison: Comparison) =>

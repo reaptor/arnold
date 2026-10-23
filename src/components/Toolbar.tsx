@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createSignal, onCleanup, Show } from "solid-js";
 import {
+  editsToCommit,
   goBack,
   goForward,
   headBranch,
@@ -164,7 +165,7 @@ export function Toolbar() {
               <CommitPicker
                 commits={state.comparison?.commits ?? []}
                 value={state.range}
-                edits={state.source === "branches" ? (state.comparison?.uncommitted ?? 0) : 0}
+                edits={editsToCommit() ? (state.comparison?.uncommitted ?? 0) : 0}
                 onChange={(range) => void setRange(range)}
               />
             </Show>

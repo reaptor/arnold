@@ -772,9 +772,18 @@ function filesAt(commit: string) {
   return own ? tipOf(own) : new Map(headMap());
 }
 
-/** `pull_request_checkout`: the opened folder or the pull request's worktree, as `placement` says when it has none. */
-function pullRequestCheckout(root: string, id: number, commit: string, create: boolean, placement: Placement) {
+/**
+ * `pull_request_checkout`: your own pull request's `branch` where it is checked out, else the opened folder or
+ * the pull request's worktree, as `placement` says when it has none.
+ */
+function pullRequestCheckout(root: string, id: number, commit: string, branch: string | null, create: boolean, placement: Placement) {
   checkoutState();
+  const local = branch && repo.branches.find((candidate) => !candidate.isRemote && candidate.name === branch && candidate.worktreePath);
+  if (local) {
+    // The mock's checkouts share one set of files, at the branch's tip.
+    const head = yourPr === "apart" ? "9c2b4e6f8a1d3c5e7f9b0d2a4c6e8f1a3b5d7c9e" : TIP;
+    return { kind: "done", path: local.worktreePath, head, edited: folderChanges() !== null, branch: local.name };
+  }
   const inFolder = folderPullRequest === id && prTrees.has(ROOT);
   const own = prTrees.has(`${root}/.arnold/worktrees/pr-${id}`);
   if (inFolder || own || (create && placement === "worktree")) {
@@ -803,7 +812,7 @@ function pullRequestWorktree(path: string, commit: string, create: boolean, disc
     entry = { tree: new Map(tip), head: commit, tip };
     prTrees.set(path, entry);
   }
-  return { path, head: entry.head, edited: edited() };
+  return { path, head: entry.head, edited: edited(), branch: null };
 }
 
 // ------------------------------------------------------------- Fantomas
@@ -1171,6 +1180,9 @@ function commitStaged(message: string) {
 // `?devops=empty`: no active pull requests. `?devops=rejected`: the saved token no longer works.
 
 const devops = searchParams.get("devops");
+// `?yourpr`: !1287, from feature/agent-work (checked out in the opened folder), is yours, so it is edited
+// on that branch; `?yourpr=apart` puts the branch at another commit than the pull request's latest push.
+const yourPr = searchParams.get("yourpr");
 let hasDevOpsRemote = devops !== null;
 let mockToken: PrRemote["token"] = devops === "nopat" ? null : "keychain";
 let tokenWorks = devops !== "rejected";
@@ -1224,8 +1236,8 @@ const mockPullRequests: PullRequest[] =
           id: 1287,
           title: "Add loyalty discount for returning customers",
           description: "Customers who come back get 10% off. Also rounds totals to two decimals.",
-          author: "Ada Lovelace",
-          authorId: "ada-lovelace",
+          author: yourPr === null ? "Ada Lovelace" : YOU.name,
+          authorId: yourPr === null ? "ada-lovelace" : YOU.id,
           yours: false,
           created: hoursAgo(3),
           draft: false,
@@ -1936,8 +1948,8 @@ export function install() {
           } satisfies Comparison;
         }
         case "pull_request_checkout": {
-          const { id, create, placement } = payload as { id: number; create: boolean; placement: Placement };
-          return slowly(() => pullRequestCheckout(args.root, id, args.commit, create, placement), 400);
+          const { id, branch, create, placement } = payload as { id: number; branch: string | null; create: boolean; placement: Placement };
+          return slowly(() => pullRequestCheckout(args.root, id, args.commit, branch, create, placement), 400);
         }
         case "branch_checkout":
           return slowly(() => branchCheckout(args.branch, (payload as { placement: Placement }).placement), 300);

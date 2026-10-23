@@ -1,6 +1,16 @@
 import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { ChangedFile, FileStatus } from "../ipc/commands";
-import { allFiles, branchNames, fileThreads, openFile, openFileMenu, selectFile, showOverview, state } from "../state/review";
+import {
+  allFiles,
+  branchNames,
+  editsToCommit,
+  fileThreads,
+  openFile,
+  openFileMenu,
+  selectFile,
+  showOverview,
+  state,
+} from "../state/review";
 import { isOpen } from "../editor/threads";
 import { pickedCount } from "../state/commitRange";
 import { Chevron } from "./Chevron";
@@ -24,16 +34,17 @@ export const STATUS_NAME: Record<FileStatus, string> = {
 };
 
 /**
- * Whether `file` is marked as having uncommitted edits: in Branches. A pull
- * request's edits are only on their way to becoming suggestions, which
- * their Suggest buttons and frames show.
+ * Whether `file` is marked as having uncommitted edits: in Branches, and in
+ * your own pull request edited on its branch. Others' pull requests' edits
+ * are only on their way to becoming suggestions, which their Suggest
+ * buttons and frames show.
  */
-export const showsEdited = (file: ChangedFile) => !!file.uncommitted && state.source === "branches";
+export const showsEdited = (file: ChangedFile) => !!file.uncommitted && editsToCommit();
 
 /** Marks a file with uncommitted edits in the checkout a comparison reads. */
 export function EditedMark() {
   return (
-    <span class="edited-mark" title={`Uncommitted edits: not in a commit of ${state.comparison?.head ?? "the branch"} yet`}>
+    <span class="edited-mark" title={`Uncommitted edits: not in a commit of ${branchNames().head || "the branch"} yet`}>
       ● edited
     </span>
   );

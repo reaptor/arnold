@@ -1,5 +1,16 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
-import { commitEdits, type EditAction, editBlocked, editInfoAnchor, editInfoOpen, makeEditable, setEditInfoOpen, state } from "../state/review";
+import {
+  branchNames,
+  commitEdits,
+  type EditAction,
+  editBlocked,
+  editInfoAnchor,
+  editInfoOpen,
+  editsToCommit,
+  makeEditable,
+  setEditInfoOpen,
+  state,
+} from "../state/review";
 
 /** Closes a status bar popup on a click outside `root` or Escape. */
 function closeOnOutside(root: () => HTMLElement, close: () => void) {
@@ -20,18 +31,19 @@ function closeOnOutside(root: () => HTMLElement, close: () => void) {
 /**
  * Branches and pull requests: whether the diff can be edited. With the
  * branch checked out, how many files have uncommitted edits and a way to
- * commit them (a pull request's edits are suggested from the Suggest button
- * on each change instead). Without (a picked run of commits, a checkout
- * that failed), a "Read-only" pill saying why, and offering what would make
- * the diff editable.
+ * commit them (others' pull requests' edits are suggested from the Suggest
+ * button on each change instead; your own pull request on its branch is as
+ * Branches). Without (a picked run of commits, a checkout that failed), a
+ * "Read-only" pill saying why, and offering what would make the diff
+ * editable.
  */
 export function EditStatus() {
   return (
     <Show when={state.comparison?.checkout} fallback={<ReadOnlyPill />}>
-      <Show when={state.source === "branches" && state.comparison!.uncommitted > 0}>
+      <Show when={editsToCommit() && state.comparison!.uncommitted > 0}>
         <button
           class="edit-status edited"
-          title={`Files of ${state.comparison!.checkout} that differ from the last commit of ${state.comparison!.head}. Commit them in Commit mode.`}
+          title={`Files of ${state.comparison!.checkout} that differ from the last commit of ${branchNames().head || state.comparison!.head}. Commit them in Commit mode.`}
           disabled={state.busy}
           onClick={() => void commitEdits()}
         >
