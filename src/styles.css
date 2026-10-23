@@ -1030,6 +1030,10 @@ button.primary:hover:not(:disabled) {
   color: var(--modified);
 }
 
+.status-conflicted {
+  color: var(--removed);
+}
+
 .file-path {
   flex: 1;
   min-width: 0;
@@ -4103,6 +4107,48 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   font-size: 12px;
   background: var(--pressed);
   color: var(--text);
+}
+
+/* Merge conflicts in the working text (conflicts.ts): the current side blue,
+   the incoming side amber, the markers a shade stronger, over the diff's own
+   colors. The buttons that resolve a conflict sit on its first marker line. */
+.diff-host .cm-editor .cm-content > .cm-line.cm-conflict-ours {
+  --line-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.diff-host .cm-editor .cm-content > .cm-line.cm-conflict-theirs {
+  --line-bg: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.diff-host .cm-editor .cm-content > .cm-line.cm-conflict-ancestor {
+  --line-bg: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.diff-host .cm-editor .cm-content > .cm-line.cm-conflict-marker {
+  --line-bg: color-mix(in srgb, var(--muted) 26%, transparent);
+  color: var(--muted);
+}
+
+.cm-conflict-buttons {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 12px;
+  vertical-align: top;
+}
+
+.cm-conflict-button {
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: var(--pressed);
+  color: var(--text);
+  font: 12px/18px Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.cm-conflict-button:hover {
+  color: var(--accent-text);
+  background: var(--accent);
 }
 
 /* ------------------------------------------------- editing a compared branch */

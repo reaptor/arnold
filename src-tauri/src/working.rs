@@ -23,6 +23,9 @@ pub enum WorkingSide {
     Staged,
     /// The working tree against HEAD, whatever is staged: a file of the explorer.
     Committed,
+    /// The working tree, with its merge conflicts, against ours: the text the
+    /// checked-out branch had before the merge.
+    Conflicted,
 }
 
 /// What `checkout` has not committed, staged and not. Also makes sure its
@@ -70,7 +73,8 @@ pub fn stop_watching_checkout(state: State<'_, AppState>) {
 }
 
 /// One side of the uncommitted changes of `path`: unstaged is index →
-/// working tree, staged is HEAD → index, committed is HEAD → working tree.
+/// working tree, staged is HEAD → index, committed is HEAD → working tree,
+/// conflicted is ours → working tree.
 /// `old_path` is its path in HEAD when a staged rename.
 #[tauri::command]
 pub async fn read_working_pair(
@@ -92,6 +96,10 @@ pub async fn read_working_pair(
         ),
         WorkingSide::Committed => tokio::try_join!(
             arnold_git::read_blob(&checkout, "HEAD", old_path.as_deref().unwrap_or(&path)),
+            arnold_git::read_worktree(&checkout, &path),
+        ),
+        WorkingSide::Conflicted => tokio::try_join!(
+            arnold_git::read_stage(&checkout, &path, 2),
             arnold_git::read_worktree(&checkout, &path),
         ),
     }

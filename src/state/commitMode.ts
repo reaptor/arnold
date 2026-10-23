@@ -12,6 +12,7 @@ import { reconcile } from "solid-js/store";
 import type { SectionEntry } from "../components/SectionList";
 import { type DiffDocument, type DiffMode, DiffEditor, type LineAction, type MoveDirection, type Snapshot } from "../editor/diffEditor";
 import { carryOver, dropSelectedLines, type LineSelection, resetEdits, takeSelectedLines } from "../editor/resetLines";
+import { findConflicts } from "../editor/conflicts";
 import * as ipc from "../ipc/commands";
 import type { BranchSync, ChangedFile, FilePair, WorkingSide } from "../ipc/commands";
 import { dropPendingSave, flushSave, hasPendingSave, queueSave, saved } from "./autosave";
@@ -221,6 +222,7 @@ async function readWork() {
     const index = side ? listOf(side).findIndex((file) => file.path === state.selected) : -1;
     setState("work", reconcile(work, { key: "path" }));
     setAllFiles(files);
+    offerMergeMessage(checkout, work.mergeMessage);
     void loadSolution(repo.root, work.head ?? "HEAD", checkout, files);
     if (work.head) setUpLanguageFeaturesIn(checkout, work.branch ?? "HEAD", work.head);
     const place = placePending ? (placePending = false, takePlace(repo.root)) : undefined;
@@ -360,6 +362,21 @@ function documentOf(file: ChangedFile, side: WorkingSide | null, pair: FilePair)
       collapseUnchanged: false,
       moves: { toWorking: "Revert this change to the last commit" },
       aiSuggestions: deleted ? [] : openFor(file.path),
+      ignoreWhitespace: state.ignoreWhitespace,
+    };
+  }
+  if (side === "unstaged" && file.status === "conflicted") {
+    // Ours → the file git could not merge: what the merge brings in, with
+    // its conflicts to resolve. It is staged as a whole once resolved.
+    return {
+      path: file.path,
+      base,
+      working,
+      plain: pair.base === null,
+      editable: true,
+      conflicts: true,
+      lineActions: [],
+      aiSuggestions: openFor(file.path),
       ignoreWhitespace: state.ignoreWhitespace,
     };
   }
@@ -596,6 +613,7 @@ export async function filesAction(action: FileAction, side: WorkingSide, files: 
   try {
     if (action === "stage" && side === "unstaged") {
       await flushSave();
+      if (!(await confirmUnresolved(checkout, files))) return;
       await ipc.stageFiles(checkout, files.flatMap(pathsOf));
     } else if (action === "unstage" && side === "staged") {
       await ipc.unstageFiles(checkout, files.flatMap(pathsOf));
@@ -619,6 +637,30 @@ export async function filesAction(action: FileAction, side: WorkingSide, files: 
   await refreshWork();
 }
 
+/** Files with merge conflicts in a list. */
+export const conflictedFiles = (files: readonly ChangedFile[]) => files.filter((file) => file.status === "conflicted");
+
+/**
+ * Staging a file with merge conflicts marks it resolved: while it still has
+ * conflict markers, that is asked first.
+ */
+async function confirmUnresolved(checkout: string, files: readonly ChangedFile[]): Promise<boolean> {
+  const unresolved: string[] = [];
+  let conflicts = 0;
+  for (const file of conflictedFiles(files)) {
+    const count = findConflicts((await ipc.readWorktreeText(checkout, file.path)) ?? "").length;
+    if (count > 0) unresolved.push(file.path);
+    conflicts += count;
+  }
+  if (unresolved.length === 0) return true;
+  const what = unresolved.length === 1 ? unresolved[0] : `${unresolved.length} files`;
+  const text =
+    `${what} still ${unresolved.length === 1 ? "has" : "have"} ${conflicts === 1 ? "a merge conflict" : `${conflicts} merge conflicts`}. ` +
+    "Stage as it is, conflict markers and all, marking the conflicts resolved?" +
+    (unresolved.length > 1 ? `\n\n${unresolved.map((path) => `  ${path}`).join("\n")}` : "");
+  return confirm(text, { title: "Merge conflicts", kind: "warning", okLabel: "Stage" });
+}
+
 /** Files about to be put back or deleted: no save may write them again, nor a snapshot bring back their old text. */
 async function forget(files: readonly ChangedFile[]) {
   for (const file of files) dropPendingSave(file.path);
@@ -636,11 +678,14 @@ function fileNames(files: readonly ChangedFile[]): string {
 
 function confirmReset(side: WorkingSide, files: readonly ChangedFile[]): Promise<boolean> {
   const untracked = side === "unstaged" ? files.filter((file) => file.status === "added").length : 0;
+  const conflicted = side === "unstaged" ? conflictedFiles(files).length : 0;
   if (files.length === 1) {
     const file = files[0];
     const text =
       side === "unstaged"
-        ? untracked
+        ? conflicted
+          ? `Reset ${file.path}? Its edits are lost, and its merge conflicts come back as git first wrote them.`
+          : untracked
           ? `Delete ${file.path}? It is not tracked by git, so it cannot be brought back.`
           : `Reset ${file.path}? Its unstaged changes are lost.`
         : file.status === "added"
@@ -651,7 +696,8 @@ function confirmReset(side: WorkingSide, files: readonly ChangedFile[]): Promise
   const text =
     side === "unstaged"
       ? `Reset ${files.length} files? Their unstaged changes are lost.` +
-        (untracked ? ` ${untracked === files.length ? "They are" : `${untracked} of them are`} not tracked by git, so they are deleted and cannot be brought back.` : "")
+        (untracked ? ` ${untracked === files.length ? "They are" : `${untracked} of them are`} not tracked by git, so they are deleted and cannot be brought back.` : "") +
+        (conflicted ? " Merge conflicts come back as git first wrote them." : "")
       : `Reset ${files.length} files to the last commit? Their staged and unstaged changes are lost; new ones stay on disk as untracked files.`;
   return confirm(`${text}\n\n${fileNames(files)}`, { title: "Reset", kind: "warning", okLabel: `Reset ${files.length} files` });
 }
@@ -683,7 +729,12 @@ export async function stageAll() {
   const files = listOf("unstaged");
   if (!checkout || files.length === 0) return;
   await flushSave();
-  await ipc.stageFiles(checkout, files.flatMap(pathsOf)).catch(fail("Could not stage the files"));
+  try {
+    if (!(await confirmUnresolved(checkout, files))) return;
+    await ipc.stageFiles(checkout, files.flatMap(pathsOf));
+  } catch (error) {
+    fail("Could not stage the files")(error);
+  }
   await refreshWork();
 }
 
@@ -938,6 +989,17 @@ const messageKey = (checkout: string) => `arnold.commitMessage.${checkout}`;
 const [message, setMessage] = createSignal("");
 export { message };
 
+/** The merge whose message was put in the commit message: once per merge, so it can be cleared. */
+let mergeOffered: string | null = null;
+
+/** While a merge is under way, its message goes in an empty commit message, as git's own editor would have it. */
+function offerMergeMessage(checkout: string, mergeMessage: string | null) {
+  const merge = mergeMessage ? `${checkout}\n${mergeMessage}` : null;
+  if (!merge || merge === mergeOffered) return;
+  mergeOffered = merge;
+  if (!message().trim()) setCommitMessage(mergeMessage!);
+}
+
 /** The commit message as typed; kept per checkout until committed. */
 export function setCommitMessage(text: string) {
   setMessage(text);
@@ -947,8 +1009,11 @@ export function setCommitMessage(text: string) {
   else localStorage.removeItem(messageKey(checkout));
 }
 
+/** Files that still have merge conflicts: git commits nothing until they are staged. */
+export const conflictedCount = () => conflictedFiles(listOf("unstaged")).length;
+
 export const canCommit = () =>
-  !state.committing && message().trim() !== "" && (state.work?.staged.length ?? 0) > 0;
+  !state.committing && message().trim() !== "" && (state.work?.staged.length ?? 0) > 0 && conflictedCount() === 0;
 
 /** Commits what is staged. */
 export async function commit() {

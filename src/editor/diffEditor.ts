@@ -30,6 +30,7 @@ import {
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { changeKindColors, type Kind, kindOf } from "./changeKinds";
+import { mergeConflicts } from "./conflicts";
 import { deletedFile } from "./deletedFile";
 import { findBar, selectMatch, shownMatches } from "./findBar";
 import { riderIslandsDark } from "./riderIslandsTheme";
@@ -90,6 +91,8 @@ export interface DiffDocument {
   aiSuggestions?: readonly AiSuggestion[];
   /** The working text can be edited: a file of the working tree. */
   editable?: boolean;
+  /** The working text has merge conflicts: they are tinted, with buttons that resolve them. */
+  conflicts?: boolean;
   /**
    * The working text at the branch's last commit, when the working side is a
    * checkout's file: the lines that differ from it (uncommitted edits) are
@@ -454,13 +457,14 @@ export class DiffEditor {
   }
 
   /** Whether the file shown is `path`, shown with these settings. */
-  shows(path: string, kind: Pick<DiffDocument, "plain" | "deleted" | "editable">): boolean {
+  shows(path: string, kind: Pick<DiffDocument, "plain" | "deleted" | "editable" | "conflicts">): boolean {
     const document = this.document;
     return (
       document?.path === path &&
       !!document.plain === !!kind.plain &&
       !!document.deleted === !!kind.deleted &&
-      !!document.editable === !!kind.editable
+      !!document.editable === !!kind.editable &&
+      !!document.conflicts === !!kind.conflicts
     );
   }
 
@@ -883,6 +887,7 @@ export class DiffEditor {
         return effect ? { effects: keepUnchangedLines.of(unusedOpenPositions(effect.value)) } : null;
       }),
       editFrames(document.committed ?? null, document.suggest ? (block) => this.callbacks.onSuggest?.(block) : undefined),
+      document.conflicts ? mergeConflicts : [],
       keymap.of([
         {
           key: "F7",
