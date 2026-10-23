@@ -40,6 +40,8 @@ export interface ThreadActions {
   editComment(thread: PrThread, comment: PrComment, text: string): Promise<void>;
   /** Deletes a comment of the token's owner (asking first). */
   deleteComment(thread: PrThread, comment: PrComment): Promise<void>;
+  /** Commits a suggestion's lines to the pull request and resolves its thread (asking first). */
+  acceptSuggestion(thread: PrThread): Promise<void>;
 }
 
 let actions: ThreadActions | null = null;
@@ -69,6 +71,8 @@ const isFolded = (thread: PrThread) => folded.get(thread.id) ?? !isOpen(thread);
 const replying = new Set<number>();
 /** Comments being edited, as `thread id:comment id`. */
 const editing = new Set<string>();
+/** Threads whose suggestion is being accepted. */
+const accepting = new Set<number>();
 /** Text being written, by field, so it survives the card being redrawn. */
 const drafts = new Map<string, string>();
 
@@ -285,7 +289,21 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
         showFooter();
         onResize?.();
       };
-      return footer.replaceChildren(reply);
+      if (!canAccept(thread)) return footer.replaceChildren(reply);
+      const accept = element("button", "thread-accept", accepting.has(thread.id) ? "Accepting…" : "Accept suggestion");
+      accept.title = "Commit the suggested lines to the pull request's branch on Azure DevOps and resolve the discussion";
+      accept.disabled = accepting.has(thread.id);
+      accept.onclick = async () => {
+        accepting.add(thread.id);
+        showFooter();
+        try {
+          await actions!.acceptSuggestion(thread);
+        } finally {
+          accepting.delete(thread.id);
+          showFooter();
+        }
+      };
+      return footer.replaceChildren(reply, accept);
     }
     footer.replaceChildren(
       composerElement({
@@ -443,6 +461,10 @@ const aiLine = (first: boolean, last: boolean) =>
 
 /** Whether `thread` suggests a change: its first comment holds a ```suggestion block. */
 export const isSuggestion = (thread: PrThread) => /^\s*(`{3,}|~{3,})\s*suggestion\b/m.test(thread.comments[0]?.content ?? "");
+
+/** Whether `thread`'s suggestion can be accepted: still open, and about lines of the pull request's latest push. */
+export const canAccept = (thread: PrThread) =>
+  thread.path !== null && thread.position?.side === "head" && isOpen(thread) && isSuggestion(thread);
 
 /**
  * The lines an open suggestion would replace: framed in amber like edits,

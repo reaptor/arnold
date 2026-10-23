@@ -1516,6 +1516,14 @@ const threadsOf = (id: unknown) => ownDiffs.get(Number(id))?.threads ?? pullRequ
 const tipOf = (own: OwnDiff) =>
   new Map([...own.files].flatMap(([path, file]) => (file.working === null ? [] : [[path, file.working] as const])));
 
+/** A new commit on top of `own`'s branch, of the files changed in it already; resolves to its sha. */
+function pushCommit(own: OwnDiff, pullRequest: PullRequest, subject: string, author: string, paths: string[]) {
+  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject, author, date: new Date().toISOString(), paths });
+  pullRequest.sourceCommit = sha;
+  return sha;
+}
+
 /** `arnoldMock.newPush(id)`: a new commit on pull request `id` (one with its own diff). */
 function newPush(id = 1291) {
   const own = ownDiffs.get(id);
@@ -1524,10 +1532,43 @@ function newPush(id = 1291) {
   const discounts = own.files.get("src/Discounts.fs")!;
   const count = own.commits.length - 1;
   discounts.working += `\n/// Every discount there is (push ${count}).\nlet all${count} = [ seasonal; staff ]\n`;
-  const sha = Array.from({ length: 40 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
-  own.commits.unshift({ sha, shortSha: sha.slice(0, 7), subject: `List every discount (${count})`, author: "Grace Hopper", date: new Date().toISOString(), paths: ["src/Discounts.fs"] });
-  pullRequest.sourceCommit = sha;
+  const sha = pushCommit(own, pullRequest, `List every discount (${count})`, "Grace Hopper", ["src/Discounts.fs"]);
   console.info(`devMock: pushed ${sha.slice(0, 7)} to !${id}; reload the pull request list or refocus the window`);
+}
+
+/** The lines of the first ```suggestion block of a comment, as the backend reads them. */
+function suggestedLines(content: string): string[] | null {
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => /^\s*(`{3,}|~{3,})\s*suggestion\b/.test(line));
+  if (start < 0) return null;
+  const fence = lines[start].trim().match(/^(`{3,}|~{3,})/)![1];
+  const end = lines.findIndex((line, index) => index > start && line.trim().startsWith(fence) && /^[`~]+$/.test(line.trim()));
+  return lines.slice(start + 1, end < 0 ? undefined : end);
+}
+
+/**
+ * Accepting thread `threadId`'s suggestion on pull request `id`: its lines
+ * committed on top of `commit`, the thread resolved.
+ */
+function acceptSuggestion(id: unknown, threadId: number, commit: string) {
+  const pullRequest = findPullRequest(id);
+  const own = ownDiffs.get(pullRequest.id);
+  if (commit !== pullRequest.sourceCommit) {
+    throw { kind: "other", message: `Azure DevOps answered with status 409: TF401028: The reference 'refs/heads/${pullRequest.sourceBranch}' has already been updated by another client.` };
+  }
+  const thread = threadsOf(id).find((candidate) => candidate.id === threadId);
+  const file = thread?.path ? own?.files.get(thread.path) : undefined;
+  const lines = thread ? suggestedLines(thread.comments[0].content) : null;
+  if (!own || !thread?.position || !file?.working || !lines) {
+    throw { kind: "other", message: "This discussion holds no suggestion that can be accepted." };
+  }
+  const text = file.working.split("\n");
+  text.splice(thread.position.startLine - 1, thread.position.endLine - thread.position.startLine + 1, ...lines);
+  file.working = text.join("\n");
+  thread.status = "fixed";
+  const author = thread.comments[0].author;
+  const sha = pushCommit(own, pullRequest, `Apply suggestion from ${author} to ${thread.path}`, YOU.name, [thread.path!]);
+  return { commit: sha, resolved: true };
 }
 /** `arnoldMock.devopsRemote(false)` removes origin's Azure DevOps remote, `(true)` adds it, as `git remote` would. */
 function devopsRemote(on = true) {
@@ -2185,6 +2226,13 @@ export function install() {
             if (found.comments.length === 0) threads.splice(threads.indexOf(found), 1);
             return null;
           }, 500);
+        case "accept_pull_request_suggestion":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { thread, commit } = payload as { thread: number; commit: string };
+            return acceptSuggestion(args.id, thread, commit);
+          }, 900);
         case "pull_request_threads":
           return slowly(() => {
             checkToken();

@@ -133,6 +133,11 @@ interface State {
   /** Reviewed when `source` is "pullRequest"; null until one is picked. */
   pullRequest: ReviewedPullRequest | null;
   /**
+   * The pull request's overview (title, description, status, every
+   * discussion) is shown in place of its files: where a pull request opens.
+   */
+  overview: boolean;
+  /**
    * The worktree of Arnold's own the pull request under review is edited in
    * (`.arnold/worktrees/pr-<id>`), once made; edits there become suggestions.
    */
@@ -284,6 +289,7 @@ export const [state, setState] = createStore<State>({
   base: "",
   head: "",
   pullRequest: null,
+  overview: false,
   prWorktree: null,
   openingPullRequest: null,
   updatingPullRequest: null,
@@ -687,7 +693,7 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected), true);
-  setThreadActions({ reply, createThread, cancelDraft, editComment, deleteComment });
+  setThreadActions({ reply, createThread, cancelDraft, editComment, deleteComment, acceptSuggestion });
   lsp.onDisplayFile(displayUri);
   lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
@@ -869,7 +875,14 @@ export async function openPullRequest(remote: string, id: number) {
     if (state.source === "commit") commitMode.leave();
     resetSessions();
     drafts.clear();
-    setState({ source: "pullRequest", pullRequest: { ...pullRequest, remote }, prWorktree: null, range: null, selected: null });
+    setState({
+      source: "pullRequest",
+      pullRequest: { ...pullRequest, remote },
+      overview: true,
+      prWorktree: null,
+      range: null,
+      selected: null,
+    });
     rememberReview(repo.root, { source: "pullRequest", pullRequest: { remote, id } });
     setHostLinks(azureHostLinks(pullRequest.url));
     void loadThreads();
@@ -891,6 +904,17 @@ export function closePullRequest() {
   resetSessions();
   setState({ pullRequest: null, prWorktree: null, range: null, selected: null });
 }
+
+/** Whether the overview of the pull request under review is shown, in place of its files. */
+export const overviewShown = () => state.source === "pullRequest" && state.pullRequest !== null && state.overview;
+
+/** Shows the overview of the pull request under review, or its files again. */
+export function showOverview(on: boolean) {
+  setState({ overview: on, menu: null });
+}
+
+/** A file is about to be shown: the overview gives way to the files. */
+const leaveOverview = () => overviewShown() && showOverview(false);
 
 /** The two commits or branches compared, or null when nothing is picked yet. */
 function compared(): { base: string; head: string } | null {
@@ -1065,6 +1089,7 @@ const unchangedFile = (path: string): ChangedFile => ({
 /** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
 /** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
 export async function openFile(path: string) {
+  leaveOverview();
   if (path !== activePath() || (state.source === "commit" && state.workSide !== null)) noteDeparture();
   if (state.source === "commit") return commitMode.openTreeFile(path);
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
@@ -1938,6 +1963,7 @@ export const previousChange = () => stepChange(-1);
  * out, and stops at the last one.
  */
 async function stepChange(direction: 1 | -1) {
+  leaveOverview();
   if (state.view === "all" && state.source === "commit") return commitMode.stepChange(direction);
   if (state.view !== "all") {
     if (direction > 0) editor?.nextChange();
@@ -2400,6 +2426,7 @@ async function travel(from: NavigationPlace[], to: NavigationPlace[]) {
 
 /** Shows the file of `place` and returns its editor. */
 async function showPlace(place: NavigationPlace): Promise<DiffEditor | null> {
+  leaveOverview();
   if (state.source === "commit") {
     if (place.side === null) await commitMode.openTreeFile(place.path);
     else await commitMode.selectWorkFile(place.side, place.path);
@@ -2678,6 +2705,37 @@ async function deleteComment(thread: PrThread, comment: PrComment) {
   await loadThreads();
 }
 
+/**
+ * Accepts a suggestion, after asking: its lines are committed to the pull
+ * request's source branch on the host and its discussion is resolved, as
+ * Azure DevOps' own "Apply change" does. The new push then shows as any does.
+ */
+async function acceptSuggestion(thread: PrThread) {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest?.sourceCommit) return;
+  const sure = await confirm(
+    `Commit ${thread.comments[0].author}'s suggestion for ${thread.path} to ${pullRequest.sourceBranch} on Azure DevOps, and resolve the discussion?`,
+    { title: "Accept suggestion", kind: "info", okLabel: "Accept" },
+  );
+  if (!sure) return;
+  try {
+    const accepted = await ipc.acceptPullRequestSuggestion(repo.root, pullRequest.remote, pullRequest.id, thread.id, pullRequest.sourceCommit);
+    commitMode.notify(
+      accepted.resolved
+        ? `Suggestion accepted: commit ${accepted.commit.slice(0, 8)} on ${pullRequest.sourceBranch}`
+        : `Suggestion accepted (commit ${accepted.commit.slice(0, 8)}), but its discussion could not be marked resolved`,
+    );
+  } catch (error) {
+    fail(writeErrorText(error, "the suggestion"));
+    return;
+  }
+  await loadThreads();
+  await checkPullRequest();
+  // The host may take a moment to see the push as one of the pull request's.
+  window.setTimeout(() => void checkPullRequest(), 3000);
+}
+
 function cancelDraft(place: NewThreadPlace) {
   if (drafts.get(place.path) !== place) return;
   drafts.delete(place.path);
@@ -2691,6 +2749,7 @@ export const createGeneralThread = (text: string) => createThread(null, text);
 export async function revealThread(thread: PrThread) {
   const path = thread.path;
   if (!path || !isChanged(path)) return;
+  leaveOverview();
   if (state.range !== null) await setRange(null);
   if (state.view === "all") {
     const target = await showFileSection(path);

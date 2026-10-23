@@ -648,6 +648,54 @@ pub fn edit_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comment
     Ok(())
 }
 
+/// Marks thread `thread` of pull request `id` resolved.
+pub fn resolve_thread(repo: &AzureRepo, token: &str, id: u64, thread: u64) -> Result<(), PrError> {
+    let url = repo.api(&format!("/pullRequests/{id}/threads/{thread}?api-version={API_VERSION}"));
+    // 2: fixed, which the web page calls Resolved.
+    send(agent().patch(&url), &url, token, &json!({ "status": 2 }))?;
+    Ok(())
+}
+
+/// Commits `content` as the new contents of `path` on `branch` (without
+/// `refs/heads/`), on top of `commit`: the host refuses when the branch is
+/// somewhere else by now. Resolves to the new commit.
+pub fn push_file(
+    repo: &AzureRepo,
+    token: &str,
+    branch: &str,
+    commit: &str,
+    path: &str,
+    content: &[u8],
+    message: &str,
+) -> Result<String, PrError> {
+    let url = repo.api(&format!("/pushes?api-version={API_VERSION}"));
+    let answer = post(&url, token, &push_body(branch, commit, path, content, message))?;
+    answer["refUpdates"][0]["newObjectId"]
+        .as_str()
+        .or_else(|| answer["commits"][0]["commitId"].as_str())
+        .map(str::to_string)
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))
+}
+
+/// What `push_file` sends: the bytes as they are, in base64, so line endings
+/// and encoding are kept.
+fn push_body(branch: &str, commit: &str, path: &str, content: &[u8], message: &str) -> Value {
+    json!({
+        "refUpdates": [{ "name": format!("refs/heads/{branch}"), "oldObjectId": commit }],
+        "commits": [{
+            "comment": message,
+            "changes": [{
+                "changeType": "edit",
+                "item": { "path": repo_path(path) },
+                "newContent": {
+                    "content": base64::engine::general_purpose::STANDARD.encode(content),
+                    "contentType": "base64encoded",
+                },
+            }],
+        }],
+    })
+}
+
 /// Deletes comment `comment` of thread `thread` of pull request `id`; only its
 /// author may. A thread whose comments are all deleted is gone.
 pub fn delete_comment(repo: &AzureRepo, token: &str, id: u64, thread: u64, comment: u64) -> Result<(), PrError> {
@@ -889,6 +937,17 @@ mod tests {
             project: project.into(),
             repository: repository.into(),
         })
+    }
+
+    #[test]
+    fn pushes_the_file_on_top_of_the_reviewed_commit() {
+        let body = push_body("feature/x", "abc", "src/A.fs", b"let a = 1\r\n", "Apply suggestion");
+        assert_eq!(body["refUpdates"][0], json!({ "name": "refs/heads/feature/x", "oldObjectId": "abc" }));
+        let change = &body["commits"][0]["changes"][0];
+        assert_eq!(change["item"]["path"], "/src/A.fs");
+        assert_eq!(change["newContent"]["contentType"], "base64encoded");
+        assert_eq!(change["newContent"]["content"], "bGV0IGEgPSAxDQo=");
+        assert_eq!(body["commits"][0]["comment"], "Apply suggestion");
     }
 
     #[test]
