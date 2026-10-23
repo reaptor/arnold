@@ -219,7 +219,6 @@ export function App() {
   return (
     <div class="app" classList={{ busy: isBusy() }}>
       <Toolbar />
-      <div class="activity-bar" aria-hidden="true" />
       <Show when={state.error}>
         <div class="banner error">
           <span>{state.error}</span>

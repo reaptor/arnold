@@ -1,20 +1,20 @@
 // What the app is busy with: slow backend calls (fetching, checking out,
-// talking to Azure DevOps…) show in the status bar and as a bar under the
-// toolbar while they run, so a click that takes a while is seen to work.
-// The button or row that was clicked shows a spinner too, and ignores more
-// clicks until its work is done. Calls that end quickly never show, and once
-// shown the bar and label stay a moment after the last call ends, so calls
-// made one after another do not flicker.
+// talking to Azure DevOps…) show in the status bar while they run, so a
+// click that takes a while is seen to work. The button or row that was
+// clicked shows a spinner too, and ignores more clicks until its work is
+// done. Calls that end quickly never show, and once shown the label stays a
+// moment after the last call ends, so calls made one after another do not
+// flicker.
 
 import { createSignal } from "solid-js";
 
 /** How long a call runs before it shows. */
 const SHOW_AFTER_MS = 250;
 
-/** How long the bar and label stay after the last call ends, in case another starts. */
+/** How long the label stays after the last call ends, in case another starts. */
 const HIDE_AFTER_MS = 300;
 
-/** How long the bar and label stay at least, once shown. */
+/** How long the label stays at least, once shown. */
 const MIN_SHOWN_MS = 600;
 
 /** How soon after a click a call counts as started by it. */
@@ -32,7 +32,7 @@ interface Activity {
 }
 
 const [running, setRunning] = createSignal<readonly Activity[]>([]);
-/** What was running last, kept while the bar lingers after it ended. */
+/** What was running last, kept while the label lingers after it ended. */
 const [lastShown, setLastShown] = createSignal<readonly Activity[]>([]);
 const [shown, setShown] = createSignal(false);
 let shownAt = 0;
@@ -107,7 +107,7 @@ function release(control: HTMLElement) {
 
 /**
  * Shows `label` (e.g. "Fetching") while `work` runs, once it has run for a
- * moment, or at once while the bar is still up from an earlier call.
+ * moment, or at once while the label is still up from an earlier call.
  */
 export async function track<T>(label: string, work: Promise<T>): Promise<T> {
   const activity = { id: nextId++, label };
