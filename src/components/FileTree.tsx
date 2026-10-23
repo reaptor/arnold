@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import type { FileStatus } from "../ipc/commands";
 import { allFiles, changedFiles, openFile, openTreeMenu, state } from "../state/review";
@@ -74,13 +74,20 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     onCleanup(() => observer.disconnect());
   });
 
-  const scrollToRow = (index: number) => {
-    if (index < 0) return;
-    const top = index * ROW_HEIGHT;
-    if (top < scroller.scrollTop) scroller.scrollTop = top;
-    else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight)
-      scroller.scrollTop = top + ROW_HEIGHT - scroller.clientHeight;
-  };
+  /**
+   * Scrolls the row `key` into view once the rows are drawn: folders opened
+   * just now make the list longer, and until then the scroll would stop at
+   * its old end, short of the row.
+   */
+  const scrollToRow = (key: string) =>
+    queueMicrotask(() => {
+      const index = indexOf(key);
+      if (index < 0) return;
+      const top = index * ROW_HEIGHT;
+      if (top < scroller.scrollTop) scroller.scrollTop = top;
+      else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight)
+        scroller.scrollTop = top + ROW_HEIGHT - scroller.clientHeight;
+    });
   const indexOf = (key: string | null) => rows().findIndex((row) => row.key === key);
   const openAll = (keys: string[]) =>
     setExpanded(
@@ -89,18 +96,41 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
       }),
     );
 
-  // Follow the file shown in the editor, wherever it was picked (in Commit
-  // mode also Unstaged or Staged): open its folders and scroll to it.
+  /** Opens the folders down to `path` and scrolls to it. */
+  const reveal = (path: string) => {
+    const closed = model().holders(path).filter((key) => !rowOpen(key));
+    if (closed.length) openAll(closed);
+    setCursor(path);
+    scrollToRow(path);
+  };
+
+  // Follow the file shown in the editor, wherever it was picked (Changes, the
+  // all-files view's scrolling, F7, a discussion, go-to-definition, in Commit
+  // mode also Unstaged or Staged). A file picked before the tree had it (still
+  // loading) is revealed when it comes; a refresh of the files leaves the
+  // scrolling alone.
+  let revealed: string | null = null;
+  createEffect(() => {
+    const path = state.selected;
+    const known = !!path && fileSet().has(path);
+    untrack(() => {
+      if (!known) revealed = null;
+      else if (path !== revealed) {
+        revealed = path;
+        reveal(path);
+      }
+    });
+  });
+  // The other view, or the tree back from a filter's flat list, puts the
+  // rows elsewhere: find the file shown again.
   createEffect(
     on(
-      () => state.selected,
-      (path) => {
-        if (!path || !fileSet().has(path)) return;
-        const closed = model().holders(path).filter((key) => !rowOpen(key));
-        if (closed.length) openAll(closed);
-        setCursor(path);
-        scrollToRow(indexOf(path));
+      [showsSolution, () => props.filter === ""],
+      () => {
+        const path = state.selected;
+        if (!props.filter && path && fileSet().has(path)) reveal(path);
       },
+      { defer: true },
     ),
   );
 
@@ -121,7 +151,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     const key = selected();
     const tree = model();
     openAll([...(key ? tree.holders(key) : []), ...(key !== null && fileSet().has(key) ? [] : tree.groupsIn(key))]);
-    if (key) scrollToRow(indexOf(key));
+    if (key) scrollToRow(key);
   };
 
   /** Closes every folder; the cursor stays, so Expand selected finds its way back. */
@@ -143,7 +173,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
     const moveTo = (next: number) => {
       const target = Math.min(Math.max(next, 0), list.length - 1);
       setCursor(list[target].key);
-      scrollToRow(target);
+      scrollToRow(list[target].key);
     };
     if (event.key === "ArrowDown") moveTo(indexOf(cursor()) < 0 ? 0 : index + 1);
     else if (event.key === "ArrowUp") moveTo(index - 1);
