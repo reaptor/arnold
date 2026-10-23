@@ -1784,6 +1784,21 @@ button.primary:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
+/* The checkout in the status bar: opens its folder in the file manager. */
+.checkout-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.checkout-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
 .hint {
   flex: none;
 }

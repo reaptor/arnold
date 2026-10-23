@@ -15,3 +15,7 @@ function detect(): Platform {
 
 export const platform: Platform = detect();
 export const isMac = platform === "mac";
+
+/** The system's file manager, as its menus name it. */
+export const fileManager = isMac ? "Finder" : platform === "windows" ? "File Explorer" : "the file manager";
+export const revealLabel = `Reveal in ${isMac ? "Finder" : platform === "windows" ? "File Explorer" : "file manager"}`;

@@ -254,6 +254,9 @@ export const pathTracked = (checkout: string, path: string) => invoke<boolean>("
 /** Stops tracking `path` (a file, or a folder's files) in `checkout`, keeping it on disk; resolves to how many files. */
 export const untrackPath = (checkout: string, path: string) => invoke<number>("untrack_path", { checkout, path });
 
+/** Shows `path` of `checkout` (a file or folder; the checkout itself when null) in Finder, File Explorer or the file manager. */
+export const revealPath = (checkout: string, path: string | null) => invoke<void>("reveal_path", { checkout, path });
+
 /** Where a branch is checked out. */
 export interface BranchCheckout {
   /** The local branch checked out: the one asked for, or `x` for a remote branch `origin/x`. */

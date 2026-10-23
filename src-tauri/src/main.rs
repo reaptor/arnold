@@ -96,6 +96,7 @@ fn main() {
             working::ignore_path,
             working::path_tracked,
             working::untrack_path,
+            working::reveal_path,
             working::set_index_text,
             working::save_worktree_file,
             working::commit_staged,

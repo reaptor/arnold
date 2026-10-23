@@ -52,7 +52,7 @@ pub use worktree::{
     branch_checkout, branch_worktree, detached_worktree, find_worktree, pull_request_checkout, BranchCheckout, CheckedOut, Placement, Worktree,
 };
 pub use working::{
-    commit, delete_files, discard, encode_like, ignore, ignored_paths, is_tracked, read_index, read_worktree, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
+    commit, delete_files, discard, encode_like, ignore, ignored_paths, is_tracked, on_disk, read_index, read_worktree, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, Ignored, NewCommit, WorkingStatus,
 };
 

@@ -17,6 +17,7 @@ import {
 } from "../editor/diffEditor";
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
+import { fileManager } from "../platform";
 import type {
   Branch,
   ChangedFile,
@@ -2529,6 +2530,29 @@ export function openTreeMenu(path: string, folder: boolean, x: number, y: number
     );
   }
   return true;
+}
+
+/**
+ * Where the files shown are on disk: Commit mode's checkout, or the
+ * checkout a branch or pull request is read from; null when the diff is
+ * read from commits only.
+ */
+export const shownCheckout = () => (state.source === "commit" ? state.checkout : (state.comparison?.checkout ?? null));
+
+/**
+ * "Reveal in Finder" in a file's or folder's menu, or a click on the
+ * checkout in the status bar: `path` (the checkout itself when null) in the
+ * system's file manager.
+ */
+export async function revealInFileManager(path: string | null = null) {
+  setState("menu", null);
+  const checkout = shownCheckout();
+  if (!checkout) return;
+  try {
+    await ipc.revealPath(checkout, path);
+  } catch (error) {
+    fail(`Showing ${path ?? checkout} in ${fileManager}: ${String(error)}`);
+  }
 }
 
 /**
