@@ -60,6 +60,14 @@ export const opened = (creator: Creator, pullRequest: PullRequest) =>
     ? creator.id.toLowerCase() === pullRequest.authorId.toLowerCase()
     : creator.name === pullRequest.author;
 
+/** The same person: by the host's id, ignoring case, or by name when either has none. */
+export const sameCreator = (a: Creator, b: Creator) =>
+  a.id && b.id ? a.id.toLowerCase() === b.id.toLowerCase() : a.name === b.name;
+
+/** Those of `found` neither `known` nor `hidden`: people new to the dashboard. */
+export const newCreators = <T extends Creator>(found: readonly T[], known: readonly Creator[], hidden: readonly Creator[]): T[] =>
+  found.filter((creator) => ![...known, ...hidden].some((each) => sameCreator(each, creator)));
+
 /**
  * Whether `pullRequest` was opened by someone not among `hidden`. The filter
  * keeps who is left out rather than who is picked, so people never seen

@@ -211,13 +211,31 @@ pub async fn list_favorite_pull_requests(
     remote: String,
     prs: State<'_, PrState>,
 ) -> Result<Vec<PullRequest>, PrError> {
-    let repo = azure_remotes(&favorite_root(&path)?)
+    active_pull_requests(&favorite_repo(&path, &remote).await?, &prs).await
+}
+
+/// Azure DevOps remote `remote` of a favorite repository.
+async fn favorite_repo(path: &str, remote: &str) -> Result<AzureRepo, PrError> {
+    azure_remotes(&favorite_root(path)?)
         .await?
         .into_iter()
-        .find(|(name, _)| *name == remote)
+        .find(|(name, _)| name == remote)
         .map(|(_, repo)| repo)
-        .ok_or_else(|| PrError::NotFound(format!("{remote} is not an Azure DevOps remote of {path}")))?;
-    active_pull_requests(&repo, &prs).await
+        .ok_or_else(|| PrError::NotFound(format!("{remote} is not an Azure DevOps remote of {path}")))
+}
+
+/// How many discussions of pull request `id` of a favorite repository are
+/// still to be resolved, for the dashboard.
+#[tauri::command]
+pub async fn favorite_pull_request_open_threads(
+    path: String,
+    remote: String,
+    id: u64,
+    prs: State<'_, PrState>,
+) -> Result<usize, PrError> {
+    let repo = favorite_repo(&path, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::open_thread_count(&repo, &token, id)).await?
 }
 
 /// Checks `token` against `remote`, then saves it for the remote's

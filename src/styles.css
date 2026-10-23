@@ -2503,6 +2503,25 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   color: var(--muted);
 }
 
+/* Whether to show the pull requests of people new to the dashboard. */
+.dashboard-question {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+.dashboard-question > span {
+  flex: 1;
+}
+
+.dashboard-question strong {
+  font-weight: 600;
+}
+
 .dashboard-list {
   list-style: none;
   margin: 0;
@@ -2512,6 +2531,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   gap: 6px;
 }
 
+/* Whole-pixel lines, so the pills and the title are centered alike on every row. */
 .dashboard-pr {
   display: flex;
   align-items: flex-start;
@@ -2519,6 +2539,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   padding: 8px 10px;
   border: 1px solid var(--popup-border);
   border-radius: 6px;
+  line-height: 18px;
   cursor: pointer;
 }
 
@@ -2547,13 +2568,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 .dashboard-pr .pr-line:first-child .picker-name {
   font-weight: 600;
   font-size: 14px;
+  line-height: 20px;
 }
 
+/* As tall as the title's line, which it sits next to. */
 .pr-status {
   flex: none;
   width: 124px;
-  margin-top: 1px;
   padding: 1px 0;
+  line-height: 16px;
   border: 1px solid currentColor;
   border-radius: 10px;
   font-size: 11px;
@@ -2591,6 +2614,34 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
+  white-space: nowrap;
+}
+
+/* Discussions still to resolve. */
+.open-threads-tag {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--modified);
+  border-radius: 8px;
+  color: var(--modified);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.open-threads-tag .icon {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+}
+
+.dashboard-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
