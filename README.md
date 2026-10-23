@@ -409,7 +409,7 @@ src-tauri/installer/macos/build-pkg.sh target/release/bundle/macos/Arnold.app 0.
 
 ### Releases
 
-Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases). Pushes that change only the website (`site/`) build no release.
+Every push to `main` is built by [`.github/workflows/release.yml`](.github/workflows/release.yml) for macOS (Apple silicon) and Windows (x64) and published under [Releases](https://github.com/reaptor/arnold/releases). Pushes that change only the website (`site/`) or [`.github/workflows/pr-screenshots.yml`](.github/workflows/pr-screenshots.yml) (which deletes a pull request's screenshot branch once it is closed) build no release.
 
 The version goes up with every commit: `<major>.<minor>` comes from `src-tauri/tauri.conf.json` and the patch number is the number of commits on `main`, so the 57th commit is released as `v0.1.57`. To start a new minor or major version, change the version in `src-tauri/tauri.conf.json`. Local builds keep the version written in that file.
 

@@ -14,10 +14,12 @@ on:
   push:
     branches:
       - main
-    # The website (site/, deployed by site.yml) is not part of the app.
+    # The website (site/, deployed by site.yml) and the cleanup of pull requests' screenshots
+    # are not part of the app.
     paths-ignore:
       - site/**
       - .github/workflows/site.yml
+      - .github/workflows/pr-screenshots.yml
   workflow_dispatch:
 
 concurrency:
