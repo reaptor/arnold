@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use arnold_git::{
-    commit, delete_files, discard, ignore, is_tracked, read_index, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
+    commit, delete_files, discard, ignore, ignored_paths, is_tracked, read_index, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,
     working_status, worktree_files, write_worktree, FileStatus,
 };
 
@@ -307,4 +307,24 @@ async fn untracking_keeps_files_on_disk() {
         ]
     );
     assert_eq!(untrack(root, "a.txt").await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn tells_which_changed_paths_git_ignores() {
+    let dir = fixture();
+    let root = dir.path();
+    write(root, ".gitignore", "obj/\n*.log\n");
+    write(root, "kept.log", "tracked although ignored\n");
+    git(root, &["add", "--force", ".gitignore", "kept.log"]);
+    git(root, &["commit", "--quiet", "-m", "ignore build output"]);
+    write(root, "src/obj/project.assets.json", "{}");
+    write(root, "src/obj/Debug/net8.0/App.dll", "");
+    write(root, "build.log", "");
+    write(root, "src/App.fs", "module App\n");
+
+    let build_output = ["src/obj", "src/obj/project.assets.json", "src/obj/Debug/net8.0/App.dll", "build.log"];
+    let paths: Vec<String> = build_output.iter().chain(&["kept.log", "src/App.fs", "a.txt"]).map(|path| path.to_string()).collect();
+    assert_eq!(ignored_paths(root, &paths).await.unwrap(), build_output);
+    // None of them ignored is not a failure.
+    assert!(ignored_paths(root, &["src/App.fs".to_string()]).await.unwrap().is_empty());
 }
