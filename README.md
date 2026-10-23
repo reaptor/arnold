@@ -114,7 +114,7 @@ When the repository uses Fantomas, Arnold checks the formatting before it commit
 
 ![The code base is not formatted: Fantomas would reformat four files; Run Fantomas and commit, Commit without formatting, or Cancel](docs/screenshots/fantomas.png)
 
-Arnold says what it committed in the status bar and stays in Commit mode. On the right of the toolbar are four buttons for the branch checked out:
+After committing, Arnold stays in Commit mode. On the right of the toolbar are four buttons for the branch checked out:
 
 - **Review against main** (the repository's default branch): reviews the branch in *Branches*.
 - **Pull**, with the number of commits the remote's branch had that the local one lacks at the last fetch: fetches as *Fetch* in the picker does, then brings the branch up to its remote branch. With no commits of its own the branch is fast-forwarded, keeping uncommitted changes in other files; with commits of its own the remote's are merged in, only when nothing is uncommitted, and a merge that conflicts is undone, so nothing changes. Never forced or rebased.

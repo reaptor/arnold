@@ -567,9 +567,6 @@ function StatusBar() {
               )}
             </Show>
             <span class="toolbar-space" />
-            <Show when={state.notice} fallback={<span class="hint">F12 go to definition · F7 next change · Ctrl+B files</span>}>
-              <span class="notice">{state.notice}</span>
-            </Show>
             <ProblemsStatus />
             <LanguageStatus />
           </>
@@ -598,13 +595,8 @@ function ActivityStatus() {
   );
 }
 
-/** The status bar in Commit mode: the checkout, how much is uncommitted, what the keys do. */
+/** The status bar in Commit mode: the checkout and how much is uncommitted. */
 function CommitStatus() {
-  const hint = () => {
-    if (state.workSide === null) return "Against the last commit · stage and reset in Unstaged and Staged · F7 next change";
-    if (state.workSide === "staged") return "U unstage · R reset lines · S/U/R in the lists · F7 next change";
-    return `S stage · R reset selected lines (${isMac ? "⌥" : "Alt+"}S/R: the cursor's line) · F7 next change`;
-  };
   return (
     <Show when={state.work} fallback={<span>{state.checkout ? "Reading the uncommitted changes…" : ""}</span>}>
       {(work) => (
@@ -616,12 +608,6 @@ function CommitStatus() {
             {state.checkout}
           </span>
           <span class="toolbar-space" />
-          <Show
-            when={state.notice}
-            fallback={<span class="hint">{hint()}</span>}
-          >
-            <span class="notice">{state.notice}</span>
-          </Show>
           <ProblemsStatus />
           <LanguageStatus />
         </>

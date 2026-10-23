@@ -18,7 +18,6 @@ import {
 import { languageIdFor } from "../editor/languages";
 import * as ipc from "../ipc/commands";
 import type {
-  Branch,
   ChangedFile,
   CommitRange,
   Comparison,
@@ -192,8 +191,6 @@ interface State {
    * asking for a new branch to commit on instead.
    */
   protectedBranch: ProtectedBranch | null;
-  /** A short message in the status bar (Commit mode: what a key did or why not). */
-  notice: string | null;
   /** Files folded away in the all-files view. */
   collapsed: Record<string, boolean>;
   /**
@@ -310,7 +307,6 @@ export const [state, setState] = createStore<State>({
   committing: null,
   unformatted: null,
   protectedBranch: null,
-  notice: null,
 });
 
 /** What is known about a file that has been opened in this comparison. */
@@ -1386,7 +1382,6 @@ async function checkOutHead(repo: RepoInfo): Promise<boolean> {
         const branches = await ipc.listBranches(repo.root);
         if (state.repo !== repo) return false;
         setState("repo", "branches", branches);
-        if (checkout.created) commitMode.notify(checkedOutText(repo.root, checkout.branch, checkout.path, checkout.stashed));
         if (state.head !== head) return false;
         if (checkout.branch !== head) {
           setState("head", checkout.branch);
@@ -1404,12 +1399,6 @@ async function checkOutHead(repo: RepoInfo): Promise<boolean> {
     });
   }
   return checkingOut.done;
-}
-
-/** The status-bar notice after checking `what` out at `path` (`stashed`: the folder's changes first). */
-export function checkedOutText(root: string, what: string, path: string, stashed = false) {
-  const where = path === root ? "the opened folder" : (relativeTo(root, path) ?? path);
-  return `${stashed ? "Stashed your changes (git stash pop brings them back) and checked" : "Checked"} ${what} out in ${where}`;
 }
 
 /** The checkout of `pullRequest` (the opened folder or its worktree), if it has one. */
@@ -1440,7 +1429,6 @@ async function loadPrWorktree(create: boolean, discard = false) {
   const check = (create: boolean, placement: Placement) => ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, create, placement);
   try {
     let worktree: Worktree | null;
-    let stashed = false;
     if (create) {
       const made = await checkOutAsking(
         { what: `pull request !${pullRequest.id}`, folder: repo.root, cancelNote: "Nothing is checked out: the pull request is shown read-only." },
@@ -1448,7 +1436,6 @@ async function loadPrWorktree(create: boolean, discard = false) {
         async (placement) => (await check(true, discard ? "discard" : placement))!,
       );
       worktree = made && { path: made.path, head: made.head, edited: made.edited };
-      stashed = made?.stashed ?? false;
       if (!worktree) setCheckoutProblem({ key, error: CANCELLED });
     } else {
       const found = await check(false, "here");
@@ -1456,10 +1443,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
     }
     if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id) return;
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
-    if (worktree && create) {
-      setCheckoutProblem(null);
-      if (worktree.path === repo.root) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id}`, worktree.path, stashed));
-    }
+    if (worktree && create) setCheckoutProblem(null);
   } catch (error) {
     setCheckoutProblem({ key, error: String(error) });
   }
@@ -1526,11 +1510,9 @@ export async function pushHead() {
   const repo = state.repo;
   const branch = headBranch();
   if (!repo || !branch?.worktreePath || !branch.sync || whyNoPushHead() || pushingHead()) return;
-  const { remote, remoteBranch } = branch.sync;
   setPushingHead(true);
   try {
     await ipc.pushCheckoutBranch(branch.worktreePath);
-    commitMode.notify(`Pushed ${branch.name} to ${remote}/${remoteBranch}.`);
     const branches = await ipc.listBranches(repo.root);
     if (state.repo === repo) setState("repo", "branches", reconcile(branches, { key: "name" }));
   } catch (error) {
@@ -1544,32 +1526,16 @@ const [fetching, setFetching] = createSignal(false);
 /** Whether a fetch (or a pull, which fetches first) is under way. */
 export { fetching };
 
-/** What a fetch brought, for the status bar: `before` and `after` are the branches either side of it. */
-export function fetchedText(fetched: ipc.Fetched, before: Branch[], after: Branch[]): string {
-  if (fetched.remotes.length === 0) return "The repository has no remote to fetch from.";
-  const known = new Set(before.map((branch) => branch.name));
-  const fresh = after.filter((branch) => branch.isRemote && !known.has(branch.name)).length;
-  const gone = before.filter((branch) => branch.isRemote && !after.some((other) => other.name === branch.name)).length;
-  const news = [
-    fresh > 0 ? `${fresh} new branch${fresh === 1 ? "" : "es"}` : "",
-    gone > 0 ? `${gone} deleted on the remote` : "",
-    fetched.fastForwarded.length > 0 ? `${fetched.fastForwarded.join(", ")} brought up to date` : "",
-  ].filter(Boolean);
-  return `Fetched ${fetched.remotes.join(", ")}${news.length > 0 ? `: ${news.join("; ")}` : ""}.`;
-}
-
-/** Runs `work` (a fetch or a pull) as the one fetch under way, then reads the branches again. Null when one was under way already. */
-export async function whileFetching<T>(work: () => Promise<T>): Promise<{ result: T; before: Branch[]; after: Branch[] } | null> {
+/** Runs `work` (a fetch or a pull) as the one fetch under way, then reads the branches again. Does nothing when one was under way already. */
+export async function whileFetching(work: () => Promise<unknown>) {
   const repo = state.repo;
-  if (!repo || fetching()) return null;
+  if (!repo || fetching()) return;
   setFetching(true);
   try {
-    const before = [...repo.branches];
-    const result = await work();
+    await work();
     const after = await ipc.listBranches(repo.root);
     if (state.repo === repo) setState("repo", "branches", reconcile(after, { key: "name" }));
     void loadCreators(repo.root, true);
-    return { result, before, after };
   } finally {
     setFetching(false);
   }
@@ -1580,8 +1546,7 @@ export async function fetchRemotes() {
   const repo = state.repo;
   if (!repo) return;
   try {
-    const done = await whileFetching(() => ipc.fetchAll(repo.root));
-    if (done && state.repo === repo) commitMode.notify(fetchedText(done.result, done.before, done.after));
+    await whileFetching(() => ipc.fetchAll(repo.root));
   } catch (error) {
     if (state.repo === repo) setState("error", String(error));
   }
@@ -2541,13 +2506,7 @@ export async function addToGitignore() {
   const what = ignore.folder ? `${ignore.path}/` : ignore.path;
   try {
     await flushSave();
-    const result = await ipc.ignorePath(ignore.checkout, ignore.path, ignore.folder);
-    const done = result.added ? `Added ${result.pattern} to .gitignore` : `.gitignore already has ${result.pattern}`;
-    commitMode.notify(
-      result.tracked
-        ? `${done}, but git still tracks ${what}: .gitignore only keeps out untracked files (see Stop tracking)`
-        : done,
-    );
+    await ipc.ignorePath(ignore.checkout, ignore.path, ignore.folder);
   } catch (error) {
     fail(`Adding ${what} to .gitignore: ${String(error)}`);
   }
@@ -2570,12 +2529,7 @@ export async function stopTracking() {
   if (!sure) return;
   try {
     await flushSave();
-    const count = await ipc.untrackPath(ignore.checkout, ignore.path);
-    commitMode.notify(
-      ignore.folder
-        ? `Stopped tracking ${count} ${count === 1 ? "file" : "files"} in ${what}: the removal is staged`
-        : `Stopped tracking ${what}: the removal is staged`,
-    );
+    await ipc.untrackPath(ignore.checkout, ignore.path);
   } catch (error) {
     fail(`Stopping tracking ${what}: ${String(error)}`);
   }

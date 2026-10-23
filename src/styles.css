@@ -3622,12 +3622,6 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   text-align: center;
 }
 
-.statusbar .notice {
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .unformatted-files {
   margin: 0;
   padding-left: 18px;

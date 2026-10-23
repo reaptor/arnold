@@ -20,9 +20,7 @@ import { checkOutAsking } from "./checkoutChoice";
 import { clearSolution, fileOrder, loadSolution } from "./solutionView";
 import {
   attachLanguageServer,
-  checkedOutText,
   editorCallbacks,
-  fetchedText,
   fetching,
   fileEditor,
   openPullRequest,
@@ -40,9 +38,6 @@ import {
 } from "./review";
 import { holdPlaces } from "./places";
 import { openFor } from "./aiSuggestions";
-
-/** How long a notice stays in the status bar. */
-const NOTICE_TIME = 5000;
 
 export const listOf = (side: WorkingSide): readonly ChangedFile[] =>
   (side === "unstaged" ? state.work?.unstaged : state.work?.staged) ?? [];
@@ -64,15 +59,6 @@ export function shownFile(): ChangedFile | null {
   const path = state.selected;
   if (path === null) return null;
   return state.workSide ? (entryOf(state.workSide, path) ?? null) : treeFile(path);
-}
-
-let noticeTimer: number | undefined;
-
-/** Shows `text` in the status bar for a while. */
-export function notify(text: string) {
-  window.clearTimeout(noticeTimer);
-  setState("notice", text);
-  noticeTimer = window.setTimeout(() => setState("notice", null), NOTICE_TIME);
 }
 
 const fail = (what: string) => (error: unknown) => setState("error", `${what}: ${String(error)}`);
@@ -183,7 +169,7 @@ export function leave() {
   shownDiff = null;
   fileEditor()?.close();
   void ipc.stopWatchingCheckout();
-  setState({ work: null, workSide: null, notice: null });
+  setState({ work: null, workSide: null });
 }
 
 // ------------------------------------------------------------ reading
@@ -523,30 +509,27 @@ export async function lineAction(action: LineAction, lines?: LineSelection) {
   const selection = lines ?? editor.selectedLines();
   const texts = editor.texts();
   if (!selection || !texts) return;
-  const none = () => notify(`The selected lines have no ${side === "staged" ? "staged " : ""}changes to ${action}.`);
   try {
     if (side === "unstaged" && action === "stage") {
       await flushSave();
       const index = takeSelectedLines(texts.base, texts.working, selection);
-      if (index === null) return none();
+      if (index === null) return;
       await ipc.setIndexText(checkout, file.path, index);
     } else if (side !== "staged" && action === "reset") {
       // An edit like any other: it can be undone, and is saved.
       const edits = resetEdits(texts.base, texts.working, selection);
-      if (edits.length === 0) return none();
-      editor.applyWorkingEdits(edits);
-      notify("Reset the selected lines. Undo brings them back.");
+      if (edits.length > 0) editor.applyWorkingEdits(edits);
       return;
     } else if (side === "staged") {
       const index = dropSelectedLines(texts.base, texts.working, selection);
-      if (index === null) return none();
+      if (index === null) return;
       if (action === "reset") {
         // The lines go back in the working tree too, as `git apply --reverse --index` would.
         await flushSave();
         const disk = (await ipc.readWorkingPair(checkout, file, "unstaged")).working ?? "";
         const reset = carryOver(texts.working, index, disk);
         if (reset === null) {
-          return notify("Those lines have been changed again since they were staged. Unstage them (U) and reset them in Unstaged.");
+          return setState("error", "Those lines have been changed again since they were staged. Unstage them (U) and reset them in Unstaged.");
         }
         const sure = await confirm(`Reset the selected lines of ${file.path}? They go back to the last commit, in the index and in the working tree.`, {
           title: "Reset lines",
@@ -606,7 +589,7 @@ export async function filesAction(action: FileAction, side: WorkingSide, files: 
       else await ipc.resetFilesToHead(checkout, files.flatMap(pathsOf));
     } else if (action === "delete") {
       const onDisk = deletable(files);
-      if (onDisk.length === 0) return notify(files.length === 1 ? `${files[0].path} is already deleted.` : "Those files are already deleted.");
+      if (onDisk.length === 0) return;
       if (!(await confirmDelete(side, onDisk))) return;
       await forget(onDisk);
       await ipc.deleteFiles(checkout, onDisk.map((file) => file.path));
@@ -974,9 +957,8 @@ export async function commit() {
       }
     }
     setState("committing", "Committing…");
-    const made = await ipc.commitStaged(checkout, message().trim());
+    await ipc.commitStaged(checkout, message().trim());
     setCommitMessage("");
-    notify(`Committed ${made.sha.slice(0, 8)} ${made.subject} on ${made.branch ?? "a detached HEAD"}.`);
   } catch (error) {
     fail(state.committing === "Committing…" ? "The commit failed" : "Formatting with Fantomas failed")(error);
   } finally {
@@ -1109,11 +1091,9 @@ export async function pushBranch(): Promise<boolean> {
   const work = state.work;
   if (!checkout || !work?.branch || !work.sync || state.committing) return false;
   if (whyNoPush()) return work.sync.published && work.sync.ahead === 0 && work.sync.behind === 0;
-  const { remote, remoteBranch } = work.sync;
-  setState("committing", `Pushing ${work.branch} to ${remote}…`);
+  setState("committing", `Pushing ${work.branch} to ${work.sync.remote}…`);
   try {
     await ipc.pushCheckoutBranch(checkout);
-    notify(`Pushed ${work.branch} to ${remote}/${remoteBranch}.`);
     return true;
   } catch (error) {
     fail(`Pushing ${work.branch} failed`)(error);
@@ -1123,8 +1103,6 @@ export async function pushBranch(): Promise<boolean> {
     await refreshWork();
   }
 }
-
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** Why pulling into the checked-out branch cannot be done; else null. Fetching is done either way. */
 export function whyNoPull(): string | null {
@@ -1147,25 +1125,7 @@ export async function pullBranch() {
   await flushSave();
   setState("committing", `Pulling into ${branch}…`);
   try {
-    const done = await whileFetching(() => ipc.pullCheckoutBranch(checkout));
-    if (!done) return;
-    const { fetched, pulled } = done.result;
-    const remote = work.sync ? `${work.sync.remote}/${work.sync.remoteBranch}` : "its remote";
-    const what = (() => {
-      switch (pulled?.kind) {
-        case "upToDate":
-          return `${branch} is up to date with ${remote}.`;
-        case "fastForwarded":
-          return `Pulled ${plural(pulled.commits, "commit")} of ${remote} into ${branch}.`;
-        case "merged":
-          return `Merged ${plural(pulled.commits, "commit")} of ${remote} into ${branch}.`;
-        case "notPublished":
-          return `${remote} does not exist yet: push ${branch} first.`;
-        default:
-          return "";
-      }
-    })();
-    notify(`${fetchedText(fetched, done.before, done.after)} ${what}`.trim());
+    await whileFetching(() => ipc.pullCheckoutBranch(checkout));
   } catch (error) {
     fail(`Pulling into ${branch} failed`)(error);
   } finally {
@@ -1196,7 +1156,6 @@ export async function commitOnBranch(name: string) {
     const branches = await ipc.listBranches(repo.root);
     if (state.repo !== repo) return;
     setState("repo", "branches", reconcile(branches, { key: "name" }));
-    if (checkout.created) notify(checkedOutText(repo.root, checkout.branch, checkout.path, checkout.stashed));
     setState("committing", null);
     // The folder shown switched branches: read again.
     if (state.checkout !== null && samePath(checkout.path, state.checkout)) await openCheckout(checkout.path);
