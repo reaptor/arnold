@@ -161,7 +161,7 @@ The toolbar switches between one file at a time and *All files*: every file of t
 - Compared line by line first, so small edits far apart stay small. Changed words are marked red and green, as in Azure DevOps.
 - Added and deleted files show whole; deleted ones are tinted red.
 - `F7` / `Shift+F7` step through the changes; in the all-files view they carry on into the next or previous file.
-- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them.
+- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them. Go to definition into folded lines unfolds them.
 - Marks along the scrollbar show where the changes are (red and green as in the gutter), with errors and discussions in a narrow lane beside them; click one to go there. In the all-files view they cover the whole list, faint for files not loaded yet.
 - Syntax highlighting for F#, C#, T-SQL, project and other XML files, JSON and Markdown (with code blocks in their own language), and for about 140 more languages through [`@codemirror/language-data`](https://github.com/codemirror/language-data): JavaScript and TypeScript, Python, Rust, Go, Java, Kotlin, C and C++, PHP, Ruby, Swift, HTML, CSS, YAML, TOML, shell, PowerShell, Dockerfiles and others, chosen by file name. Each is loaded the first time a file needs it.
 
@@ -326,7 +326,7 @@ The panel lists the suggestions under a short summary of the changes, as a start
 | `Enter` / `Shift+Enter`, `F3` / `Shift+F3`, `Ctrl+G` / `Ctrl+Shift+G` (`Cmd+G` / `Cmd+Shift+G`) | Next / previous match, wrapping around |
 | `Alt+C` / `Alt+W` / `Alt+R` (`⌥C` / `⌥W` / `⌥R`) | In the find box: match case / whole words / regular expression |
 | `Ctrl+H` (`Cmd+Alt+F`) | Find and replace, where the diff can be edited |
-| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#) |
+| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#); folded unchanged lines open for it |
 | `Shift+F12` | Find references (F#) |
 | `Alt+Enter`, `Ctrl+.` (`Cmd+.`) | Quick fixes and refactorings for the cursor's line or the selection (F#, where the diff can be edited) |
 | `F2`, `Ctrl+R` `Ctrl+R` | Rename the symbol under the cursor in every file (F#, where the diff can be edited) |
