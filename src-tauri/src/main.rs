@@ -114,6 +114,7 @@ fn main() {
             pull_requests::pull_request_threads,
             pull_requests::create_pull_request_thread,
             pull_requests::reply_to_pull_request_thread,
+            pull_requests::accept_pull_request_suggestion,
             pull_requests::delete_pull_request_comment,
             pull_requests::vote_on_pull_request,
             pull_requests::update_pull_request,

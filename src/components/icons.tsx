@@ -150,6 +150,14 @@ export const FilesIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A page with a title and lines of text: a pull request's overview. */
+export const OverviewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 2.5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z" />
+    <path d="M5 5.5h6M5 8h6M5 10.5h3.5" />
+  </Icon>
+);
+
 /** A pull request: a branch merged back into another. */
 export const PullRequestIcon = (props: IconProps) => (
   <Icon {...props}>

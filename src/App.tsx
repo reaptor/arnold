@@ -14,6 +14,7 @@ import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./c
 import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
 import { startBuild } from "./state/build";
+import { PullRequestOverview } from "./components/PullRequestOverview";
 import { PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
 import { WorkingDock } from "./components/WorkingDock";
@@ -37,6 +38,7 @@ import {
   renameSymbol,
   showQuickFixes,
   openRepoAt,
+  overviewShown,
   setState,
   startWatching,
   state,
@@ -248,7 +250,11 @@ export function App() {
           <div class="splitter" classList={{ hidden: dockHidden() }} onPointerDown={startResize} />
         </Show>
         <div class="content-column" classList={{ hidden: choosingPullRequest() }} ref={contentColumn}>
-        <section class="content">
+        {/* The overview covers the files rather than replacing them, which keep their places. */}
+        <section class="content" classList={{ overview: overviewShown() }}>
+          <Show when={overviewShown()}>
+            <PullRequestOverview />
+          </Show>
           <div
             class="editor-host diff-host"
             classList={{ hidden: state.view === "all" || state.placeholder !== null }}
