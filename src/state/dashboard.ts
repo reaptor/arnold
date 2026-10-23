@@ -1,6 +1,6 @@
 // The dashboard: the active pull requests of every favorite repository, open
 // or not, in place of the open repository's files. Read when it is opened;
-// the creators left out of it are kept between starts.
+// the creators left out of it, and whether drafts are, are kept between starts.
 
 import { createStore } from "solid-js/store";
 import * as ipc from "../ipc/commands";
@@ -35,19 +35,21 @@ interface DashboardState {
   hiddenCreators: Creator[];
   /** Only the pull requests that wait on the user are shown. */
   attentionOnly: boolean;
+  /** Draft pull requests are not shown. */
+  hideDrafts: boolean;
   /** The pull request being opened from the dashboard, `root\nremote\nid`. */
   opening: string | null;
 }
 
-function readSetting(): Pick<DashboardState, "hiddenCreators" | "attentionOnly"> {
+function readSetting(): Pick<DashboardState, "hiddenCreators" | "attentionOnly" | "hideDrafts"> {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTING) ?? "{}");
     const hiddenCreators = Array.isArray(saved.hiddenCreators)
       ? saved.hiddenCreators.filter((creator: Creator) => typeof creator?.id === "string" && typeof creator?.name === "string")
       : [];
-    return { hiddenCreators, attentionOnly: saved.attentionOnly === true };
+    return { hiddenCreators, attentionOnly: saved.attentionOnly === true, hideDrafts: saved.hideDrafts === true };
   } catch {
-    return { hiddenCreators: [], attentionOnly: false };
+    return { hiddenCreators: [], attentionOnly: false, hideDrafts: false };
   }
 }
 
@@ -60,7 +62,14 @@ export const [dashboard, setDashboard] = createStore<DashboardState>({
 });
 
 const saveSetting = () =>
-  localStorage.setItem(SETTING, JSON.stringify({ hiddenCreators: dashboard.hiddenCreators, attentionOnly: dashboard.attentionOnly }));
+  localStorage.setItem(
+    SETTING,
+    JSON.stringify({
+      hiddenCreators: dashboard.hiddenCreators,
+      attentionOnly: dashboard.attentionOnly,
+      hideDrafts: dashboard.hideDrafts,
+    }),
+  );
 
 export const openingKey = (root: string, remote: string, id: number) => `${root}\n${remote}\n${id}`;
 
@@ -102,15 +111,22 @@ export function showDashboard(open: boolean) {
 export function shownOf(repo: RepoPullRequests): PullRequest[] {
   return (repo.list ?? []).filter(
     (pullRequest) =>
-      byCreators(pullRequest, dashboard.hiddenCreators) && (!dashboard.attentionOnly || attention(pullRequest) !== null),
+      byCreators(pullRequest, dashboard.hiddenCreators) &&
+      (!dashboard.attentionOnly || attention(pullRequest) !== null) &&
+      (!dashboard.hideDrafts || !pullRequest.draft),
   );
 }
 
-/** How many pull requests from the creators not left out wait on the user, once read. */
+/** How many pull requests from the creators not left out (and not drafts left out) wait on the user, once read. */
 export const attentionCount = () =>
   dashboard.repos
     .flatMap((repo) => repo.list ?? [])
-    .filter((pullRequest) => byCreators(pullRequest, dashboard.hiddenCreators) && attention(pullRequest) !== null).length;
+    .filter(
+      (pullRequest) =>
+        byCreators(pullRequest, dashboard.hiddenCreators) &&
+        (!dashboard.hideDrafts || !pullRequest.draft) &&
+        attention(pullRequest) !== null,
+    ).length;
 
 export function setHiddenCreators(hidden: Creator[]) {
   setDashboard("hiddenCreators", hidden);
@@ -119,6 +135,11 @@ export function setHiddenCreators(hidden: Creator[]) {
 
 export function setAttentionOnly(on: boolean) {
   setDashboard("attentionOnly", on);
+  saveSetting();
+}
+
+export function setHideDrafts(on: boolean) {
+  setDashboard("hideDrafts", on);
   saveSetting();
 }
 
