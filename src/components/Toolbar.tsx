@@ -11,8 +11,10 @@ import {
   setRange,
   setIgnoreWhitespace,
   setMode,
+  overviewShown,
   setSource,
   setView,
+  showOverview,
   state,
 } from "../state/review";
 import { prs } from "../state/pullRequests";
@@ -35,6 +37,7 @@ import {
   CommitIcon,
   FileIcon,
   FilesIcon,
+  OverviewIcon,
   PullRequestIcon,
   SparkleIcon,
   SplitIcon,
@@ -192,17 +195,33 @@ export function Toolbar() {
       </Show>
       <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
         <div class="segmented" role="group" aria-label="Files shown">
+          <Show when={state.source === "pullRequest"}>
+            <button
+              classList={{ on: overviewShown() }}
+              onClick={() => showOverview(true)}
+              title="Overview: the pull request's description, status and every discussion"
+              aria-label="Overview"
+            >
+              <OverviewIcon />
+            </button>
+          </Show>
           <button
-            classList={{ on: state.view === "file" }}
-            onClick={() => setView("file")}
+            classList={{ on: state.view === "file" && !overviewShown() }}
+            onClick={() => {
+              showOverview(false);
+              void setView("file");
+            }}
             title="One file: show the file selected in the dock"
             aria-label="One file"
           >
             <FileIcon />
           </button>
           <button
-            classList={{ on: state.view === "all" }}
-            onClick={() => setView("all")}
+            classList={{ on: state.view === "all" && !overviewShown() }}
+            onClick={() => {
+              showOverview(false);
+              void setView("all");
+            }}
             title={
               state.source === "commit"
                 ? "All files: every uncommitted file in one list, Unstaged then Staged"

@@ -7,12 +7,24 @@ import { splitPath } from "./FileDock";
 import { ChevronDownIcon, CommentIcon, ExternalIcon, RefreshIcon } from "./icons";
 
 /** A thread card, the same as in the diff. */
-function ThreadCard(props: { thread: PrThread }) {
+export function ThreadCard(props: { thread: PrThread }) {
   return <div ref={(host) => host.append(threadElement(props.thread))} />;
 }
 
-const where = (thread: PrThread) =>
+/** Where in its file a thread is: "line 12", "whole file". */
+export const where = (thread: PrThread) =>
   thread.position ? `line ${thread.position.startLine}${thread.position.side === "base" ? " (before)" : ""}` : "whole file";
+
+/** The threads about files, by file (sorted by path), each file's by line. */
+export function threadsByFile(threads: readonly PrThread[]): [string, PrThread[]][] {
+  const files = new Map<string, PrThread[]>();
+  for (const thread of threads) {
+    if (thread.path === null) continue;
+    files.set(thread.path, [...(files.get(thread.path) ?? []), thread]);
+  }
+  for (const list of files.values()) list.sort((a, b) => (a.position?.startLine ?? 0) - (b.position?.startLine ?? 0));
+  return [...files].sort(([a], [b]) => a.localeCompare(b));
+}
 
 /**
  * Toolbar button with the number of open discussions of the pull request;
@@ -27,15 +39,7 @@ export function DiscussionPicker() {
   let popup!: HTMLDivElement;
 
   const general = createMemo(() => threads().filter((thread) => thread.path === null));
-  const byFile = createMemo(() => {
-    const files = new Map<string, PrThread[]>();
-    for (const thread of threads()) {
-      if (thread.path === null) continue;
-      files.set(thread.path, [...(files.get(thread.path) ?? []), thread]);
-    }
-    for (const list of files.values()) list.sort((a, b) => (a.position?.startLine ?? 0) - (b.position?.startLine ?? 0));
-    return [...files].sort(([a], [b]) => a.localeCompare(b));
-  });
+  const byFile = createMemo(() => threadsByFile(threads()));
   const active = () => threads().filter(isOpen).length;
 
   const toggle = () => {
