@@ -2675,20 +2675,40 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   color: var(--text);
 }
 
-/* On your own comments; shows when the comment is pointed at. */
+/* On your own comments; show when the comment is pointed at. */
+.thread-edit,
 .thread-delete {
-  margin-left: auto;
   padding: 0 4px;
   border-color: transparent;
   background: none;
-  color: var(--removed);
   font-size: 11px;
   opacity: 0;
 }
 
+.thread-edit {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.thread-edit:hover {
+  color: var(--text);
+}
+
+.thread-delete {
+  color: var(--removed);
+}
+
+.thread-comment:hover .thread-edit,
 .thread-comment:hover .thread-delete,
+.thread-edit:focus-visible,
 .thread-delete:focus-visible {
   opacity: 1;
+}
+
+/* While the comment's text is being changed. */
+.thread-meta.editing .thread-edit,
+.thread-meta.editing .thread-delete {
+  display: none;
 }
 
 .thread-text {

@@ -2201,6 +2201,20 @@ export function install() {
             found.comments.push(comment(found.comments.length + 1, "You", content, 0, parent));
             return null;
           }, 600);
+        case "edit_pull_request_comment":
+          return slowly(() => {
+            checkToken();
+            checkWrite();
+            const { thread, comment: id, content } = payload as { thread: number; comment: number; content: string };
+            const found = threadsOf(args.id)
+              .find((candidate) => candidate.id === thread)
+              ?.comments.find((candidate) => candidate.id === id);
+            if (!found) throw { kind: "notFound", message: `Comment ${id} does not exist.` };
+            if (!found.you) throw { kind: "other", message: "Only its author may edit a comment." };
+            found.content = content;
+            found.edited = true;
+            return null;
+          }, 600);
         case "delete_pull_request_comment":
           return slowly(() => {
             checkToken();

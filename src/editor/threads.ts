@@ -36,6 +36,8 @@ export interface ThreadActions {
   reply(thread: PrThread, text: string): Promise<void>;
   createThread(place: NewThreadPlace | null, text: string): Promise<void>;
   cancelDraft(place: NewThreadPlace): void;
+  /** Changes the text of a comment of the token's owner; rejects with what to show when it did not work. */
+  editComment(thread: PrThread, comment: PrComment, text: string): Promise<void>;
   /** Deletes a comment of the token's owner (asking first). */
   deleteComment(thread: PrThread, comment: PrComment): Promise<void>;
   /** Commits a suggestion's lines to the pull request and resolves its thread (asking first). */
@@ -67,6 +69,8 @@ const folded = new Map<number, boolean>();
 const isFolded = (thread: PrThread) => folded.get(thread.id) ?? !isOpen(thread);
 /** Threads being replied to. */
 const replying = new Set<number>();
+/** Comments being edited, as `thread id:comment id`. */
+const editing = new Set<string>();
 /** Threads whose suggestion is being accepted. */
 const accepting = new Set<number>();
 /** Text being written, by field, so it survives the card being redrawn. */
@@ -89,6 +93,8 @@ interface ComposerOptions {
   key: string;
   placeholder: string;
   submitLabel: string;
+  /** The text to start from (a comment being edited); sending it unchanged is not offered. */
+  initial?: string;
   autofocus?: boolean;
   /** Rejects with what to show when it did not work. */
   onSubmit(text: string): Promise<void>;
@@ -117,7 +123,7 @@ export function composerElement(options: ComposerOptions): HTMLElement {
   const text = element("textarea", "composer-text");
   text.placeholder = options.placeholder;
   text.rows = 4;
-  text.value = drafts.get(options.key) ?? "";
+  text.value = drafts.get(options.key) ?? options.initial ?? "";
   const shown = element("div", "markdown composer-preview");
   shown.hidden = true;
   shown.addEventListener("click", (event) => void openClickedLink(event));
@@ -132,7 +138,7 @@ export function composerElement(options: ComposerOptions): HTMLElement {
 
   const resize = () => options.onResize?.();
   const update = () => {
-    submit.disabled = text.value.trim() === "";
+    submit.disabled = text.value.trim() === "" || text.value.trim() === options.initial?.trim();
   };
   const showPreview = (on: boolean) => {
     write.classList.toggle("on", !on);
@@ -218,19 +224,58 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
     when.title = comment.published ? new Date(comment.published).toLocaleString() : "";
     meta.append(element("strong", "", comment.author), when);
     if (comment.edited) meta.append(element("span", "", "(edited)"));
+    const content = element("div", "markdown thread-text");
+    content.innerHTML = renderMarkdown(withoutMentionIds(comment.content));
+    const key = `${thread.id}:${comment.id}`;
+    const showComment = () => {
+      meta.classList.toggle("editing", editing.has(key));
+      if (!editing.has(key)) return item.replaceChildren(meta, content);
+      item.replaceChildren(
+        meta,
+        composerElement({
+          key: `edit:${key}`,
+          initial: comment.content,
+          placeholder: "Comment…",
+          submitLabel: "Save",
+          autofocus: true,
+          onSubmit: async (text) => {
+            // Before the comment comes back changed, so its new card shows no field.
+            editing.delete(key);
+            try {
+              await actions!.editComment(thread, comment, text);
+            } catch (error) {
+              editing.add(key);
+              throw error;
+            }
+          },
+          onCancel: () => {
+            editing.delete(key);
+            showComment();
+            onResize?.();
+          },
+          onResize,
+        }),
+      );
+    };
     if (comment.you && actions) {
       const suggestion = comment === first && isSuggestion(thread);
+      const edit = element("button", "thread-edit", "Edit");
+      edit.title = suggestion ? "Change the text of this suggestion" : "Change the text of this comment";
+      edit.onclick = (event) => {
+        event.stopPropagation();
+        editing.add(key);
+        showComment();
+        onResize?.();
+      };
       const remove = element("button", "thread-delete", suggestion ? "Delete suggestion" : "Delete");
       remove.title = suggestion ? "Delete this suggestion from the pull request" : "Delete this comment from the pull request";
       remove.onclick = (event) => {
         event.stopPropagation();
         void actions!.deleteComment(thread, comment);
       };
-      meta.append(remove);
+      meta.append(edit, remove);
     }
-    const content = element("div", "markdown thread-text");
-    content.innerHTML = renderMarkdown(withoutMentionIds(comment.content));
-    item.append(meta, content);
+    showComment();
     body.append(item);
   }
 
