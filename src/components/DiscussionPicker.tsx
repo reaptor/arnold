@@ -27,9 +27,19 @@ export function threadsByFile(threads: readonly PrThread[]): [string, PrThread[]
 }
 
 /**
+ * Whether a click on a card's comments means "show it in the diff": not one
+ * on the head (which folds the card), a button, a link or the reply field,
+ * nor one that ends a text selection.
+ */
+const isJumpClick = (event: MouseEvent) =>
+  !(event.target as Element).closest(".thread-head, .thread-footer, a, button, input, textarea") &&
+  !window.getSelection()?.toString();
+
+/**
  * Toolbar button with the number of open discussions of the pull request;
  * opens all of them: those about the pull request as a whole, then those
- * about files, which jump to their place in the diff.
+ * about files, which jump to their place in the diff from their line or a
+ * click on their comments.
  */
 export function DiscussionPicker() {
   const [open, setOpen] = createSignal(false);
@@ -127,7 +137,10 @@ export function DiscussionPicker() {
                   </h3>
                   <For each={list}>
                     {(thread) => (
-                      <div class="discussion-item">
+                      <div
+                        classList={{ "discussion-item": true, jumps: isChanged(path) }}
+                        onClick={(event) => isChanged(path) && isJumpClick(event) && jump(thread)}
+                      >
                         <button
                           class="discussion-jump"
                           disabled={!isChanged(path)}
