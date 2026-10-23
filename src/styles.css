@@ -1738,8 +1738,7 @@ button.primary:hover:not(:disabled) {
   flex: none;
 }
 
-/* While a slow action runs: its name in the status bar, and a bar bouncing
-   back and forth under the toolbar (taking no room, so nothing moves). */
+/* While a slow action runs: its name in the status bar. */
 .activity-status {
   flex: none;
   display: flex;
@@ -1753,46 +1752,6 @@ button.primary:hover:not(:disabled) {
 .activity-label {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.activity-bar {
-  position: relative;
-  flex: none;
-  height: 2px;
-  margin-top: -2px;
-  z-index: 5;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.activity-bar::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 30%;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity 0.2s;
-  /* Paused rather than removed when idle, so the bar fades out where it is
-     and goes on from there next time instead of jumping back. */
-  animation: activity-bounce 0.9s ease-in-out infinite alternate paused;
-}
-
-.app.busy .activity-bar::after {
-  opacity: 1;
-  animation-play-state: running;
-}
-
-@keyframes activity-bounce {
-  from {
-    left: 0;
-  }
-  to {
-    left: 70%;
-  }
 }
 
 .app.busy {
