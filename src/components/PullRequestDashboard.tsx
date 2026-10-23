@@ -8,7 +8,7 @@ import {
   openingKey,
   type RepoPullRequests,
   setAttentionOnly,
-  setCreators,
+  setHiddenCreators,
   showDashboard,
   shownOf,
 } from "../state/dashboard";
@@ -146,7 +146,7 @@ function RepoSection(props: { repo: RepoPullRequests }) {
         <Match when={shown().length === 0}>
           <p class="dashboard-empty">
             {dashboard.attentionOnly ? "None waiting on you" : "None"}
-            {dashboard.creators.length > 0 ? " from the chosen creators" : ""}.
+            {dashboard.hiddenCreators.length > 0 ? " from the chosen creators" : ""}.
           </p>
         </Match>
         <Match when={true}>
@@ -217,7 +217,10 @@ function PullRequestRow(props: { repo: RepoPullRequests; pullRequest: PullReques
 const sameCreator = (a: Creator, b: Creator) =>
   a.id && b.id ? a.id.toLowerCase() === b.id.toLowerCase() : a.name === b.name;
 
-/** Narrows the dashboard to the pull requests of some people; kept between starts. */
+/**
+ * Narrows the dashboard to the pull requests of some people. Who is unticked is
+ * kept between starts, so someone new is ticked from their first pull request.
+ */
 function CreatorFilter() {
   const [open, setOpen] = createSignal(false);
   let root!: HTMLDivElement;
@@ -228,34 +231,36 @@ function CreatorFilter() {
   document.addEventListener("pointerdown", onOutside);
   onCleanup(() => document.removeEventListener("pointerdown", onOutside));
 
-  // Everyone with an active pull request, and whoever was chosen earlier even without one now.
+  // Everyone with an active pull request, and whoever was unticked earlier even without one now.
   const people = createMemo(() => {
     const found = creatorsOf(dashboard.repos.flatMap((repo) => repo.list ?? []));
-    const gone = dashboard.creators.filter((creator) => !found.some((each) => sameCreator(each, creator)));
+    const gone = dashboard.hiddenCreators.filter((creator) => !found.some((each) => sameCreator(each, creator)));
     return [...found, ...gone.map((creator) => ({ ...creator, count: 0, you: false }))];
   });
-  const chosen = (creator: Creator) => dashboard.creators.some((each) => sameCreator(each, creator));
+  const hidden = (creator: Creator) => dashboard.hiddenCreators.some((each) => sameCreator(each, creator));
+  const everyone = () => dashboard.hiddenCreators.length === 0;
   const toggle = (creator: Creator) =>
-    setCreators(
-      chosen(creator)
-        ? dashboard.creators.filter((each) => !sameCreator(each, creator))
-        : [...dashboard.creators, { id: creator.id, name: creator.name }],
+    setHiddenCreators(
+      hidden(creator)
+        ? dashboard.hiddenCreators.filter((each) => !sameCreator(each, creator))
+        : [...dashboard.hiddenCreators, { id: creator.id, name: creator.name }],
     );
+  // Unticking *Everyone* unticks all listed, to then tick the few wanted.
+  const toggleEveryone = () =>
+    setHiddenCreators(everyone() ? people().map((person) => ({ id: person.id, name: person.name })) : []);
   const label = () => {
-    const picked = dashboard.creators;
-    if (picked.length === 0) return "Everyone";
-    if (picked.length === 1) {
-      const you = people().find((each) => sameCreator(each, picked[0]))?.you;
-      return you ? "You" : picked[0].name;
-    }
-    return `${picked.length} people`;
+    if (everyone()) return "Everyone";
+    const shown = people().filter((person) => !hidden(person));
+    if (shown.length === 0) return "Nobody";
+    if (shown.length === 1) return shown[0].you ? "You" : shown[0].name;
+    return `${shown.length} people`;
   };
 
   return (
     <div class="picker creator-filter" ref={root}>
       <button
         class="dashboard-filter"
-        classList={{ on: dashboard.creators.length > 0 }}
+        classList={{ on: !everyone() }}
         onClick={() => setOpen(!open())}
         title="Only the pull requests these people created"
       >
@@ -265,14 +270,14 @@ function CreatorFilter() {
       <Show when={open()}>
         <div class="picker-popup creator-popup" onKeyDown={(event) => event.key === "Escape" && setOpen(false)}>
           <ul class="picker-list">
-            <li onClick={() => setCreators([])} classList={{ current: dashboard.creators.length === 0 }}>
-              <input class="commit-check" type="checkbox" checked={dashboard.creators.length === 0} tabIndex={-1} />
+            <li onClick={toggleEveryone} classList={{ current: everyone() }}>
+              <input class="commit-check" type="checkbox" checked={everyone()} tabIndex={-1} />
               <span class="picker-name">Everyone</span>
             </li>
             <For each={people()}>
               {(person) => (
-                <li onClick={() => toggle(person)} classList={{ current: chosen(person) }}>
-                  <input class="commit-check" type="checkbox" checked={chosen(person)} tabIndex={-1} />
+                <li onClick={() => toggle(person)} classList={{ current: !hidden(person) }}>
+                  <input class="commit-check" type="checkbox" checked={!hidden(person)} tabIndex={-1} />
                   <span class="picker-name">
                     {person.name}
                     <Show when={person.you}>

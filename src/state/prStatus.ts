@@ -54,17 +54,19 @@ export function attention(pullRequest: PullRequest): string | null {
   return !pullRequest.draft && you?.vote === "none" ? "Your review" : null;
 }
 
-/** Whether `pullRequest` was opened by one of `creators`; everyone's count when there are none. */
-export function byCreators(pullRequest: PullRequest, creators: readonly Creator[]): boolean {
-  return (
-    creators.length === 0 ||
-    creators.some((creator) =>
-      creator.id && pullRequest.authorId
-        ? creator.id.toLowerCase() === pullRequest.authorId.toLowerCase()
-        : creator.name === pullRequest.author,
-    )
-  );
-}
+/** Whether `creator` opened `pullRequest`: by the host's id, ignoring case, or by name when either has none. */
+export const opened = (creator: Creator, pullRequest: PullRequest) =>
+  creator.id && pullRequest.authorId
+    ? creator.id.toLowerCase() === pullRequest.authorId.toLowerCase()
+    : creator.name === pullRequest.author;
+
+/**
+ * Whether `pullRequest` was opened by someone not among `hidden`. The filter
+ * keeps who is left out rather than who is picked, so people never seen
+ * before are shown when they open their first pull request.
+ */
+export const byCreators = (pullRequest: PullRequest, hidden: readonly Creator[]): boolean =>
+  !hidden.some((creator) => opened(creator, pullRequest));
 
 /** Those waiting on the user first, otherwise in the host's order (newest first). */
 export const attentionFirst = (pullRequests: readonly PullRequest[]): PullRequest[] =>

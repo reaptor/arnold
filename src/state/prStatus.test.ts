@@ -83,10 +83,15 @@ describe("creators", () => {
     pullRequest({ id: 4, author: "Grace", authorId: "grace" }),
   ];
 
-  it("filters by the host's id, ignoring case, and keeps everyone without a choice", () => {
-    expect(list.filter((each) => byCreators(each, [{ id: "grace", name: "Grace H" }])).map((each) => each.id)).toEqual([1, 4]);
+  it("leaves out the hidden by the host's id, ignoring case, and keeps everyone else", () => {
+    expect(list.filter((each) => byCreators(each, [{ id: "grace", name: "Grace H" }])).map((each) => each.id)).toEqual([2, 3]);
     expect(list.filter((each) => byCreators(each, [])).length).toBe(4);
-    expect(byCreators(pullRequest({ authorId: "", author: "Bo" }), [{ id: "", name: "Bo" }])).toBe(true);
+    expect(byCreators(pullRequest({ authorId: "", author: "Bo" }), [{ id: "", name: "Bo" }])).toBe(false);
+  });
+
+  it("shows someone never seen before", () => {
+    const hidden = [{ id: "ada", name: "Ada" }, { id: "me", name: "Me" }];
+    expect(byCreators(pullRequest({ author: "Newcomer", authorId: "newcomer" }), hidden)).toBe(true);
   });
 
   it("lists who opened them, the user first", () => {
