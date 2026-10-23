@@ -1576,7 +1576,29 @@ function devopsRemote(on = true) {
   setTimeout(() => void emit("config-changed"), 50);
 }
 
-(window as unknown as { arnoldMock: unknown }).arnoldMock = { newPush, devopsRemote };
+/** `arnoldMock.newComment(id)`: someone else answers the first discussion of pull request `id` (!1284 is yours). */
+function newComment(id = 1284, author = "Bo Svensson", content = "Could you add a test for an order **without** any lines?") {
+  const thread = threadsOf(id)[0];
+  if (!thread) return console.warn(`devMock: !${id} has no discussions`);
+  const last = thread.comments[thread.comments.length - 1];
+  thread.comments.push(comment(Math.max(...thread.comments.map((each) => each.id)) + 1, author, content, 0, last?.id ?? 0));
+  console.info(`devMock: ${author} commented on !${id}; \`arnoldMock.checkNotifications()\` checks for news now`);
+}
+
+/** The notifications shown, newest last; `arnoldMock.clickNotification()` clicks the last one. */
+const notifications: { title: string; body: string; key: string }[] = [];
+const clickNotification = (index = notifications.length - 1) =>
+  void emit("notification-clicked", notifications[index]?.key ?? "");
+const checkNotifications = () => import("../state/prNotifications").then((module) => module.checkForNews());
+
+(window as unknown as { arnoldMock: unknown }).arnoldMock = {
+  newPush,
+  devopsRemote,
+  newComment,
+  notifications,
+  clickNotification,
+  checkNotifications,
+};
 
 // Branches on the mock Azure DevOps. feature/agent-work has !1287 open
 // already; feature/agent-work-wt is not pushed, or with `?serverbranch=behind`
@@ -2082,6 +2104,15 @@ export function install() {
             checkToken();
             return asSeenByYou(findPullRequest(args.id));
           }, 700);
+        case "read_pull_request":
+          return slowly(() => {
+            checkToken();
+            return asSeenByYou(findPullRequest(args.id));
+          }, 300);
+        case "notify":
+          notifications.push({ title: args.title, body: args.body, key: args.key });
+          console.info(`devMock: notification "${args.title}": ${args.body}`);
+          return null;
         case "vote_on_pull_request":
           return slowly(() => {
             checkToken();

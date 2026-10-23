@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { composerElement, isOpen, threadElement } from "../editor/threads";
 import type { PrThread } from "../ipc/commands";
-import { createGeneralThread, isChanged, loadThreads, revealThread, state, threads } from "../state/review";
+import { createGeneralThread, discussionsWanted, isChanged, loadThreads, revealThread, state, threads } from "../state/review";
 import { openInBrowser } from "./DevOpsSetup";
 import { splitPath } from "./FileDock";
 import { ChevronDownIcon, CommentIcon, ExternalIcon, RefreshIcon } from "./icons";
@@ -60,6 +60,8 @@ export function DiscussionPicker() {
       if (overflow > 0) popup.style.left = `${-overflow}px`;
     });
   };
+  // Asked for from elsewhere (a notification about a comment on the pull request as a whole).
+  createEffect(on(discussionsWanted, () => !open() && toggle(), { defer: true }));
   const onOutside = (event: PointerEvent) => {
     if (!root.contains(event.target as Node)) setOpen(false);
   };

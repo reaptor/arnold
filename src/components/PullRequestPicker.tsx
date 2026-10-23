@@ -10,7 +10,7 @@ import {
 import { checkPullRequest, closePullRequest, openPullRequest, state } from "../state/review";
 import { openInBrowser } from "./DevOpsSetup";
 import { ChevronDownIcon, ExternalIcon, KeyIcon, PullRequestIcon, RefreshIcon } from "./icons";
-import { RemoteSelect } from "./PullRequestPanel";
+import { NotifyButton, RemoteSelect } from "./PullRequestPanel";
 import { isApproved, PullRequestList } from "./PullRequestList";
 
 /** Toolbar button showing the pull request under review; opens the list of active ones. */
@@ -143,6 +143,7 @@ export function PullRequestPicker() {
               >
                 <KeyIcon />
               </button>
+              <NotifyButton compact />
             </Show>
           </div>
         </div>

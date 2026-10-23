@@ -2140,6 +2140,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   color: var(--muted);
 }
 
+.notify-button.on {
+  background: var(--pressed);
+}
+
+.notify-button.on .icon,
+.pr-popup-footer .notify-button.on .icon {
+  stroke: var(--accent);
+}
+
 .pr-popup-footer .pr-reload.busy svg {
   animation: spin 0.8s linear infinite;
 }
@@ -3737,7 +3746,8 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   line-height: 1.6;
 }
 
-.protected-dialog .committed-choice span {
+.protected-dialog .committed-choice span,
+.notify-dialog .committed-choice span {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;

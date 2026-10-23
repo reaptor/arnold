@@ -18,6 +18,7 @@ import { ThreadCard, threadsByFile, where } from "./DiscussionPicker";
 import { splitPath } from "./FileDock";
 import { CommentIcon, ExternalIcon, FilesIcon } from "./icons";
 import { Markdown } from "./Markdown";
+import { PullRequestNotifyButton } from "./PullRequestPanel";
 
 const VOTE_LABELS: Record<Reviewer["vote"], { text: string; kind: string }> = {
   approved: { text: "Approved", kind: "approved" },
@@ -163,6 +164,9 @@ function Overview(props: { pullRequest: ReviewedPullRequest }) {
               {ago(props.pullRequest.created)}
             </span>
             <span class="toolbar-space" />
+            <Show when={props.pullRequest.status === "active"}>
+              <PullRequestNotifyButton pullRequest={props.pullRequest} />
+            </Show>
             <button onClick={() => openInBrowser(props.pullRequest.url)} title={props.pullRequest.url}>
               Open in Azure DevOps
               <ExternalIcon />
