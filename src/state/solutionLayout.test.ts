@@ -191,6 +191,17 @@ describe("solution view", () => {
     ]);
   });
 
+  it("knows the file of the solution and of each project, for Reveal in Finder", () => {
+    const groups: string[] = [];
+    const visit = (node: TreeNode) => {
+      if (node.kind !== "group") return;
+      if (node.projectFile) groups.push(`${node.label}: ${node.projectFile}`);
+      node.children.forEach(visit);
+    };
+    buildSolutionTree(FILES, "Shop.sln", TEXTS).nodes.forEach(visit);
+    expect(groups).toEqual(["Shop: Shop.sln", "Tools: tools/Tools.csproj", "Web: src/Web/Web.fsproj", "Core: src/Core/Core.fsproj"]);
+  });
+
   it("orders changed files as the view shows them", () => {
     const order = solutionOrder(buildSolutionTree(FILES, "Shop.sln", TEXTS));
     const changed = ["README.md", "src/Core/Helpers.fs", "src/Gone.fs", "src/Web/Program.fs", "src/Core/Types.fs", "tools/Run.cs"];

@@ -57,7 +57,7 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
         .sort(order)
         .map((path) => {
           const parts = splitPath(path);
-          return { kind: "file", key: path, path, label: parts.name, detail: parts.directory, depth: 0, open: false, icon: null, note: "", unlisted: "" };
+          return { kind: "file", key: path, path, projectFile: "", label: parts.name, detail: parts.directory, depth: 0, open: false, icon: null, note: "", unlisted: "" };
         });
     }
     return model().rows(expanded);
@@ -214,9 +214,9 @@ export function FileTree(props: { filter: string; controls?: (controls: TreeCont
                     title={title()}
                     onClick={() => activate(row())}
                     onContextMenu={(event) => {
-                      // Groups of the Solution view without a real folder have no menu.
-                      if (!row().path) return;
-                      if (openTreeMenu(row().path, row().kind === "folder", event.clientX, event.clientY)) {
+                      // Groups of the Solution view without a real folder or a file have no menu.
+                      if (!row().path && !row().projectFile) return;
+                      if (openTreeMenu(row().path, row().kind === "folder", event.clientX, event.clientY, row().projectFile)) {
                         event.preventDefault();
                       }
                     }}

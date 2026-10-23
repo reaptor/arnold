@@ -478,7 +478,7 @@ export function App() {
               <Show when={hasActions(menu())}>
                 <li class="menu-separator" />
               </Show>
-              <li onClick={() => void revealInFileManager(menu().file!)}>
+              <li onClick={() => void revealInFileManager(menu().reveal ?? menu().file!)}>
                 <span>{revealLabel}</span>
               </li>
             </Show>
