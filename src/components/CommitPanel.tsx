@@ -1,6 +1,6 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { isMac } from "../platform";
-import { answerFormatCheck, answerProtectedBranch, canCommit, commit, message, setCommitMessage } from "../state/commitMode";
+import { answerFormatCheck, answerProtectedBranch, canCommit, commit, conflictedCount, message, setCommitMessage } from "../state/commitMode";
 import { state } from "../state/review";
 import { BranchIcon, CloseIcon, CommitIcon, FormatIcon } from "./icons";
 
@@ -13,6 +13,8 @@ export function CommitBox() {
   const staged = () => state.work?.staged.length ?? 0;
   const hint = () => {
     if (state.committing) return state.committing;
+    const conflicted = conflictedCount();
+    if (conflicted > 0) return `Resolve the merge conflicts in ${plural(conflicted, "file")} and stage ${conflicted === 1 ? "it" : "them"} to commit.`;
     if (staged() === 0) return "Stage files or lines to commit them.";
     if (!message().trim()) return `Write a message to commit ${plural(staged(), "staged file")}.`;
     return `${plural(staged(), "staged file")} on ${state.work?.branch ?? "detached HEAD"}`;

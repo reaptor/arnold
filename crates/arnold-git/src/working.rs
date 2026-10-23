@@ -7,6 +7,7 @@
 //! files, its index and, with `commit`, its branch. It only ever acts on the
 //! checkout it is given, and nothing here pushes (`publish` does).
 
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
@@ -27,27 +28,37 @@ pub struct WorkingStatus {
     pub branch: Option<String>,
     /// The commit checked out; `None` before the first commit.
     pub head: Option<String>,
-    /// Working tree against the index, untracked files included (as added).
+    /// Working tree against the index, untracked files included (as added),
+    /// and the files with merge conflicts (as conflicted).
     pub unstaged: Vec<ChangedFile>,
     /// Index against HEAD: what a commit would take.
     pub staged: Vec<ChangedFile>,
     /// Where the branch is pushed and how far it is ahead; `None` when
     /// detached or the repository has no remote.
     pub sync: Option<BranchSync>,
+    /// While a merge is under way (`MERGE_HEAD`), the message git prepared
+    /// for its commit, without the comment lines.
+    pub merge_message: Option<String>,
 }
 
 /// What `checkout` has not committed yet, staged and not.
 pub async fn working_status(checkout: &Path) -> Result<WorkingStatus> {
-    let (branch, head, staged, mut unstaged, untracked) = tokio::try_join!(
+    let (branch, head, mut staged, mut unstaged, untracked, conflicted, merge_message) = tokio::try_join!(
         current_branch(checkout),
         head_commit(checkout),
         diff_files(checkout, &["--cached"]),
         diff_files(checkout, &[]),
         untracked_files(checkout),
+        conflicted_paths(checkout),
+        merge_message(checkout),
     )?;
+    // Git lists a conflicted file in both diffs (twice in the unstaged one):
+    // it is listed once, as unstaged, until it is staged as resolved.
+    staged.retain(|file| !conflicted.contains(&file.path));
+    unstaged.retain(|file| !conflicted.contains(&file.path));
+    unstaged.extend(conflicted.into_iter().map(conflicted_file));
     unstaged.extend(untracked);
     unstaged.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut staged = staged;
     staged.sort_by(|a, b| a.path.cmp(&b.path));
     let sync = match (&branch, &head) {
         (Some(branch), Some(_)) => branch_sync(checkout, branch).await?,
@@ -59,7 +70,42 @@ pub async fn working_status(checkout: &Path) -> Result<WorkingStatus> {
         unstaged,
         staged,
         sync,
+        merge_message,
     })
+}
+
+/// Paths with merge conflicts: the index has their stages instead of a merged text.
+async fn conflicted_paths(checkout: &Path) -> Result<HashSet<String>> {
+    let out = run(checkout, &["diff", "--name-only", "-z", "--diff-filter=U"]).await?;
+    Ok(String::from_utf8_lossy(&out)
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn conflicted_file(path: String) -> ChangedFile {
+    ChangedFile {
+        path,
+        old_path: None,
+        status: FileStatus::Conflicted,
+        additions: None,
+        deletions: None,
+        binary: false,
+        uncommitted: false,
+    }
+}
+
+/// The message git prepared for the merge under way, without its comment
+/// lines; `None` when no merge is under way.
+async fn merge_message(checkout: &Path) -> Result<Option<String>> {
+    if !run_raw(checkout, &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]).await?.success {
+        return Ok(None);
+    }
+    let file = run_text(checkout, &["rev-parse", "--git-path", "MERGE_MSG"]).await?;
+    let text = tokio::fs::read_to_string(checkout.join(file)).await.unwrap_or_default();
+    let lines: Vec<&str> = text.lines().filter(|line| !line.starts_with('#')).collect();
+    Ok(Some(lines.join("\n").trim().to_string()))
 }
 
 /// Files git does not track and does not ignore, as added files.
@@ -111,6 +157,14 @@ async fn head_commit(checkout: &Path) -> Result<Option<String>> {
 /// Contents of `path` in the index of `checkout`, or `None` if it has none.
 pub async fn read_index(checkout: &Path, path: &str) -> Result<Option<Vec<u8>>> {
     let out = run_raw(checkout, &["cat-file", "blob", &format!(":0:{path}")]).await?;
+    Ok(out.success.then_some(out.stdout))
+}
+
+/// Contents of `path` at one stage of a merge conflict in the index of
+/// `checkout` (1: the common ancestor, 2: ours, 3: theirs), or `None` if it
+/// has no such stage.
+pub async fn read_stage(checkout: &Path, path: &str, stage: u8) -> Result<Option<Vec<u8>>> {
+    let out = run_raw(checkout, &["cat-file", "blob", &format!(":{stage}:{path}")]).await?;
     Ok(out.success.then_some(out.stdout))
 }
 
@@ -202,11 +256,16 @@ pub async fn unstage(checkout: &Path, paths: &[String]) -> Result<()> {
 }
 
 /// Throws away the unstaged changes of `paths`: tracked files go back to how
-/// the index has them, untracked ones are deleted.
+/// the index has them, untracked ones are deleted, and a file with merge
+/// conflicts gets the conflicts back as git first wrote them.
 pub async fn discard(checkout: &Path, paths: &[String]) -> Result<()> {
+    let conflicted = conflicted_paths(checkout).await?;
     let mut tracked = Vec::new();
+    let mut merged_again = Vec::new();
     for path in paths {
-        if is_tracked(checkout, path).await? {
+        if conflicted.contains(path) {
+            merged_again.push(path.clone());
+        } else if is_tracked(checkout, path).await? {
             tracked.push(path.clone());
         } else if let Some(full) = existing(checkout, path)? {
             tokio::fs::remove_file(&full).await.map_err(|e| io_error(path, e))?;
@@ -216,6 +275,11 @@ pub async fn discard(checkout: &Path, paths: &[String]) -> Result<()> {
         let mut args = vec!["--literal-pathspecs", "checkout", "--quiet"];
         args.extend(FROM_STDIN);
         run_with_input(checkout, &args, &path_list(&tracked)).await?;
+    }
+    if !merged_again.is_empty() {
+        let mut args = vec!["--literal-pathspecs", "checkout", "--quiet", "--merge"];
+        args.extend(FROM_STDIN);
+        run_with_input(checkout, &args, &path_list(&merged_again)).await?;
     }
     Ok(())
 }

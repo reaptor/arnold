@@ -22,6 +22,7 @@ export const STATUS_LETTER: Record<FileStatus, string> = {
   modified: "M",
   deleted: "D",
   renamed: "R",
+  conflicted: "!",
   unchanged: "·",
 };
 
@@ -30,6 +31,7 @@ export const STATUS_NAME: Record<FileStatus, string> = {
   modified: "Modified",
   deleted: "Deleted",
   renamed: "Renamed",
+  conflicted: "Merge conflicts",
   unchanged: "Not changed (opened by go-to-definition)",
 };
 

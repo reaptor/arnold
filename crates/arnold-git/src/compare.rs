@@ -13,6 +13,9 @@ pub enum FileStatus {
     Modified,
     Deleted,
     Renamed,
+    /// Git could not merge it: the working tree has the conflicts (only
+    /// listed by `working_status`).
+    Conflicted,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
