@@ -5,6 +5,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { isFavorite, toggleFavorite } from "../state/favorites";
 import type {
   Branch,
   Fetched,
@@ -1379,8 +1380,134 @@ const asSeenByYou = (pullRequest: PullRequest): PullRequest =>
     reviewers: pullRequest.reviewers.map((entry) => ({ ...entry, you: entry.id === YOU.id })),
   });
 
+// `?favorites`: more favorite repositories, for the dashboard of their pull requests (with `?devops`
+// for shop-api's own): web-shop and billing on Azure DevOps, infra without a token, notes with no
+// Azure DevOps remote. Opened, they show shop-api's files; their pull requests have its commits.
+const favoriteRepos = searchParams.has("favorites");
+
+interface FavoriteRepo {
+  remote: PrRemote | null;
+  pullRequests: PullRequest[];
+}
+
+const favoriteRemote = (organization: string, project: string, name: string, token: PrRemote["token"]): PrRemote => ({
+  remote: "origin",
+  provider: "azureDevOps",
+  name: `${organization} / ${project} / ${name}`,
+  organization,
+  webUrl: `https://dev.azure.com/${organization}/${project}/_git/${name}`,
+  tokenSettingsUrl: `https://dev.azure.com/${organization}/_usersSettings/tokens`,
+  token,
+});
+
+const favoritePullRequest = (
+  repo: string,
+  change: Pick<PullRequest, "id" | "title" | "author" | "authorId" | "sourceBranch" | "reviewers"> & Partial<PullRequest>,
+): PullRequest => ({
+  description: "",
+  yours: false,
+  created: hoursAgo(5),
+  draft: false,
+  status: "active",
+  targetBranch: "main",
+  sourceCommit: TIP,
+  targetCommit: MERGE_BASE,
+  url: `https://dev.azure.com/contoso/${repo}/pullrequest/${change.id}`,
+  mergeStatus: "succeeded",
+  ...change,
+});
+
+const you = (vote: Vote): Reviewer => ({ ...reviewer(YOU.name, vote), id: YOU.id });
+
+const FAVORITES: Record<string, FavoriteRepo> = {
+  "/src/web-shop": {
+    remote: favoriteRemote("contoso", "Shop", "web-shop", "keychain"),
+    pullRequests: [
+      favoritePullRequest("Shop/_git/web-shop", {
+        id: 412,
+        title: "Checkout: show the loyalty discount in the basket",
+        author: "Ada Lovelace",
+        authorId: "ada-lovelace",
+        sourceBranch: "feature/basket-discount",
+        created: hoursAgo(1),
+        reviewers: [you("none"), reviewer("Bo Svensson", "approved")],
+      }),
+      favoritePullRequest("Shop/_git/web-shop", {
+        id: 409,
+        title: "Upgrade to Fable 5",
+        author: YOU.name,
+        authorId: YOU.id,
+        sourceBranch: "chore/fable-5",
+        created: hoursAgo(26),
+        reviewers: [reviewer("Grace Hopper", "approved"), reviewer("Cy Young", "approvedWithSuggestions")],
+      }),
+      favoritePullRequest("Shop/_git/web-shop", {
+        id: 401,
+        title: "Product page: lazy-load the review section",
+        author: "Grace Hopper",
+        authorId: "grace-hopper",
+        sourceBranch: "perf/lazy-reviews",
+        created: hoursAgo(50),
+        reviewers: [reviewer("[Shop]\\Web Team", "none", true)],
+      }),
+    ],
+  },
+  "/src/billing": {
+    remote: favoriteRemote("contoso", "Finance", "billing", "keychain"),
+    pullRequests: [
+      favoritePullRequest("Finance/_git/billing", {
+        id: 88,
+        title: "Invoices: VAT per order line",
+        author: YOU.name,
+        authorId: YOU.id,
+        sourceBranch: "feature/vat-per-line",
+        created: hoursAgo(8),
+        reviewers: [reviewer("Linus Torvalds", "waitingForAuthor")],
+      }),
+      favoritePullRequest("Finance/_git/billing", {
+        id: 85,
+        title: "Retry failed card payments once",
+        author: "Linus Torvalds",
+        authorId: "linus-torvalds",
+        sourceBranch: "fix/payment-retry",
+        created: hoursAgo(70),
+        reviewers: [you("approved"), reviewer("Ada Lovelace", "approved")],
+      }),
+    ],
+  },
+  "/src/infra": { remote: favoriteRemote("fabrikam", "Platform", "infra", null), pullRequests: [] },
+  "/src/notes": { remote: null, pullRequests: [] },
+};
+
+/** The favorite's own remotes and pull requests; shop-api (any other path) has the usual ones. */
+const favoriteOf = (root: unknown): FavoriteRepo | null => (favoriteRepos && FAVORITES[String(root)]) || null;
+
+const remotesOf = (root: unknown): PrRemote[] => {
+  const favorite = favoriteOf(root);
+  if (favorite) return favorite.remote ? [favorite.remote] : [];
+  return hasDevOpsRemote ? [prRemote()] : [];
+};
+
+const pullRequestsOf = (root: unknown): PullRequest[] => {
+  const favorite = favoriteOf(root);
+  if (!favorite) {
+    checkToken();
+    return pullRequestList().map(asSeenByYou);
+  }
+  if (!favorite.remote?.token) throw { kind: "noToken" };
+  return favorite.pullRequests.map(asSeenByYou);
+};
+
+/** Stars the favorites of `?favorites`, as if the user had. */
+export function starFavorites() {
+  if (!favoriteRepos) return;
+  for (const path of [ROOT, ...Object.keys(FAVORITES)]) if (!isFavorite(path)) toggleFavorite(path);
+}
+
 function findPullRequest(id: unknown): PullRequest {
-  const found = mockPullRequests.find((pullRequest) => pullRequest.id === Number(id));
+  const found = [...mockPullRequests, ...Object.values(FAVORITES).flatMap((favorite) => favorite.pullRequests)].find(
+    (pullRequest) => pullRequest.id === Number(id),
+  );
   if (!found) throw { kind: "notFound", message: `Pull request ${id} does not exist.` };
   return found;
 }
@@ -1966,6 +2093,7 @@ function slowed(handle: (command: string, payload: unknown) => unknown) {
 
 export function install() {
   mockWindows("main");
+  starFavorites();
   mockIPC(
     slowed((command, payload) => {
       const args = (payload ?? {}) as Record<string, string>;
@@ -2158,12 +2286,13 @@ export function install() {
             return { staged: args.paths, failed: [] };
           }, 800);
         case "pull_request_remotes":
-          return hasDevOpsRemote ? [prRemote()] : [];
+          return remotesOf(args.root);
         case "list_pull_requests":
-          return slowly(() => {
-            checkToken();
-            return pullRequestList().map(asSeenByYou);
-          });
+          return slowly(() => pullRequestsOf(args.root));
+        case "favorite_pull_request_remotes":
+          return slowly(() => remotesOf(args.path), 200);
+        case "list_favorite_pull_requests":
+          return slowly(() => pullRequestsOf(args.path));
         case "set_pull_request_token":
           return slowly(() => {
             if (args.token.trim() === "bad") throw { kind: "tokenRejected", message: "" };

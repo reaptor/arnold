@@ -588,6 +588,14 @@ export const pullRequestRemotes = (root: string) => invoke<PrRemote[]>("pull_req
 export const listPullRequests = (root: string, remote: string) =>
   invoke<PullRequest[]>("list_pull_requests", { root, remote });
 
+/** `pullRequestRemotes` of a favorite repository, open or not (the dashboard). */
+export const favoritePullRequestRemotes = (path: string) =>
+  invoke<PrRemote[]>("favorite_pull_request_remotes", { path });
+
+/** `listPullRequests` of a favorite repository, open or not (the dashboard). */
+export const listFavoritePullRequests = (path: string, remote: string) =>
+  invoke<PullRequest[]>("list_favorite_pull_requests", { path, remote });
+
 /** Checks the token with the host and, if it works, saves it. Resolves to the active pull requests. */
 export const setPullRequestToken = (root: string, remote: string, token: string) =>
   invoke<PullRequest[]>("set_pull_request_token", { root, remote, token });

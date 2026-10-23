@@ -76,6 +76,16 @@ export function prErrorText(error: unknown): string {
   }
 }
 
+/** The remote whose pull requests are listed for `root`: the one last picked there, else `origin`, else the first. */
+export function preferredRemote(root: string, remotes: PrRemote[]): PrRemote | undefined {
+  const remembered = localStorage.getItem(`arnold.prRemote.${root}`);
+  return (
+    remotes.find((candidate) => candidate.remote === remembered) ??
+    remotes.find((candidate) => candidate.remote === "origin") ??
+    remotes[0]
+  );
+}
+
 /** Finds the repository's remotes that have pull requests. Never fails: without them there is just no choice. */
 export async function loadRemotes(root: string) {
   setPrs({ root, remotes: [], remote: null, list: null, error: null, tokenError: null, tokenDialog: false });
@@ -87,11 +97,7 @@ export async function loadRemotes(root: string) {
     remotes = [];
   }
   if (prs.root !== root) return;
-  const remembered = localStorage.getItem(`arnold.prRemote.${root}`);
-  const remote =
-    remotes.find((candidate) => candidate.remote === remembered) ??
-    remotes.find((candidate) => candidate.remote === "origin") ??
-    remotes[0];
+  const remote = preferredRemote(root, remotes);
   setPrs({ remotes, remote: remote?.remote ?? null });
 }
 
@@ -115,11 +121,7 @@ export async function refreshRemotes(root: string) {
     setPrs("remotes", remotes);
     return;
   }
-  const remembered = localStorage.getItem(`arnold.prRemote.${root}`);
-  const remote =
-    remotes.find((candidate) => candidate.remote === remembered) ??
-    remotes.find((candidate) => candidate.remote === "origin") ??
-    remotes[0];
+  const remote = preferredRemote(root, remotes);
   setPrs({ remotes, remote: remote?.remote ?? null, list: null, error: null, tokenError: null });
 }
 
