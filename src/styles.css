@@ -1321,6 +1321,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .content {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -1329,6 +1330,11 @@ button.primary:hover:not(:disabled) {
   background: var(--bg);
   border-radius: var(--island-radius);
   overflow: hidden;
+}
+
+/* A pull request's overview covers its files, which stay laid out (and scrolled) underneath. */
+.content.overview > :not(.pr-overview) {
+  visibility: hidden;
 }
 
 /* Where diffs are shown: the one-file editor and each file of the all-files view. */
@@ -2755,6 +2761,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   line-height: 1.5;
 }
 
+/* A click on the comments of a changed file's discussion shows it in the diff. */
+.discussion-item.jumps .thread-comment {
+  cursor: pointer;
+}
+
+.discussion-item.jumps .thread-comment:hover {
+  background: var(--hover);
+}
+
 .discussion-picker .picker-value {
   flex: none;
 }
@@ -2865,6 +2880,17 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   border-color: transparent;
   color: var(--accent);
   font-size: 12px;
+}
+
+.thread-accept {
+  margin-left: 4px;
+  border-color: var(--edited);
+  color: var(--edited);
+  font-size: 12px;
+}
+
+.thread-accept:disabled {
+  opacity: 0.6;
 }
 
 .thread.draft {
@@ -4855,4 +4881,232 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 
 .cm-findTextButton:hover {
   background: var(--hover);
+}
+
+/* ------------------------------------------------------- pull request overview */
+
+.pr-overview {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pr-overview-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pr-overview-head h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pr-overview-id {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.pr-overview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.pr-overview-meta strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pr-overview-meta button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pr-overview-branch {
+  font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.tag-state-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tag-state-completed {
+  color: var(--added);
+  border-color: var(--added);
+}
+
+.tag-state-abandoned {
+  color: var(--removed);
+  border-color: var(--removed);
+}
+
+.pr-overview-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: start;
+}
+
+/* Narrow: the side cards go under the description and discussions. */
+@media (max-width: 1100px) {
+  .pr-overview-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pr-overview-main,
+.pr-overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.pr-overview-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.pr-overview-card > h2,
+.pr-overview-section-head h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pr-overview-card p {
+  margin: 0 0 8px;
+}
+
+.pr-overview-empty {
+  color: var(--muted);
+}
+
+.pr-overview-description {
+  line-height: 1.55;
+}
+
+.pr-overview-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.pr-overview-section-head h2 {
+  margin: 0;
+}
+
+.pr-overview-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pr-overview-discussions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-overview-discussions h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pr-overview-discussions .thread {
+  max-width: none;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.pr-overview-checks,
+.pr-overview-reviewers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pr-overview-checks li,
+.pr-overview-reviewers li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pr-overview-checks li::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-1px);
+}
+
+.pr-overview-checks li.check-ok::before {
+  background: var(--added);
+}
+
+.pr-overview-checks li.check-pending::before {
+  background: var(--warning);
+}
+
+.pr-overview-checks li.check-failed::before {
+  background: var(--removed);
+}
+
+.pr-overview-check-state,
+.pr-overview-reviewers li > :last-child {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+}
+
+.pr-overview-check-state {
+  color: var(--muted);
+}
+
+.pr-overview-reviewer {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-overview-you,
+.vote-none {
+  color: var(--muted);
+}
+
+.pr-overview-files {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

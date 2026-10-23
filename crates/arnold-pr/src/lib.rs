@@ -8,6 +8,7 @@
 //! runtime's threads.
 
 pub mod azure;
+pub mod suggestion;
 pub mod token;
 
 use serde::{Deserialize, Serialize};

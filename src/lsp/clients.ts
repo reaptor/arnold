@@ -13,6 +13,7 @@ import {
 } from "@codemirror/lsp-client";
 import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { revealUnchangedOnBothSides } from "../editor/unchangedLines";
 import * as ipc from "../ipc/commands";
 import { atPointer } from "./atPointer";
 import { codeActionCapabilities, codeActions, type ServerDiagnostic } from "./codeActions";
@@ -120,6 +121,19 @@ const noteJumpWithinFile: Extension = EditorView.updateListener.of((update) => {
   if (from !== update.state.selection.main.head) jumped(from);
 });
 
+/**
+ * A definition among folded unchanged lines, in this file or another one,
+ * unfolds them (on both sides of the split view) and is scrolled to again:
+ * the jump itself scrolled to the fold's bar.
+ */
+const revealDefinition: Extension = EditorView.updateListener.of((update) => {
+  if (!update.transactions.some((transaction) => transaction.isUserEvent("select.definition"))) return;
+  const head = update.state.selection.main.head;
+  if (revealUnchangedOnBothSides(update.view, head)) {
+    update.view.dispatch({ effects: EditorView.scrollIntoView(head, { y: "center" }) });
+  }
+});
+
 // macOS turns Ctrl+click into a right-click, so the context menu that follows
 // a Ctrl+click that went to a definition is swallowed.
 let swallowContextMenu = false;
@@ -196,6 +210,7 @@ export function clientFor(root: string, language: LanguageId | null): Promise<LS
           serverDiagnostics(),
           clickToDefinition,
           noteJumpWithinFile,
+          revealDefinition,
           { clientCapabilities: codeActionCapabilities, editorExtension: codeActions },
           { clientCapabilities: { textDocument: { rename: { prepareSupport: true } } }, editorExtension: rename },
         ],

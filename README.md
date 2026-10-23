@@ -161,7 +161,7 @@ The toolbar switches between one file at a time and *All files*: every file of t
 - Compared line by line first, so small edits far apart stay small. Changed words are marked red and green, as in Azure DevOps.
 - Added and deleted files show whole; deleted ones are tinted red.
 - `F7` / `Shift+F7` step through the changes; in the all-files view they carry on into the next or previous file.
-- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them.
+- Long runs of unchanged lines are folded into a *42 unchanged lines* bar; click it to unfold them. An unfolded run has a slim *Hide 42 unchanged lines* bar at its top that folds it again, and *Collapse unchanged lines* in the right-click menu folds the whole file back as it was opened (keeping the lines around discussions unfolded). Lines you edit in an unfolded run are a change of their own, so only the unchanged lines around them can be hidden. Unused opens of an F# file are never folded away, even unchanged: the runs fold around them. Go to definition into folded lines unfolds them.
 - Marks along the scrollbar show where the changes are (red and green as in the gutter), with errors and discussions in a narrow lane beside them; click one to go there. In the all-files view they cover the whole list, faint for files not loaded yet.
 - Syntax highlighting for F#, C#, T-SQL, project and other XML files, JSON and Markdown (with code blocks in their own language), and for about 140 more languages through [`@codemirror/language-data`](https://github.com/codemirror/language-data): JavaScript and TypeScript, Python, Rust, Go, Java, Kotlin, C and C++, PHP, Ruby, Swift, HTML, CSS, YAML, TOML, shell, PowerShell, Dockerfiles and others, chosen by file name. Each is loaded the first time a file needs it.
 
@@ -220,6 +220,10 @@ The list shows the active pull requests with their descriptions, branches, autho
 
 The one you pick is compared the way Azure DevOps does it: the merge-base of its target and source → the source branch's last commit, with the same commit picker. Commits the repository lacks are fetched from Azure DevOps into its object store only; no branch, remote-tracking branch or `FETCH_HEAD` changes. Arnold checks the pull request for new pushes, votes and discussions every minute while its window is shown, and when you come back to it.
 
+### The overview
+
+A pull request opens on its overview, in place of its files: the title, who wants to merge which branch into which, its state, the description, and on the right its status (merge conflicts, the target branch's required policies not met yet, active discussions), the reviewers with their votes and a summary of the changes. Below the description are all of its discussions: those about the pull request as a whole, then those about each file, each with *Reply*, *Accept suggestion* for an open suggestion, and *Show in diff*, which opens the file at the discussion. The overview button in the toolbar, left of *One file* and *All files*, comes back to it; picking a file in the dock, `F7` or those buttons leave it.
+
 ### Discussions and comments
 
 Discussions show as cards under the lines they are about, with resolved ones folded and the unchanged lines around them unfolded. Discussions about a whole file sit at the top of its diff. The comment button in the toolbar lists every discussion, including those about the pull request as a whole, and jumps to the others.
@@ -235,6 +239,8 @@ Discussions show with all changes only: a commit picked in the commit picker has
 Rather than describing a fix, make it: type into the diff. Opening a pull request checks it out detached at its latest push: in the opened folder, or, if that has uncommitted changes and you would rather keep them, in a git worktree of its own, `.arnold/worktrees/pr-<id>` (see [Checking out](#checking-out)). F# language features run in that checkout, so they see your edits.
 
 Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
+
+Open suggestions, your colleagues' or your own, have *Accept suggestion*, in the diff and in the overview. After asking, Arnold commits the suggested lines to the source branch on Azure DevOps, on top of the latest push you were shown (as Azure DevOps' own *Apply change* does; if the branch has moved on since, nothing is committed), and marks the discussion resolved. The new push then shows as any other does. Accepting needs a token with *Code → Read & write*.
 
 A checkout without edits follows new pushes by itself. If the pull request gets a new push while you have edits, the checkout keeps them on the earlier push (their lines no longer match it) and the diff turns read-only; *Read-only* in the status bar offers to throw them away and edit the latest push. Arnold does not remove worktrees.
 
@@ -330,7 +336,7 @@ The panel lists the suggestions under a short summary of the changes, as a start
 | `Enter` / `Shift+Enter`, `F3` / `Shift+F3`, `Ctrl+G` / `Ctrl+Shift+G` (`Cmd+G` / `Cmd+Shift+G`) | Next / previous match, wrapping around |
 | `Alt+C` / `Alt+W` / `Alt+R` (`⌥C` / `⌥W` / `⌥R`) | In the find box: match case / whole words / regular expression |
 | `Ctrl+H` (`Cmd+Alt+F`) | Find and replace, where the diff can be edited |
-| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#) |
+| `F12`, `Ctrl`/`Cmd`+click | Go to definition (F#); folded unchanged lines open for it |
 | `Shift+F12` | Find references (F#) |
 | `Alt+Enter`, `Ctrl+.` (`Cmd+.`) | Quick fixes and refactorings for the cursor's line or the selection (F#, where the diff can be edited) |
 | `F2`, `Ctrl+R` `Ctrl+R` | Rename the symbol under the cursor in every file (F#, where the diff can be edited) |
@@ -356,7 +362,7 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - while running *Run Fantomas and commit* on a file that also has unstaged changes: a short-lived copy of its staged text beside it (`<name>.arnold-staged.fs`), deleted as soon as Fantomas has formatted it;
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
 - from the remotes, when you select *Fetch* in a branch picker or *Pull* in *Commit*: every branch into the remote-tracking branches (deleted ones dropped), and local branches checked out nowhere that are only behind moved up to their remote; *Pull* also fast-forwards or merges the branch checked out;
-- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, votes, and completing, abandoning, drafting or publishing a pull request;
+- to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, accepted suggestions (a commit on the pull request's source branch, and the discussion resolved), votes, and completing, abandoning, drafting or publishing a pull request;
 - when you open a pull request: its latest push checked out detached, in the opened folder or (as for a branch) in a registered git worktree, `.arnold/worktrees/pr-<id>`, holding your edits until you suggest or undo them; `.arnold/pull-request` notes which pull request the folder has.
 
 Outside the repository, explaining code and suggesting improvements with AI send the code you ask about (for suggestions, also a few unchanged files beside the changed ones) to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
