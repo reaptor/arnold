@@ -11,7 +11,7 @@ export interface Problem {
   severity: ProblemSeverity;
   message: string;
   code: string | null;
-  /** Where it starts: 0-based line and UTF-16 column, as the server counts. */
+  /** Where it starts: 0-based line and UTF-16 column, as the server counts; line -1 for a whole file (a build's project problems). */
   line: number;
   character: number;
 }
@@ -36,6 +36,29 @@ export function toProblems(diagnostics: readonly ServerDiagnostic[]): Problem[] 
   }
   return problems.sort((a, b) => a.line - b.line || a.character - b.character);
 }
+
+/**
+ * FsAutoComplete's problems (`server`) and the last build's (`built`) in one
+ * list per file, the build's first; a problem both report is listed once.
+ */
+export function mergeProblems(
+  server: Record<string, readonly Problem[]>,
+  built: Record<string, readonly Problem[]>,
+): Record<string, Problem[]> {
+  const merged: Record<string, Problem[]> = {};
+  for (const path of new Set([...Object.keys(built), ...Object.keys(server)])) {
+    const fromBuild = built[path] ?? [];
+    const fromServer = (server[path] ?? []).filter((problem) => !fromBuild.some((other) => same(problem, other)));
+    merged[path] = [...fromBuild, ...fromServer].sort((a, b) => a.line - b.line || a.character - b.character);
+  }
+  return merged;
+}
+
+/** F# codes come as FS0039 from a build and may come as 39 from the server; messages on one line from a build. */
+const sameCode = (a: string | null, b: string | null) => a?.replace(/^FS0*/i, "") === b?.replace(/^FS0*/i, "");
+const oneLine = (message: string) => message.replace(/\s+/g, " ").trim();
+const same = (a: Problem, b: Problem) =>
+  a.severity === b.severity && a.line === b.line && a.character === b.character && sameCode(a.code, b.code) && oneLine(a.message) === oneLine(b.message);
 
 export interface ProblemCounts {
   error: number;

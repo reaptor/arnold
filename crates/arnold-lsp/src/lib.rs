@@ -2,6 +2,7 @@
 //! installing and updating servers, preparing a checkout for them, and a proxy that sits between the editor's
 //! LSP client and the server process.
 
+pub mod build;
 pub mod dotnet;
 pub mod fantomas;
 mod framing;

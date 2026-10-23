@@ -1181,6 +1181,68 @@ button.primary:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
+.problems-scope.build-failed {
+  color: var(--removed);
+}
+
+/* Build / Cancel build, as a small button in the header. */
+.problems-build {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 8px;
+  font: inherit;
+}
+
+.problems-build .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.problems-build .spinner {
+  width: 8px;
+  height: 8px;
+}
+
+/* The build under way, in the status bar. */
+.build-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.build-status .spinner {
+  width: 8px;
+  height: 8px;
+}
+
+.build-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-status .icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: inherit;
+}
+
+.build-status .icon-button .icon {
+  width: 12px;
+  height: 12px;
+}
+
 .problems-header .icon-button {
   display: flex;
   align-items: center;
