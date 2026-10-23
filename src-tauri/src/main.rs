@@ -110,6 +110,8 @@ fn main() {
             pull_requests::pull_request_remotes,
             pull_requests::branch_creators,
             pull_requests::list_pull_requests,
+            pull_requests::favorite_pull_request_remotes,
+            pull_requests::list_favorite_pull_requests,
             pull_requests::set_pull_request_token,
             pull_requests::remove_pull_request_token,
             pull_requests::open_pull_request,

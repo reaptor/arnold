@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { showDashboard } from "../state/dashboard";
 import { favorites, folderName, isFavorite, sortFavorites, toggleFavorite } from "../state/favorites";
 import { chooseRepo, openRepoAt, state } from "../state/review";
 import { ChevronDownIcon } from "./icons";
@@ -26,6 +27,8 @@ export function RepoPicker() {
   };
   const choose = (index: number) => {
     close();
+    // Picking a repository (the open one too) leaves the dashboard for it.
+    showDashboard(false);
     const path = starred()[index];
     if (path === undefined) void chooseRepo();
     else if (path !== state.repo?.root) void openRepoAt(path);

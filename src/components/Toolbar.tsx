@@ -19,6 +19,8 @@ import {
   state,
 } from "../state/review";
 import { prs } from "../state/pullRequests";
+import { attentionCount, dashboard, showDashboard } from "../state/dashboard";
+import { favorites } from "../state/favorites";
 import { commitOnBranch, uncommittedCount } from "../state/commitMode";
 import { checkoutChoices } from "../state/branchInfo";
 import { isMac, platform } from "../platform";
@@ -36,6 +38,7 @@ import {
   BackIcon,
   ForwardIcon,
   CommitIcon,
+  DashboardIcon,
   FileIcon,
   FilesIcon,
   OverviewIcon,
@@ -48,6 +51,9 @@ import {
 import { ai, toggleOpen as toggleAi } from "../state/ai";
 import { RepoPicker } from "./RepoPicker";
 import { WindowControls } from "./WindowControls";
+
+/** The open repository, unless the dashboard covers it: what the repository's widgets are for. */
+const reviewed = () => (dashboard.open ? null : state.repo);
 
 /** The main toolbar, which is also the window's title bar as in Rider: macOS
     draws its window buttons over the left end, on Windows the app draws its
@@ -73,7 +79,25 @@ export function Toolbar() {
       data-tauri-drag-region="deep"
     >
       <RepoPicker />
-      <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
+      <Show when={favorites().length > 0 || dashboard.open}>
+        <button
+          class="dashboard-toggle"
+          classList={{ on: dashboard.open }}
+          aria-pressed={dashboard.open}
+          onClick={() => showDashboard(!dashboard.open)}
+          title={`Dashboard: the active pull requests of all favorite repositories${
+            attentionCount() > 0 ? `\n${attentionCount()} waiting on you` : ""
+          }`}
+        >
+          <DashboardIcon />
+          <Show when={attentionCount() > 0}>
+            <span class="mode-count" aria-label={`${attentionCount()} waiting on you`}>
+              {attentionCount()}
+            </span>
+          </Show>
+        </button>
+      </Show>
+      <Show when={reviewed() && (state.source !== "pullRequest" || state.pullRequest)}>
         <div class="nav-buttons" role="group" aria-label="Navigation">
           <button
             class="icon-button"
@@ -95,7 +119,7 @@ export function Toolbar() {
           </button>
         </div>
       </Show>
-      <Show when={state.repo}>
+      <Show when={reviewed()}>
         {(repo) => (
           <>
             <div class="segmented source-switch" role="group" aria-label="What to review">
@@ -176,25 +200,25 @@ export function Toolbar() {
         )}
       </Show>
       <span class="toolbar-space" />
-      <Show when={state.repo && state.source === "pullRequest" && state.pullRequest}>
+      <Show when={reviewed() && state.source === "pullRequest" && state.pullRequest}>
         <PullRequestActions />
         <span class="toolbar-separator" />
       </Show>
-      <Show when={state.repo && state.source === "commit" && state.work}>
+      <Show when={reviewed() && state.source === "commit" && state.work}>
         <BranchActions />
         <span class="toolbar-separator" />
       </Show>
-      <Show when={state.repo && state.source === "branches" && headBranch()?.sync}>
+      <Show when={reviewed() && state.source === "branches" && headBranch()?.sync}>
         <PushHeadButton />
         <Show when={prs.remotes.length === 0}>
           <span class="toolbar-separator" />
         </Show>
       </Show>
-      <Show when={state.repo && state.source === "branches" && prs.remotes.length > 0}>
+      <Show when={reviewed() && state.source === "branches" && prs.remotes.length > 0}>
         <CreatePullRequestButton />
         <span class="toolbar-separator" />
       </Show>
-      <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
+      <Show when={reviewed() && (state.source !== "pullRequest" || state.pullRequest)}>
         <div class="segmented" role="group" aria-label="Files shown">
           <Show when={state.source === "pullRequest"}>
             <button
@@ -271,7 +295,7 @@ export function Toolbar() {
           <ArrowDownIcon />
         </button>
       </Show>
-      <Show when={state.repo}>
+      <Show when={reviewed()}>
         <span class="toolbar-separator" />
         <button
           class="icon-button ai-toggle"

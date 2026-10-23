@@ -168,6 +168,16 @@ export const PullRequestIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** Four tiles: the dashboard of every favorite's pull requests. */
+export const DashboardIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
+    <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
+    <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
+    <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
+  </Icon>
+);
+
 /** A comment: a speech bubble. */
 export const CommentIcon = (props: IconProps) => (
   <Icon {...props}>

@@ -143,8 +143,12 @@ pub async fn pull_request_remotes(
     prs: State<'_, PrState>,
 ) -> Result<Vec<PrRemote>, PrError> {
     let root = app.checked_root(&root).map_err(PrError::Other)?;
+    remotes_of(&root, &prs).await
+}
+
+async fn remotes_of(root: &Path, prs: &PrState) -> Result<Vec<PrRemote>, PrError> {
     let mut result = Vec::new();
-    for (remote, repo) in azure_remotes(&root).await? {
+    for (remote, repo) in azure_remotes(root).await? {
         // A credential store that cannot be read is the same as no token here;
         // listing pull requests reports the actual problem.
         let token = prs.token(&repo).await.ok().flatten().map(|(_, source)| source);
@@ -170,7 +174,11 @@ pub async fn list_pull_requests(
     prs: State<'_, PrState>,
 ) -> Result<Vec<PullRequest>, PrError> {
     let (_, repo) = resolve(&app, &root, &remote).await?;
-    let token = prs.required_token(&repo).await?;
+    active_pull_requests(&repo, &prs).await
+}
+
+async fn active_pull_requests(repo: &AzureRepo, prs: &PrState) -> Result<Vec<PullRequest>, PrError> {
+    let token = prs.required_token(repo).await?;
     let list = {
         let (repo, token) = (repo.clone(), token.clone());
         blocking(move || azure::active_pull_requests(&repo, &token)).await??
@@ -178,9 +186,38 @@ pub async fn list_pull_requests(
     // Which are the user's to follow (notifications); the user is asked once per token.
     let mut marked = Vec::with_capacity(list.len());
     for pull_request in list {
-        marked.push(prs.mark_you(&repo, &token, pull_request).await);
+        marked.push(prs.mark_you(repo, &token, pull_request).await);
     }
     Ok(marked)
+}
+
+/// A favorite repository for the dashboard, which lists the pull requests of
+/// all of them: any folder, not only the opened one. Only its remotes and its
+/// pull requests are read, never its files.
+fn favorite_root(path: &str) -> Result<PathBuf, PrError> {
+    dunce::canonicalize(path).map_err(|e| PrError::Other(format!("{path}: {e}")))
+}
+
+/// `pull_request_remotes` of a favorite repository.
+#[tauri::command]
+pub async fn favorite_pull_request_remotes(path: String, prs: State<'_, PrState>) -> Result<Vec<PrRemote>, PrError> {
+    remotes_of(&favorite_root(&path)?, &prs).await
+}
+
+/// `list_pull_requests` of a favorite repository.
+#[tauri::command]
+pub async fn list_favorite_pull_requests(
+    path: String,
+    remote: String,
+    prs: State<'_, PrState>,
+) -> Result<Vec<PullRequest>, PrError> {
+    let repo = azure_remotes(&favorite_root(&path)?)
+        .await?
+        .into_iter()
+        .find(|(name, _)| *name == remote)
+        .map(|(_, repo)| repo)
+        .ok_or_else(|| PrError::NotFound(format!("{remote} is not an Azure DevOps remote of {path}")))?;
+    active_pull_requests(&repo, &prs).await
 }
 
 /// Checks `token` against `remote`, then saves it for the remote's

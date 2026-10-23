@@ -2383,6 +2383,213 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   border-radius: 6px;
 }
 
+/* ---------------------------------------------- dashboard of the favorites */
+
+.toolbar .dashboard-toggle {
+  flex: none;
+  padding: 0 7px;
+}
+
+.toolbar .dashboard-toggle.on {
+  background: var(--pressed);
+}
+
+.toolbar .dashboard-toggle.on .icon {
+  stroke: var(--accent);
+}
+
+.dashboard-card {
+  width: min(980px, 100%);
+}
+
+.dashboard-attention-count {
+  color: var(--edited);
+  font-weight: 600;
+}
+
+.dashboard-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.dashboard-filter.on {
+  background: var(--pressed);
+  border-color: var(--accent);
+}
+
+.dashboard-filter strong {
+  font-weight: 600;
+}
+
+.dashboard-filter.busy svg {
+  animation: spin 0.8s linear infinite;
+}
+
+.creator-popup {
+  width: 280px;
+}
+
+.creator-popup .picker-list > li {
+  cursor: default;
+}
+
+.creator-popup .picker-list > li:hover {
+  background: var(--hover);
+}
+
+/* The row toggles it. */
+.creator-popup .commit-check {
+  pointer-events: none;
+}
+
+.attention-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--edited);
+}
+
+.dashboard-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dashboard-repo-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-repo-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dashboard-repo-header .repo-path {
+  margin-left: 0;
+}
+
+.dashboard-repo-header .icon-button {
+  display: flex;
+  border-color: transparent;
+  padding: 3px;
+}
+
+.dashboard-empty {
+  color: var(--muted);
+}
+
+.dashboard-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.dashboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-pr {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--popup-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dashboard-pr:hover {
+  border-color: var(--accent);
+}
+
+.dashboard-pr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.dashboard-pr.busy {
+  cursor: progress;
+}
+
+/* Waiting on the user: an amber edge, as edits not yet suggested have. */
+.dashboard-pr.attention {
+  box-shadow: inset 3px 0 0 var(--edited);
+}
+
+.dashboard-pr.current .picker-name {
+  color: var(--accent);
+}
+
+.dashboard-pr .pr-line:first-child .picker-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.pr-status {
+  flex: none;
+  width: 124px;
+  margin-top: 1px;
+  padding: 1px 0;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.status-draft {
+  color: var(--muted);
+}
+
+.status-blocked {
+  color: var(--removed);
+}
+
+.status-waiting {
+  color: var(--warning);
+}
+
+.status-approved {
+  color: var(--added);
+}
+
+.status-review {
+  color: var(--modified);
+}
+
+.attention-tag {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: var(--edited);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
 .connect {
   display: flex;
   flex-direction: column;

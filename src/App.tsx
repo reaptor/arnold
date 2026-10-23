@@ -14,6 +14,7 @@ import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./c
 import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
 import { startBuild } from "./state/build";
+import { PullRequestDashboard } from "./components/PullRequestDashboard";
 import { PullRequestOverview } from "./components/PullRequestOverview";
 import { NotifyDialog, PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
@@ -22,6 +23,7 @@ import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
 import { startupPath, type WorkingSide } from "./ipc/commands";
 import { fileManager, isMac, revealLabel } from "./platform";
 import { prs } from "./state/pullRequests";
+import { dashboard } from "./state/dashboard";
 import { licensesOpen } from "./state/licenses";
 import { ai, explainFromMenu, saveWidth as saveAiWidth, setWidth as setAiWidth, toggleOpen as toggleAi } from "./state/ai";
 import { startUpdateChecks } from "./state/updates";
@@ -108,6 +110,9 @@ const MIN_PROBLEMS_HEIGHT = 80;
 
 /** Reviewing pull requests, and none is picked yet: the main area lists them instead. */
 const choosingPullRequest = () => state.repo !== null && state.source === "pullRequest" && state.pullRequest === null;
+
+/** The main area shows a list (the dashboard, or the pull requests to pick from) in place of the files. */
+const listShown = () => dashboard.open || choosingPullRequest();
 
 export function App() {
   const [dockWidth, setDockWidth] = createSignal(Number(localStorage.getItem("arnold.dockWidth")) || 280);
@@ -243,17 +248,20 @@ export function App() {
         </div>
       </Show>
       <div class="main">
-        <Show when={choosingPullRequest()}>
+        <Show when={dashboard.open}>
+          <PullRequestDashboard />
+        </Show>
+        <Show when={!dashboard.open && choosingPullRequest()}>
           <PullRequestPanel />
         </Show>
-        <Show when={!choosingPullRequest()}>
+        <Show when={!listShown()}>
           {/* Hidden rather than removed, so the explorer keeps its open folders and scroll position. */}
           <Show when={state.source === "commit"} fallback={<FileDock width={dockWidth()} hidden={dockHidden()} />}>
             <WorkingDock width={dockWidth()} hidden={dockHidden()} />
           </Show>
           <div class="splitter" classList={{ hidden: dockHidden() }} onPointerDown={startResize} />
         </Show>
-        <div class="content-column" classList={{ hidden: choosingPullRequest() }} ref={contentColumn}>
+        <div class="content-column" classList={{ hidden: listShown() }} ref={contentColumn}>
         {/* The overview covers the files rather than replacing them, which keep their places. */}
         <section class="content" classList={{ overview: overviewShown() }}>
           <Show when={overviewShown()}>
@@ -282,7 +290,7 @@ export function App() {
           </section>
         </Show>
         </div>
-        <Show when={ai.open && state.repo}>
+        <Show when={ai.open && state.repo && !dashboard.open}>
           <div class="splitter" onPointerDown={startAiResize} />
           <div class="ai-column" style={{ width: `${ai.width}px` }}>
             <AiPanel />

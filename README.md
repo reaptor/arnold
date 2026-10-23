@@ -220,6 +220,10 @@ The list shows the active pull requests with their descriptions, branches, autho
 
 The one you pick is compared the way Azure DevOps does it: the merge-base of its target and source → the source branch's last commit, with the same commit picker. Commits the repository lacks are fetched from Azure DevOps into its object store only; no branch, remote-tracking branch or `FETCH_HEAD` changes. Arnold checks the pull request for new pushes, votes and discussions every minute while its window is shown, and when you come back to it.
 
+### The dashboard
+
+The dashboard button next to the repository button (four tiles) lists the active pull requests of every favorite repository at once, open or not, grouped by repository. Each shows where it stands (*Draft*, *Merge conflicts*, *Rejected*, *Waiting for author*, *Approved*, *In review*), and the ones waiting on you have an amber edge and say why: *Your review* when you are asked to review by name and have not voted, and on your own *Changes requested*, *Resolve conflicts*, *Merge failed* or *Ready to complete*. The button counts them once the dashboard has been read. *Created by* narrows the list to the people you pick (kept between starts), and *Waiting on you* to those that need you. A click opens the pull request as picking it in its repository's list does, opening that repository first and checking the pull request out when needed. A favorite without a token offers to set one up.
+
 ### The overview
 
 A pull request opens on its overview, in place of its files: the title, who wants to merge which branch into which, its state, the description, and on the right its status (merge conflicts, the target branch's required policies not met yet, active discussions), the reviewers with their votes and a summary of the changes. Below the description are all of its discussions: those about the pull request as a whole, then those about each file, each with *Reply*, *Accept suggestion* for an open suggestion, and *Show in diff*, which opens the file at the discussion. The overview button in the toolbar, left of *One file* and *All files*, comes back to it; picking a file in the dock, `F7` or those buttons leave it.
@@ -451,6 +455,7 @@ Options of the stand-in backend, added to the URL (`?devops&lsp`):
 | Option | What it does |
 |---|---|
 | `devops` | An Azure DevOps remote with a saved token and five pull requests (!1270 has merge conflicts); `=nopat` without a token (pasting `bad` is rejected), `=rejected`, `=empty`. !1291 has a diff and discussions of its own (an F# discounts module, one discussion holding a suggestion), for trying editing and *Suggest changes*: `arnoldMock.newPush()` in the browser console gives it a new push, which shows on the next check (reload in the pull request list, or the window regaining focus); `arnoldMock.devopsRemote(false)` / `(true)` removes or adds the remote, as `git remote` would |
+| `favorites` | More favorite repositories for the dashboard (with `devops` for the opened one's own pull requests): `web-shop` and `billing` with pull requests waiting on you, `infra` without a token, `notes` without an Azure DevOps remote. Opened, they show the same files |
 | `yourpr` | With `devops`: !1287 is yours, and its branch `feature/agent-work` is checked out in the opened folder, so it is edited on that branch; `=apart` puts the branch at another commit than the pull request's latest push |
 | `uncommitted` | The checkout has an agent's uncommitted work (edits, a partly staged file, an untracked and a deleted file), so the repository opens in *Commit*; `failcommit` makes committing fail as a hook would |
 | `nosolution` | The stand-in repository has no solution or project files, so *All files* shows only the folder tree |

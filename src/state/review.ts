@@ -745,7 +745,11 @@ export async function chooseRepo() {
   if (typeof picked === "string") await openRepoAt(picked);
 }
 
-export async function openRepoAt(path: string) {
+/**
+ * Opens the repository at `path` in the mode it was last left in, or with
+ * `pullRequest` under review instead (picked on the dashboard).
+ */
+export async function openRepoAt(path: string, pullRequest?: { remote: string; id: number }) {
   setState({ busy: true, error: null });
   try {
     const repo = await ipc.openRepo(path);
@@ -766,6 +770,16 @@ export async function openRepoAt(path: string) {
     const opened = state.repo;
     await pullRequests.loadRemotes(repo.root);
     if (opened !== state.repo) return;
+    if (pullRequest) {
+      if (pullRequests.prs.remote !== pullRequest.remote) await pullRequests.selectRemote(pullRequest.remote);
+      await openPullRequest(pullRequest.remote, pullRequest.id);
+      // It could not be opened: the list of them, under why.
+      if (opened === state.repo && !state.pullRequest) {
+        setState("source", "pullRequest");
+        if (pullRequests.prs.list === null) void pullRequests.loadPullRequests();
+      }
+      return;
+    }
     // Uncommitted changes come first: they are committed before they are reviewed.
     // The mode the app was closed in. Uncommitted changes open Commit mode
     // instead of a pull request (or nothing remembered), as only Branches
@@ -908,6 +922,14 @@ export async function openPullRequest(remote: string, id: number) {
   } finally {
     if (state.openingPullRequest === id) setState("openingPullRequest", null);
   }
+}
+
+/** Reviews pull request `id` of `remote` in the repository at `root`, opening that first unless it is open. */
+export async function openPullRequestIn(root: string, remote: string, id: number) {
+  if (state.repo?.root !== root) return openRepoAt(root, { remote, id });
+  if (pullRequests.prs.remote !== remote) await pullRequests.selectRemote(remote);
+  const open = state.source === "pullRequest" && state.pullRequest?.remote === remote && state.pullRequest.id === id;
+  if (!open) await openPullRequest(remote, id);
 }
 
 /** Leaves the pull request, back to the list of them. */
