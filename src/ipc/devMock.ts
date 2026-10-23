@@ -1563,9 +1563,17 @@ function acceptSuggestion(id: unknown, threadId: number, commit: string) {
     throw { kind: "other", message: "This discussion holds no suggestion that can be accepted." };
   }
   const text = file.working.split("\n");
-  text.splice(thread.position.startLine - 1, thread.position.endLine - thread.position.startLine + 1, ...lines);
+  const { startLine, endLine } = thread.position;
+  text.splice(startLine - 1, endLine - startLine + 1, ...lines);
   file.working = text.join("\n");
   thread.status = "fixed";
+  // The host moves the other discussions of the file below it along.
+  const shift = lines.length - (endLine - startLine + 1);
+  for (const other of threadsOf(id)) {
+    if (other === thread || other.path !== thread.path || !other.position || other.position.startLine <= endLine) continue;
+    other.position.startLine += shift;
+    other.position.endLine += shift;
+  }
   const author = thread.comments[0].author;
   const sha = pushCommit(own, pullRequest, `Apply suggestion from ${author} to ${thread.path}`, YOU.name, [thread.path!]);
   return { commit: sha, resolved: true };

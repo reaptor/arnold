@@ -42,6 +42,8 @@ export interface ThreadActions {
   deleteComment(thread: PrThread, comment: PrComment): Promise<void>;
   /** Commits a suggestion's lines to the pull request and resolves its thread (asking first). */
   acceptSuggestion(thread: PrThread): Promise<void>;
+  /** Why the suggestion of `thread` cannot be accepted now (shown on its disabled button); null when it can. */
+  whyNotAccept(thread: PrThread): string | null;
 }
 
 let actions: ThreadActions | null = null;
@@ -291,8 +293,9 @@ export function threadElement(thread: PrThread, onResize?: () => void): HTMLElem
       };
       if (!canAccept(thread)) return footer.replaceChildren(reply);
       const accept = element("button", "thread-accept", accepting.has(thread.id) ? "Accepting…" : "Accept suggestion");
-      accept.title = "Commit the suggested lines to the pull request's branch on Azure DevOps and resolve the discussion";
-      accept.disabled = accepting.has(thread.id);
+      const blocked = actions.whyNotAccept(thread);
+      accept.title = blocked ?? "Commit the suggested lines to the pull request's branch on Azure DevOps and resolve the discussion";
+      accept.disabled = accepting.has(thread.id) || blocked !== null;
       accept.onclick = async () => {
         accepting.add(thread.id);
         showFooter();

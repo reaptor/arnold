@@ -696,7 +696,15 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
 
 export function attachEditor(host: HTMLElement) {
   editor = new DiffEditor(host, editorCallbacks(() => state.selected), true);
-  setThreadActions({ reply, createThread, cancelDraft, editComment, deleteComment, acceptSuggestion });
+  setThreadActions({
+    reply,
+    createThread,
+    cancelDraft,
+    editComment,
+    deleteComment,
+    acceptSuggestion,
+    whyNotAccept: whyNotAcceptSuggestion,
+  });
   lsp.onDisplayFile(displayUri);
   lsp.onJump(noteDeparture);
   lsp.onStartFailed((reason) => addSetupProblem(String(reason)));
@@ -2743,6 +2751,18 @@ async function deleteComment(thread: PrThread, comment: PrComment) {
   await loadThreads();
 }
 
+/** Why open suggestions cannot be accepted now; null when they can. */
+export function whyNotAcceptSuggestion(): string | null {
+  const pullRequest = state.pullRequest;
+  if (state.source !== "pullRequest" || !pullRequest) return "No pull request is open.";
+  if (pullRequest.status !== "active") return `The pull request is ${pullRequest.status}.`;
+  // The suggestion's lines are of the push shown; never commit on top of one not seen.
+  if (!pullRequest.sourceCommit || state.comparison?.tipCommit !== pullRequest.sourceCommit) {
+    return "The pull request has a new push. Look at it before accepting suggestions.";
+  }
+  return null;
+}
+
 /**
  * Accepts a suggestion, after asking: its lines are committed to the pull
  * request's source branch on the host and its discussion is resolved, as
@@ -2752,6 +2772,8 @@ async function acceptSuggestion(thread: PrThread) {
   const repo = state.repo;
   const pullRequest = state.pullRequest;
   if (!repo || !pullRequest?.sourceCommit) return;
+  const blocked = whyNotAcceptSuggestion();
+  if (blocked) return fail(blocked);
   const sure = await confirm(
     `Commit ${thread.comments[0].author}'s suggestion for ${thread.path} to ${pullRequest.sourceBranch} on Azure DevOps, and resolve the discussion?`,
     { title: "Accept suggestion", kind: "info", okLabel: "Accept" },

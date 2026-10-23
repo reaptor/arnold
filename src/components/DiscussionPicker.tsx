@@ -1,14 +1,27 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { composerElement, isOpen, threadElement } from "../editor/threads";
 import type { PrThread } from "../ipc/commands";
-import { createGeneralThread, discussionsWanted, isChanged, loadThreads, revealThread, state, threads } from "../state/review";
+import {
+  createGeneralThread,
+  discussionsWanted,
+  isChanged,
+  loadThreads,
+  revealThread,
+  state,
+  threads,
+  whyNotAcceptSuggestion,
+} from "../state/review";
 import { openInBrowser } from "./DevOpsSetup";
 import { splitPath } from "./FileDock";
 import { ChevronDownIcon, CommentIcon, ExternalIcon, RefreshIcon } from "./icons";
 
 /** A thread card, the same as in the diff. */
 export function ThreadCard(props: { thread: PrThread }) {
-  return <div ref={(host) => host.append(threadElement(props.thread))} />;
+  let host!: HTMLDivElement;
+  // Drawn again when whether suggestions can be accepted changes (the comparison loaded, a new push).
+  const blocked = createMemo(whyNotAcceptSuggestion);
+  createEffect(on([() => props.thread, blocked], () => host.replaceChildren(threadElement(props.thread))));
+  return <div ref={host} />;
 }
 
 /** Where in its file a thread is: "line 12", "whole file". */
