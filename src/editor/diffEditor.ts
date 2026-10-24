@@ -33,7 +33,7 @@ import { changeKindColors, type Kind, kindOf } from "./changeKinds";
 import { mergeConflicts } from "./conflicts";
 import { deletedFile } from "./deletedFile";
 import { findBar, selectMatch, shownMatches } from "./findBar";
-import { riderIslandsDark } from "./riderIslandsTheme";
+import { editorColors } from "./riderIslandsTheme";
 import { languageFor, languageLoading } from "./languages";
 import { editFrames, setCommitted } from "./editFrames";
 import { ignoringWhitespaceDiffConfig, type LineBlock, lineFirstDiffConfig, withDifferingLines } from "./lineDiff";
@@ -263,8 +263,6 @@ function alignDifferingLines(merge: MergeView) {
     if (revertDOM) view.updateRevertButtons();
   };
 }
-
-const prefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 export class DiffEditor {
   private merge: MergeView | null = null;
@@ -1227,7 +1225,7 @@ export class DiffEditor {
       EditorState.readOnly.of(readOnly),
       languageFor(path),
       semanticHighlight,
-      prefersDark() ? riderIslandsDark : [],
+      editorColors(),
       changeKindColors,
       lineTints,
       threadMarks,

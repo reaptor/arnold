@@ -2,9 +2,10 @@
    window-colored frame. Dark values are Islands Dark's own (IntelliJ's
    ManyIslandsDark.theme.json), with the diff colors of Rider's editor scheme
    (RiderIslandsDark.xml in JetBrains/rider-theme-pack); light ones follow
-   Islands Light. */
+   Islands Light. The dark colors apply under data-theme="dark", which
+   state/theme.ts sets from the system's setting or the one picked. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   /* The window around the islands: toolbar, status bar, gaps. */
   --frame: #ebecf0;
   /* An island: the dock and the editor. */
@@ -64,61 +65,60 @@
   font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --frame: #26282c;
-    --bg: #191a1c;
-    --panel: #212326;
-    --popup: #26282c;
-    --popup-border: #33353b;
-    --border: #2b2d30;
-    --control-border: #40434a;
-    --text: #d1d3d9;
-    --muted: #9fa2a8;
-    --icon: #ced0d6;
-    --hover: rgb(255 255 255 / 0.063);
-    --pressed: rgb(255 255 255 / 0.13);
-    --selected: #2a4371;
-    --selected-inactive: #33353b;
-    --accent: #3871e1;
-    --accent-text: #ffffff;
-    --added: #73bd79;
-    --removed: #f57e84;
-    --modified: #70aeff;
-    --warning: #d59637;
-    --star: #f2c55c;
-    --banner: #44321d;
-    --banner-error: #56272b;
-    --scrollbar: rgb(255 255 255 / 0.15);
-    --scrollbar-hover: rgb(255 255 255 / 0.3);
-    /* Added lines and the new side of replaced lines are green, removed
-       lines and the old side of replaced lines red, as in Azure DevOps; the
-       marks are takes on them for the change gutter. */
-    --caret-row: #202424;
-    --diff-inserted: #373d29;
-    --diff-old-line: rgb(110 38 42 / 0.45);
-    --diff-old-text: rgb(150 48 54 / 0.85);
-    --diff-new-line: #373d29;
-    --diff-new-text: #4b5531;
-    --diff-inserted-mark: #4f8a3a;
-    --diff-old-mark: #a84a4f;
-    --tone-gray: #ced0d6;
-    --tone-gray-fill: #43454a;
-    --tone-fsharp: #5ea9d6;
-    --tone-fsharp-fill: #21313d;
-    --tone-blue: #548af7;
-    --tone-blue-fill: #25324d;
-    --tone-purple: #a571e6;
-    --tone-purple-fill: #2f2936;
-    --tone-green: #5fb865;
-    --tone-green-fill: #253627;
-    --tone-orange: #e08855;
-    --tone-orange-fill: #45322b;
-    --tone-red: #db5c5c;
-    --tone-red-fill: #402929;
-    --tone-yellow: #d6ae58;
-    --tone-yellow-fill: #3d3223;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --frame: #26282c;
+  --bg: #191a1c;
+  --panel: #212326;
+  --popup: #26282c;
+  --popup-border: #33353b;
+  --border: #2b2d30;
+  --control-border: #40434a;
+  --text: #d1d3d9;
+  --muted: #9fa2a8;
+  --icon: #ced0d6;
+  --hover: rgb(255 255 255 / 0.063);
+  --pressed: rgb(255 255 255 / 0.13);
+  --selected: #2a4371;
+  --selected-inactive: #33353b;
+  --accent: #3871e1;
+  --accent-text: #ffffff;
+  --added: #73bd79;
+  --removed: #f57e84;
+  --modified: #70aeff;
+  --warning: #d59637;
+  --star: #f2c55c;
+  --banner: #44321d;
+  --banner-error: #56272b;
+  --scrollbar: rgb(255 255 255 / 0.15);
+  --scrollbar-hover: rgb(255 255 255 / 0.3);
+  /* Added lines and the new side of replaced lines are green, removed
+     lines and the old side of replaced lines red, as in Azure DevOps; the
+     marks are takes on them for the change gutter. */
+  --caret-row: #202424;
+  --diff-inserted: #373d29;
+  --diff-old-line: rgb(110 38 42 / 0.45);
+  --diff-old-text: rgb(150 48 54 / 0.85);
+  --diff-new-line: #373d29;
+  --diff-new-text: #4b5531;
+  --diff-inserted-mark: #4f8a3a;
+  --diff-old-mark: #a84a4f;
+  --tone-gray: #ced0d6;
+  --tone-gray-fill: #43454a;
+  --tone-fsharp: #5ea9d6;
+  --tone-fsharp-fill: #21313d;
+  --tone-blue: #548af7;
+  --tone-blue-fill: #25324d;
+  --tone-purple: #a571e6;
+  --tone-purple-fill: #2f2936;
+  --tone-green: #5fb865;
+  --tone-green-fill: #253627;
+  --tone-orange: #e08855;
+  --tone-orange-fill: #45322b;
+  --tone-red: #db5c5c;
+  --tone-red-fill: #402929;
+  --tone-yellow: #d6ae58;
+  --tone-yellow-fill: #3d3223;
 }
 
 * {
@@ -4209,10 +4209,8 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   --edited: #b26b00;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --edited: #e5a33b;
-  }
+:root[data-theme="dark"] {
+  --edited: #e5a33b;
 }
 
 .edited-mark {
@@ -4485,6 +4483,41 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 
 .update-popup {
   width: min(460px, calc(100vw - 24px));
+}
+
+/* The theme picker, at the right end of the status bar (after the version). */
+.theme-status {
+  position: relative;
+  margin-left: auto;
+}
+
+.update-status + .theme-status,
+.activity-status + .theme-status {
+  margin-left: 0;
+}
+
+.theme-button {
+  padding: 1px 4px;
+}
+
+.theme-button .icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+}
+
+.menu.theme-menu {
+  position: fixed;
+  right: 8px;
+  bottom: 30px;
+  min-width: 180px;
+  color: var(--text);
+}
+
+.theme-menu li {
+  justify-content: flex-start;
+  gap: 6px;
+  cursor: default;
 }
 
 .update-popup .update-error {
@@ -4974,14 +5007,12 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   --find-mark: #e08a00;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --find-match: rgb(240 170 30 / 0.24);
-    --find-match-border: rgb(240 175 50 / 0.55);
-    --find-current: rgb(255 130 0 / 0.78);
-    --find-current-border: #ffc58a;
-    --find-mark: #f0a030;
-  }
+:root[data-theme="dark"] {
+  --find-match: rgb(240 170 30 / 0.24);
+  --find-match-border: rgb(240 175 50 / 0.55);
+  --find-current: rgb(255 130 0 / 0.78);
+  --find-current-border: #ffc58a;
+  --find-mark: #f0a030;
 }
 
 /* Over the editor theme's own colors, which are injected later. */
@@ -5066,10 +5097,8 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  .cm-findBar {
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
-  }
+:root[data-theme="dark"] .cm-findBar {
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
 }
 
 .cm-findRows {

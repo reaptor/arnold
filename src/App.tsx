@@ -11,6 +11,7 @@ import { FileDock } from "./components/FileDock";
 import { LanguageStatus } from "./components/LanguageStatus";
 import { LicensesDialog } from "./components/LicensesDialog";
 import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./components/ProblemsPanel";
+import { ThemeStatus } from "./components/ThemeStatus";
 import { UpdateStatus } from "./components/UpdateStatus";
 import { activities, followClicks, isBusy } from "./state/activity";
 import { startBuild } from "./state/build";
@@ -596,6 +597,7 @@ function StatusBar() {
       </Show>
       <ActivityStatus />
       <UpdateStatus />
+      <ThemeStatus />
     </footer>
   );
 }

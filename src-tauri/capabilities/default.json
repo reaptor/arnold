@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The webview may use dialogs and events, open web pages in the browser (Azure DevOps token settings, a pull request's page), and move, minimize, maximize and close its window (the toolbar is the title bar). Files, git and processes are reached only through Arnold's own commands.",
+  "description": "The webview may use dialogs and events, open web pages in the browser (Azure DevOps token settings, a pull request's page), move, minimize, maximize and close its window (the toolbar is the title bar), and set its light or dark theme. Files, git and processes are reached only through Arnold's own commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,6 +9,7 @@
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
+    "core:window:allow-set-theme",
     "dialog:allow-open",
     "dialog:allow-message",
     "opener:allow-open-url",

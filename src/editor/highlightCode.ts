@@ -1,13 +1,13 @@
 // Token colors for code blocks outside editors (answers in the AI panel),
 // with the editors' languages and theme.
 
-import { LanguageDescription, type Language } from "@codemirror/language";
+import { type HighlightStyle, LanguageDescription, type Language } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { highlightTree } from "@lezer/highlight";
 import { csharp } from "@replit/codemirror-lang-csharp";
 import { StyleModule } from "style-mod";
 import { fSharpLanguage } from "./fsharpLanguage";
-import { highlight } from "./riderIslandsTheme";
+import { codeHighlight } from "./riderIslandsTheme";
 
 /** Names a code block may be tagged with for the languages Arnold picks itself. */
 const OWN: Record<string, () => Language> = {
@@ -20,7 +20,7 @@ const OWN: Record<string, () => Language> = {
   cs: () => csharp().language,
 };
 
-let mounted = false;
+const mounted = new Set<HighlightStyle>();
 
 /** The language a code block tagged `name` (```ts) is in, loaded if need be. */
 async function languageNamed(name: string): Promise<Language | null> {
@@ -35,12 +35,14 @@ async function languageNamed(name: string): Promise<Language | null> {
 
 /** Colors the text of `code` (a `<code>` of a code block) as language `name`; leaves it as it is when unknown. */
 export async function highlightCode(code: HTMLElement, name: string) {
+  // Read before any await: an effect calling this runs again when the theme changes.
+  const highlight = codeHighlight();
   const text = code.textContent ?? "";
   const language = await languageNamed(name).catch(() => null);
   if (!language || code.textContent !== text) return;
-  if (!mounted && highlight.module) {
+  if (!mounted.has(highlight) && highlight.module) {
     StyleModule.mount(document, highlight.module);
-    mounted = true;
+    mounted.add(highlight);
   }
   const tree = language.parser.parse(text);
   const fragment = document.createDocumentFragment();
