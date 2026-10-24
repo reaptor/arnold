@@ -562,6 +562,16 @@ pub fn threads(repo: &AzureRepo, token: &str, id: u64) -> Result<Vec<Thread>, Pr
     Ok(list.iter().filter_map(parse_thread).collect())
 }
 
+/// How many discussions of pull request `id` are still to be resolved: those
+/// with something people wrote, as `threads` lists them.
+pub fn open_thread_count(repo: &AzureRepo, token: &str, id: u64) -> Result<usize, PrError> {
+    let body = get(&repo.api(&format!("/pullRequests/{id}/threads?api-version={API_VERSION}")), token)?;
+    let list = body["value"]
+        .as_array()
+        .ok_or_else(|| PrError::Other("Azure DevOps sent an unexpected answer".into()))?;
+    Ok(list.iter().filter_map(parse_thread).filter(Thread::is_open).count())
+}
+
 fn latest_iteration(repo: &AzureRepo, token: &str, id: u64) -> Result<Option<u64>, PrError> {
     let iterations = get(&repo.api(&format!("/pullRequests/{id}/iterations?api-version={API_VERSION}")), token)?;
     Ok(iterations["value"]
@@ -1211,6 +1221,8 @@ mod tests {
         assert_eq!(threads[1].position, Some(ThreadPosition { side: Side::Base, start_line: 3, end_line: 3 }));
         assert_eq!(threads[1].status, "fixed");
         assert_eq!((threads[2].path.as_deref(), threads[2].position), (None, None));
+        // Only the threads of people count, and of those the ones not resolved.
+        assert_eq!(threads.iter().filter(|thread| thread.is_open()).count(), 2);
     }
 
     #[test]

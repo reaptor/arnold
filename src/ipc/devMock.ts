@@ -1586,6 +1586,12 @@ const pullRequestThreads: PrThread[] = [
   },
 ];
 
+// The favorites' pull requests show how many discussions they have open without having any.
+const FAVORITE_OPEN_THREADS: Record<number, number> = { 412: 3, 409: 0, 401: 1, 88: 2, 85: 0 };
+const openThreadsOf = (id: unknown) =>
+  FAVORITE_OPEN_THREADS[Number(id)] ??
+  threadsOf(id).filter((thread) => ["active", "pending", "unknown"].includes(thread.status)).length;
+
 // ------------------------------------------- a pull request with its own diff
 // !1291 changes other files than the branch every other mock pull request
 // shows: a new F# discounts module with tests, and Orders.fs using it. It
@@ -2294,6 +2300,8 @@ export function install() {
           return slowly(() => remotesOf(args.path), 200);
         case "list_favorite_pull_requests":
           return slowly(() => pullRequestsOf(args.path));
+        case "favorite_pull_request_open_threads":
+          return slowly(() => openThreadsOf(args.id), 300);
         case "set_pull_request_token":
           return slowly(() => {
             if (args.token.trim() === "bad") throw { kind: "tokenRejected", message: "" };
