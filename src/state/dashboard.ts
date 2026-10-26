@@ -42,8 +42,6 @@ interface DashboardState {
    * them. Null until the dashboard is first read.
    */
   knownCreators: Creator[] | null;
-  /** Only the pull requests that wait on the user are shown. */
-  attentionOnly: boolean;
   /** Draft pull requests are not shown. */
   hideDrafts: boolean;
   /** The pull request being opened from the dashboard, `root\nremote\nid`. */
@@ -55,17 +53,16 @@ const creatorList = (saved: unknown): Creator[] | null =>
     ? saved.filter((creator: Creator) => typeof creator?.id === "string" && typeof creator?.name === "string")
     : null;
 
-function readSetting(): Pick<DashboardState, "hiddenCreators" | "knownCreators" | "attentionOnly" | "hideDrafts"> {
+function readSetting(): Pick<DashboardState, "hiddenCreators" | "knownCreators" | "hideDrafts"> {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTING) ?? "{}");
     return {
       hiddenCreators: creatorList(saved.hiddenCreators) ?? [],
       knownCreators: creatorList(saved.knownCreators),
-      attentionOnly: saved.attentionOnly === true,
       hideDrafts: saved.hideDrafts === true,
     };
   } catch {
-    return { hiddenCreators: [], knownCreators: null, attentionOnly: false, hideDrafts: false };
+    return { hiddenCreators: [], knownCreators: null, hideDrafts: false };
   }
 }
 
@@ -83,7 +80,6 @@ const saveSetting = () =>
     JSON.stringify({
       hiddenCreators: dashboard.hiddenCreators,
       knownCreators: dashboard.knownCreators,
-      attentionOnly: dashboard.attentionOnly,
       hideDrafts: dashboard.hideDrafts,
     }),
   );
@@ -178,7 +174,6 @@ export function shownOf(repo: RepoPullRequests): PullRequest[] {
   return (repo.list ?? []).filter(
     (pullRequest) =>
       byCreators(pullRequest, dashboard.hiddenCreators) &&
-      (!dashboard.attentionOnly || attention(pullRequest) !== null) &&
       (!dashboard.hideDrafts || !pullRequest.draft),
   );
 }
@@ -201,11 +196,6 @@ export function setHiddenCreators(hidden: Creator[]) {
   setDashboard("hiddenCreators", hidden);
   saveSetting();
   know(hidden.length === 0 ? found() : changed);
-}
-
-export function setAttentionOnly(on: boolean) {
-  setDashboard("attentionOnly", on);
-  saveSetting();
 }
 
 export function setHideDrafts(on: boolean) {

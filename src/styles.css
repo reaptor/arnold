@@ -2406,11 +2406,6 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   width: min(980px, 100%);
 }
 
-.dashboard-attention-count {
-  color: var(--edited);
-  font-weight: 600;
-}
-
 .dashboard-filters {
   display: flex;
   align-items: center;
@@ -2453,13 +2448,6 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 /* The row toggles it. */
 .creator-popup .commit-check {
   pointer-events: none;
-}
-
-.attention-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--edited);
 }
 
 .dashboard-repo {
