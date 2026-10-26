@@ -176,8 +176,11 @@ pub struct CompletionPolicies {
 #[serde(rename_all = "camelCase")]
 pub struct UnmetPolicy {
     pub name: String,
-    /// `queued`, `running`, `rejected` or `broken`, as the host has it.
+    /// `queued`, `running`, `rejected` or `broken`, as the host has it, or
+    /// `expired` for a build that has to be queued again (`requeue_policy`).
     pub status: String,
+    /// The policy evaluation's id, for queuing it again.
+    pub evaluation_id: String,
     /// Met by reviewers approving: minimum number of reviewers, required reviewers.
     pub approval: bool,
 }

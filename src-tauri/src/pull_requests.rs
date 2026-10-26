@@ -407,6 +407,20 @@ pub async fn completion_policies(
     blocking(move || azure::completion_policies(&repo, &token, id, &target_branch)).await?
 }
 
+/// Queues a policy evaluation of a pull request again: an expired build.
+#[tauri::command]
+pub async fn requeue_policy(
+    root: String,
+    remote: String,
+    evaluation_id: String,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<(), PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::requeue_policy(&repo, &token, &evaluation_id)).await?
+}
+
 /// The discussions of pull request `id`, with positions as of its latest push.
 #[tauri::command]
 pub async fn pull_request_threads(

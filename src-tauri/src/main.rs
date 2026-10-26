@@ -126,6 +126,7 @@ fn main() {
             pull_requests::vote_on_pull_request,
             pull_requests::update_pull_request,
             pull_requests::completion_policies,
+            pull_requests::requeue_policy,
             pull_requests::plan_pull_request,
             pull_requests::create_pull_request,
             pull_requests::work_item,

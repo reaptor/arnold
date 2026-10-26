@@ -1846,7 +1846,10 @@ function planPullRequest(head: string, base: string, commit: string): NewPullReq
 // `?completepolicies`: the target branch allows squash and semi-linear merges
 // only, needs one approval (the author's does not count), and !1270's build
 // is still running
-// (`?completepolicies=fail`: they cannot be read, so nothing is limited).
+// (`?completepolicies=fail`: they cannot be read, so nothing is limited;
+// `?completepolicies=expired`: every pull request's build has expired until it is re-queued).
+const requeuedPolicies = new Set<string>();
+
 function completionPolicies(id: unknown): CompletionPolicies {
   const found = findPullRequest(id);
   const policies = searchParams.get("completepolicies");
@@ -1857,8 +1860,14 @@ function completionPolicies(id: unknown): CompletionPolicies {
   );
   const rejected = found.reviewers.some((person) => person.vote === "rejected");
   const unmet: CompletionPolicies["unmet"] = [];
-  if (!approved || rejected) unmet.push({ name: "Minimum number of reviewers", status: "rejected", approval: true });
-  if (found.id === 1270) unmet.push({ name: "Build: Shop CI", status: "running", approval: false });
+  if (!approved || rejected) {
+    unmet.push({ name: "Minimum number of reviewers", status: "rejected", evaluationId: `reviewers-${found.id}`, approval: true });
+  }
+  if (found.id === 1270 || policies === "expired") {
+    const evaluationId = `build-${found.id}`;
+    const expired = policies === "expired" && !requeuedPolicies.has(evaluationId);
+    unmet.push({ name: "Build: Shop CI", status: expired ? "expired" : "running", evaluationId, approval: false });
+  }
   return { mergeStrategies: ["squash", "rebaseMerge"], unmet };
 }
 
@@ -2341,6 +2350,11 @@ export function install() {
           return slowly(() => {
             checkToken();
             return completionPolicies(args.id);
+          }, 600);
+        case "requeue_policy":
+          return slowly(() => {
+            checkToken();
+            requeuedPolicies.add(String(args.evaluationId));
           }, 600);
         case "update_pull_request":
           return slowly(() => {

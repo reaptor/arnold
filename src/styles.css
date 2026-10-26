@@ -3791,6 +3791,10 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   color: var(--muted);
 }
 
+.complete-unmet li .link-button {
+  display: inline;
+}
+
 .complete-message {
   display: flex;
   flex-direction: column;

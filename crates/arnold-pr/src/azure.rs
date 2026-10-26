@@ -360,6 +360,19 @@ pub fn completion_policies(repo: &AzureRepo, token: &str, id: u64, target_branch
     })
 }
 
+/// Queues policy evaluation `evaluation_id` (from `UnmetPolicy`) again, as
+/// Azure DevOps' Re-queue does: an expired build policy runs a new build.
+pub fn requeue_policy(repo: &AzureRepo, token: &str, evaluation_id: &str) -> Result<(), PrError> {
+    let url = format!(
+        "{}/{}/_apis/policy/evaluations/{}?api-version=6.0-preview.1",
+        repo.collection_url,
+        repo.project,
+        query_encode(evaluation_id),
+    );
+    send(agent().patch(&url), &url, token, &json!({}))?;
+    Ok(())
+}
+
 /// The ids of the repository and of its project, which policies go by.
 fn repository_ids(repo: &AzureRepo, token: &str) -> Result<(String, String), PrError> {
     let about = get(&repo.api(&format!("?api-version={API_VERSION}")), token)?;
@@ -447,6 +460,8 @@ fn unmet_policies(evaluations: &[Value]) -> Vec<UnmetPolicy> {
         if !is_required(policy) || is_merge_strategy_policy(policy) || matches!(status, "approved" | "notApplicable") {
             continue;
         }
+        // A build policy's build goes out of date as the target branch moves on.
+        let status = if evaluation["context"]["isExpired"].as_bool() == Some(true) { "expired" } else { status };
         let kind = policy["type"]["displayName"].as_str().unwrap_or("Branch policy");
         // Build and status policies are told apart by their own names.
         let name = match policy["settings"]["displayName"].as_str().filter(|name| !name.is_empty()) {
@@ -454,7 +469,12 @@ fn unmet_policies(evaluations: &[Value]) -> Vec<UnmetPolicy> {
             None => kind.to_string(),
         };
         if !unmet.iter().any(|known| known.name == name) {
-            unmet.push(UnmetPolicy { name, status: status.to_string(), approval: is_approval_policy(policy) });
+            unmet.push(UnmetPolicy {
+                name,
+                status: status.to_string(),
+                evaluation_id: evaluation["evaluationId"].as_str().unwrap_or_default().to_string(),
+                approval: is_approval_policy(policy),
+            });
         }
     }
     unmet
@@ -1009,6 +1029,7 @@ mod tests {
     fn unmet_policies_are_the_required_ones_not_approved() {
         let evaluation = |name: &str, settings: Value, blocking: bool, status: &str| {
             json!({
+                "evaluationId": format!("{name} {status}"),
                 "status": status,
                 "configuration": {
                     "isEnabled": true,
@@ -1030,11 +1051,20 @@ mod tests {
             evaluation("Work item linking", json!({}), true, "notApplicable"),
             merge_types,
         ];
+        let mut expired = evaluation("Build", json!({ "displayName": "Release" }), true, "queued");
+        expired["context"] = json!({ "buildId": 12, "isExpired": true });
+        let list = [&list[..], &[expired]].concat();
         assert_eq!(
             unmet_policies(&list),
             vec![
-                UnmetPolicy { name: "Minimum number of reviewers".into(), status: "rejected".into(), approval: true },
-                UnmetPolicy { name: "Build: CI".into(), status: "running".into(), approval: false },
+                UnmetPolicy {
+                    name: "Minimum number of reviewers".into(),
+                    status: "rejected".into(),
+                    evaluation_id: "Minimum number of reviewers rejected".into(),
+                    approval: true,
+                },
+                UnmetPolicy { name: "Build: CI".into(), status: "running".into(), evaluation_id: "Build running".into(), approval: false },
+                UnmetPolicy { name: "Build: Release".into(), status: "expired".into(), evaluation_id: "Build queued".into(), approval: false },
             ]
         );
     }
