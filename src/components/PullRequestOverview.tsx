@@ -69,6 +69,8 @@ function policyState(policy: UnmetPolicy): { state: string; kind: string } {
       return { state: "Queued", kind: "pending" };
     case "broken":
       return { state: "Broken", kind: "failed" };
+    case "expired":
+      return { state: "Expired", kind: "failed" };
     default:
       return policy.approval ? { state: "Waiting", kind: "pending" } : { state: "Failed", kind: "failed" };
   }

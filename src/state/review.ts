@@ -2951,6 +2951,18 @@ export async function completionPolicies(): Promise<ipc.CompletionPolicies> {
   }
 }
 
+/** Queues a policy of the pull request under review again: an expired build. */
+export async function requeuePolicy(evaluationId: string): Promise<void> {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    await ipc.requeuePolicy(repo.root, pullRequest.remote, evaluationId);
+  } catch (error) {
+    throw pullRequests.prErrorText(error);
+  }
+}
+
 // ------------------------------------------------------------------ watching
 
 /** How often the open pull request is checked for new pushes while Arnold is shown. */

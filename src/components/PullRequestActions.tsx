@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show
 import type { CompletionPolicies, MergeStrategy, UnmetPolicy, Vote } from "../ipc/commands";
 import {
   completionPolicies,
+  requeuePolicy,
   setState,
   state,
   updatePullRequest,
@@ -378,6 +379,7 @@ const UNMET_STATUS: Record<UnmetPolicy["status"], string> = {
   running: "running",
   rejected: "not met",
   broken: "broken",
+  expired: "expired",
 };
 
 /** Azure DevOps' "Complete pull request" dialog: how to merge and what to do afterwards. */
@@ -389,6 +391,9 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
   const [message, setMessage] = createSignal(`Merged PR ${props.pullRequest.id}: ${props.pullRequest.title}`);
   const [error, setError] = createSignal<string | null>(null);
   const [check, setCheck] = createSignal<PolicyCheck>({ state: "checking" });
+  /** The evaluation being queued again, and why the last attempt failed. */
+  const [requeuing, setRequeuing] = createSignal<string | null>(null);
+  const [requeueError, setRequeueError] = createSignal<string | null>(null);
   const radios = new Map<MergeStrategy, HTMLInputElement>();
 
   const read = () => {
@@ -423,6 +428,20 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
     radios.get(strategy())?.focus();
     void checkPolicies();
   });
+
+  /** Azure DevOps' Re-queue for an expired build, then the policies as they are now. */
+  const requeue = async (policy: UnmetPolicy) => {
+    setRequeuing(policy.evaluationId);
+    setRequeueError(null);
+    try {
+      await requeuePolicy(policy.evaluationId);
+      await checkPolicies();
+    } catch (text) {
+      setRequeueError(`Could not queue ${policy.name} again: ${String(text)}`);
+    } finally {
+      setRequeuing(null);
+    }
+  };
 
   const busy = () => state.updatingPullRequest === "complete";
   const canComplete = () =>
@@ -482,10 +501,22 @@ function CompleteDialog(props: { pullRequest: ReviewedPullRequest; onClose(): vo
                 {(policy) => (
                   <li>
                     {policy.name} <span class="complete-policy-status">({UNMET_STATUS[policy.status] ?? policy.status})</span>
+                    <Show when={policy.status === "expired" && policy.evaluationId}>
+                      {" "}
+                      <button
+                        type="button"
+                        class="link-button"
+                        disabled={requeuing() !== null || check().state === "checking"}
+                        onClick={() => void requeue(policy)}
+                      >
+                        {requeuing() === policy.evaluationId ? "Re-queuing…" : "Re-queue"}
+                      </button>
+                    </Show>
                   </li>
                 )}
               </For>
             </ul>
+            <Show when={requeueError()}>{(text) => <p class="connect-problem">{text()}</p>}</Show>
             <button type="button" class="link-button" onClick={() => void checkPolicies()}>
               Check again
             </button>

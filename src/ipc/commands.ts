@@ -135,6 +135,7 @@ const ACTIVITY: Record<string, string> = {
   vote_on_pull_request: "Voting",
   update_pull_request: "Updating the pull request",
   completion_policies: "Checking policies",
+  requeue_policy: "Re-queuing",
   work_item: "Looking up the work item",
   plan_pull_request: "Preparing the pull request",
   create_pull_request: "Creating the pull request",
@@ -634,13 +635,19 @@ export interface CompletionPolicies {
 
 export interface UnmetPolicy {
   name: string;
-  status: "queued" | "running" | "rejected" | "broken";
+  /** `expired`: a build that went out of date, to be queued again with `requeuePolicy`. */
+  status: "queued" | "running" | "rejected" | "broken" | "expired";
+  evaluationId: string;
   /** Met by reviewers approving: minimum number of reviewers, required reviewers. */
   approval: boolean;
 }
 
 export const completionPolicies = (root: string, remote: string, id: number, targetBranch: string) =>
   invoke<CompletionPolicies>("completion_policies", { root, remote, id, targetBranch });
+
+/** Queues a policy evaluation again, as Azure DevOps' Re-queue does for an expired build. */
+export const requeuePolicy = (root: string, remote: string, evaluationId: string) =>
+  invoke<void>("requeue_policy", { root, remote, evaluationId });
 
 /** What creating a pull request from a reviewed branch would do; nothing is sent yet. */
 export interface NewPullRequestPlan {
