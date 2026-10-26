@@ -1,14 +1,12 @@
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
 import type { PullRequest } from "../ipc/commands";
 import {
-  attentionCount,
   dashboard,
   includeUnknownCreators,
   loadDashboard,
   openFromDashboard,
   openingKey,
   type RepoPullRequests,
-  setAttentionOnly,
   setHiddenCreators,
   setHideDrafts,
   showDashboard,
@@ -70,23 +68,9 @@ export function PullRequestDashboard() {
           <Match when={true}>
             <p class="pr-subtitle">
               {all().length} active in {active().length} {active().length === 1 ? "repository" : "repositories"}
-              <Show when={attentionCount() > 0}>
-                {" · "}
-                <span class="dashboard-attention-count">{attentionCount()} waiting on you</span>
-              </Show>
             </p>
             <div class="dashboard-filters">
               <CreatorFilter />
-              <button
-                class="dashboard-filter"
-                classList={{ on: dashboard.attentionOnly }}
-                aria-pressed={dashboard.attentionOnly}
-                onClick={() => setAttentionOnly(!dashboard.attentionOnly)}
-                title="Only the pull requests waiting on you: your review, or your own that need changes, have conflicts or can be completed"
-              >
-                <span class="attention-dot" />
-                Waiting on you
-              </button>
               <button
                 class="dashboard-filter"
                 classList={{ on: dashboard.hideDrafts }}
