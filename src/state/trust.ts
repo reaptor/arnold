@@ -55,13 +55,15 @@ export function trust(root: string, branch?: { name: string; commit: string }) {
 /**
  * Whether a file can make restoring, building or loading the projects run
  * code: project and solution files, MSBuild's `Directory.*` files, imported
- * `.props`/`.targets`, the .NET tool manifest, Paket's files, `global.json`,
+ * `.props`/`.targets`, a project's `.user` file (imported when it exists),
+ * MSBuild's `.rsp` response files, the .NET tool manifest, Paket's files, `global.json`,
  * NuGet's settings and Elmish Land's.
  */
 export function isBuildFile(path: string) {
   const name = (path.split("/").pop() ?? path).toLowerCase();
   return (
-    /\.(fsproj|csproj|vbproj|proj|props|targets|sln|slnx|slnf)$/.test(name) ||
+    /\.(fsproj|csproj|vbproj|proj|props|targets|sln|slnx|slnf|rsp)$/.test(name) ||
+    /\.(fsproj|csproj|vbproj|proj)\.user$/.test(name) ||
     name.startsWith("directory.") ||
     name.startsWith("paket.") ||
     path.toLowerCase().split("/").includes(".paket") ||

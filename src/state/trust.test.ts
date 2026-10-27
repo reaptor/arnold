@@ -34,13 +34,17 @@ describe("build files", () => {
       "NuGet.Config",
       "Shop.sln",
       "elmish-land.json",
+      "src/Api/Api.fsproj.user",
+      "src/Web/Web.csproj.user",
+      "Directory.Build.rsp",
+      "MSBuild.rsp",
     ]) {
       expect(isBuildFile(path), path).toBe(true);
     }
   });
 
   it("leaves code and other files alone", () => {
-    for (const path of ["src/Orders.fs", "build.fsx", "README.md", "src/Api/appsettings.json", "db/Orders.sql"]) {
+    for (const path of ["src/Orders.fs", "build.fsx", "README.md", "src/Api/appsettings.json", "db/Orders.sql", "settings.user"]) {
       expect(isBuildFile(path), path).toBe(false);
     }
   });

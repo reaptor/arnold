@@ -2150,10 +2150,22 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
  * Commit mode: language features for a checkout as it is on disk, edits
  * included. Nothing happens when they are already set up for it.
  */
-export function setUpLanguageFeaturesIn(checkout: string, branch: string, commit: string) {
-  const key = inPlaceKey(checkout, branch);
+export function setUpLanguageFeaturesIn(checkout: string, branch: string | null, commit: string) {
+  if (branch !== null) {
+    const key = inPlaceKey(checkout, branch);
+    if (key !== preparedKey) void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
+    return;
+  }
+  // A detached HEAD may be a pull request Arnold checked out here: its build
+  // files are not known, so each commit asks unless the pull request's was approved.
+  const key = inPlaceKey(checkout, commit);
   if (key === preparedKey) return;
-  void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
+  const worktree = state.prWorktree;
+  const pullRequest =
+    worktree?.path === checkout && worktree.head === commit && state.pullRequest?.id === worktree.pullRequest
+      ? state.pullRequest
+      : null;
+  void prepareLanguageFeatures(key, checkout, pullRequest?.sourceBranch ?? commit.slice(0, 8), commit, true, null);
 }
 
 /** The setup waiting for the user's consent, to run once it is given. */

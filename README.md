@@ -299,7 +299,8 @@ How it works:
 Restoring, building and loading the projects runs code the repository chooses: MSBuild targets (`Directory.Build.props`/`.targets` and any project can run commands), the .NET tools of `.config/dotnet-tools.json`, Paket. In a pull request that is its author's code. So none of it runs, and FsAutoComplete does not start, until you agree:
 
 - **The first time** a repository with F# projects is shown, Arnold asks whether to trust its build code. Trusting is remembered for that folder.
-- **A branch or pull request that changes build files** (project and solution files, `*.props`, `*.targets`, `Directory.*`, `dotnet-tools.json`, `paket.*` and `.paket/`, `global.json`, `nuget.config`, `elmish-land.json`) asks again, also in a trusted repository, and lists them; a click on one shows it, so you can read it first. Running it is remembered for that commit of the branch, so a new push that changes build files asks once more.
+- **A branch or pull request that changes build files** (project and solution files, a project's `.user` file, `*.props`, `*.targets`, `*.rsp`, `Directory.*`, `dotnet-tools.json`, `paket.*` and `.paket/`, `global.json`, `nuget.config`, `elmish-land.json`) asks again, also in a trusted repository, and lists them; a click on one shows it, so you can read it first. Running it is remembered for that commit of the branch, so a new push that changes build files asks once more.
+- **Commit mode** on a branch needs only the repository to be trusted. On a detached checkout, such as a pull request checked out in the opened folder, it asks for each commit, unless running that pull request's commit was agreed to already.
 - **Keep F# features off** leaves the diff as it is, with syntax colors but without hover, go to definition or error markers. *F# off* in the status bar asks again.
 
 ### Fantomas
