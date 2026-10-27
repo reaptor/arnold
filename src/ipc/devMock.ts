@@ -1006,6 +1006,15 @@ if (searchParams.has("buildfiles")) {
   });
 }
 
+// `?filetypes` adds a file of every kind the explorer has an icon for.
+if (searchParams.has("filetypes")) {
+  const samples = [
+    ".gitignore", "appsettings.json", "Directory.Build.props", "Shop.fsi", "build.fsx", "notes.txt",
+    "docs/logo.png", "docs/index.html", "scripts/build.sh", "scripts/schema.sql", "web/site.css", "web/app.js",
+  ];
+  for (const path of samples) OTHER_LANGUAGES[path] = `// ${path}\n`;
+}
+
 /** A few files that are not part of the diff, so the explorer has more to show. */
 function addUnchangedFiles() {
   const unchanged = ["README.md", "Program.fs", "src/Api/Startup.cs", "src/Api/Models/Order.cs", "tests/OrdersTests.fs"];
