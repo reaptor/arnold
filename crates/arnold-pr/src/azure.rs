@@ -87,13 +87,7 @@ pub fn parse_remote_url(url: &str) -> Option<AzureRepo> {
     if let Some(repo) = parse_ssh(url) {
         return Some(repo);
     }
-    let (scheme, rest) = url.split_once("://")?;
-    if scheme != "https" {
-        return None;
-    }
-    let (authority, path) = rest.split_once('/')?;
-    // Drop `user@` (and any password) in front of the host.
-    let host = authority.rsplit('@').next()?.to_lowercase();
+    let (host, path) = split_https(url)?;
     let segments: Vec<&str> = path
         .split(['?', '#'])
         .next()?
@@ -126,11 +120,47 @@ pub fn parse_remote_url(url: &str) -> Option<AzureRepo> {
     let (project, collection) = before.split_last()?;
     let organization = percent_decode(collection.last()?);
     Some(AzureRepo {
-        collection_url: format!("{scheme}://{host}/{}", collection.join("/")),
+        collection_url: format!("https://{host}/{}", collection.join("/")),
         organization,
         project: project.to_string(),
         repository,
     })
+}
+
+/// Where git may send credentials for the remote at `url`: the collection
+/// the URL is under (`https://dev.azure.com/org`, a server's collection URL),
+/// or an `org.visualstudio.com` host. Scoping git's `http.<url>.extraHeader`
+/// to it keeps the token from going anywhere else, such as a `pushurl` or an
+/// `insteadOf` rewrite that points at another host. `None` when `url` is not
+/// an https Azure DevOps remote.
+pub fn credential_scope(url: &str) -> Option<String> {
+    let repo = parse_remote_url(url)?;
+    let (host, _) = split_https(url.trim())?;
+    Some(if host.ends_with(".visualstudio.com") { format!("https://{host}/") } else { repo.collection_url })
+}
+
+/// The lowercase host (with any port) and the path of an `https://` URL,
+/// without `user@`. Authorities that git or curl could read as another host
+/// (`https://evil.example?@dev.azure.com/…`, backslashes, a second `@`,
+/// whitespace) are refused rather than guessed at.
+fn split_https(url: &str) -> Option<(String, &str)> {
+    let rest = url.strip_prefix("https://")?;
+    let end = rest.find(['/', '?', '#', '\\'])?;
+    let (authority, path) = (&rest[..end], rest[end..].strip_prefix('/')?);
+    if authority.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control()) {
+        return None;
+    }
+    let host = match authority.split_once('@') {
+        Some((_, host)) if host.contains('@') => return None,
+        Some((_, host)) => host,
+        None => authority,
+    };
+    let (name, port) = host.split_once(':').unwrap_or((host, ""));
+    let name_ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    if !name_ok || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((host.to_lowercase(), path))
 }
 
 fn services(organization: String, project: String, repository: String) -> AzureRepo {
@@ -1147,6 +1177,43 @@ mod tests {
         assert_eq!(parse_remote_url("https://tfs.example.com/_git/shop-api"), None);
         assert_eq!(parse_remote_url("http://tfs.example.com/tfs/DefaultCollection/Shop/_git/shop-api"), None);
         assert_eq!(parse_remote_url("http://dev.azure.com/contoso/Shop/_git/shop-api"), None);
+        assert_eq!(
+            parse_remote_url("https://tfs.example.com:8443/tfs/DefaultCollection/Shop/_git/shop-api").unwrap().collection_url,
+            "https://tfs.example.com:8443/tfs/DefaultCollection"
+        );
+    }
+
+    #[test]
+    fn refuses_authorities_git_could_read_as_another_host() {
+        for url in [
+            "https://evil.example?@dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://evil.example#@dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://evil.example?.visualstudio.com/Shop/_git/shop-api",
+            "https://evil.example\\@dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://a@evil.example@dev.azure.com/contoso/Shop/_git/shop-api",
+            "https://evil example@dev.azure.com/contoso/Shop/_git/shop-api",
+        ] {
+            assert_eq!(parse_remote_url(url), None, "{url}");
+            assert_eq!(credential_scope(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn scopes_credentials_to_the_remote() {
+        assert_eq!(
+            credential_scope("https://contoso@dev.azure.com/contoso/Shop/_git/shop-api").as_deref(),
+            Some("https://dev.azure.com/contoso")
+        );
+        assert_eq!(
+            credential_scope("https://Contoso.visualstudio.com/DefaultCollection/Shop/_git/shop-api").as_deref(),
+            Some("https://contoso.visualstudio.com/")
+        );
+        assert_eq!(
+            credential_scope("https://tfs.example.com/tfs/DefaultCollection/Shop/_git/shop-api").as_deref(),
+            Some("https://tfs.example.com/tfs/DefaultCollection")
+        );
+        // ssh remotes never carry the header.
+        assert_eq!(credential_scope("git@ssh.dev.azure.com:v3/contoso/Shop/shop-api"), None);
     }
 
     #[test]

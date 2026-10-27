@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::cli::{run_raw, run_raw_with, GitError};
-use crate::remotes::remotes;
+use crate::remotes::{remotes, ScopedHeader};
 use crate::Result;
 
 /// Where the checked-out branch is pushed, and how it stands against it.
@@ -98,9 +98,9 @@ fn parse_left_right(out: &str) -> Option<(u32, u32)> {
 /// Pushes `branch`, checked out in `checkout`, to where `sync` says, and
 /// makes that its upstream when it has none. Never forced: a remote branch
 /// with commits the local one lacks makes it fail. `extra_header` is sent
-/// with every HTTP request (credentials), as in `fetch_objects`; without it
-/// git's own credentials are used.
-pub async fn push_branch(checkout: &Path, branch: &str, sync: &BranchSync, extra_header: Option<&str>) -> Result<()> {
+/// to the remote's own URL only (credentials); without it git's own
+/// credentials are used.
+pub async fn push_branch(checkout: &Path, branch: &str, sync: &BranchSync, extra_header: Option<&ScopedHeader>) -> Result<()> {
     let refspec = format!("refs/heads/{branch}:refs/heads/{}", sync.remote_branch);
     let has_upstream = config(checkout, &format!("branch.{branch}.merge")).await?.is_some();
     let mut args = vec!["push", "--quiet", "--no-recurse-submodules"];
@@ -109,15 +109,8 @@ pub async fn push_branch(checkout: &Path, branch: &str, sync: &BranchSync, extra
     }
     args.extend([sync.remote.as_str(), refspec.as_str()]);
 
-    let mut environment: Vec<(&str, &OsStr)> = Vec::new();
-    if let Some(header) = extra_header {
-        environment.extend([
-            ("GCM_INTERACTIVE", OsStr::new("never")),
-            ("GIT_CONFIG_COUNT", OsStr::new("1")),
-            ("GIT_CONFIG_KEY_0", OsStr::new("http.extraHeader")),
-            ("GIT_CONFIG_VALUE_0", OsStr::new(header)),
-        ]);
-    }
+    let environment = extra_header.map(ScopedHeader::environment);
+    let environment: Vec<(&str, &OsStr)> = environment.iter().flatten().map(|(key, value)| (*key, value.as_os_str())).collect();
     let output = run_raw_with(checkout, &args, &environment).await?;
     if output.success {
         return Ok(());
