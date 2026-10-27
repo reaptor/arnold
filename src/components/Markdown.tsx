@@ -101,12 +101,16 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   else node.remove();
 });
 
-export function renderMarkdown(text: string): string {
-  const html = marked.parse(text) as string;
+/** `html` from the host, safe to show. */
+export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     FORBID_TAGS: ["img", "picture", "video", "audio", "style", "form", "button", "textarea", "select"],
     FORBID_ATTR: ["style", "class", "id"],
   });
+}
+
+export function renderMarkdown(text: string): string {
+  return sanitizeHtml(marked.parse(text) as string);
 }
 
 /** The page about Markdown in Azure DevOps. */
@@ -125,10 +129,18 @@ export function openClickedLink(event: MouseEvent): boolean {
 
 interface Props {
   text: string;
+  /** `text` is HTML (a work item's description), not Markdown. */
+  html?: boolean;
   class?: string;
 }
 
 /** Rendered Markdown. */
 export function Markdown(props: Props) {
-  return <div class={`markdown ${props.class ?? ""}`} innerHTML={renderMarkdown(props.text)} onClick={openClickedLink} />;
+  return (
+    <div
+      class={`markdown ${props.class ?? ""}`}
+      innerHTML={props.html ? sanitizeHtml(props.text) : renderMarkdown(props.text)}
+      onClick={openClickedLink}
+    />
+  );
 }

@@ -1,10 +1,11 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { composerElement, isOpen } from "../editor/threads";
-import type { CompletionPolicies, PrThread, Reviewer, UnmetPolicy } from "../ipc/commands";
+import type { CompletionPolicies, LinkedWorkItems, PrThread, Reviewer, UnmetPolicy, WorkItem } from "../ipc/commands";
 import {
   completionPolicies,
   createGeneralThread,
   isChanged,
+  linkedWorkItems,
   type ReviewedPullRequest,
   revealThread,
   setView,
@@ -102,6 +103,26 @@ function requiredPolicies(pullRequest: () => ReviewedPullRequest) {
   return policies;
 }
 
+/** The work items linked to the pull request, read again when another one is opened. */
+function workItemsOf(pullRequest: () => ReviewedPullRequest) {
+  const [items, setItems] = createSignal<LinkedWorkItems | { error: string } | null>(null);
+  createEffect(
+    on(
+      () => `${pullRequest().remote} ${pullRequest().id}`,
+      () => {
+        let current = true;
+        onCleanup(() => (current = false));
+        setItems(null);
+        linkedWorkItems().then(
+          (read) => current && setItems(read),
+          (error) => current && setItems({ error: String(error) }),
+        );
+      },
+    ),
+  );
+  return items;
+}
+
 /**
  * Where a pull request opens: its title, state, description, reviewers and
  * checks, and every discussion, each with a way to reply and, for a file's,
@@ -114,6 +135,7 @@ export function PullRequestOverview() {
 function Overview(props: { pullRequest: ReviewedPullRequest }) {
   const [writing, setWriting] = createSignal(false);
   const policies = requiredPolicies(() => props.pullRequest);
+  const workItems = workItemsOf(() => props.pullRequest);
 
   const general = createMemo(() => threads().filter((thread) => thread.path === null));
   const byFile = createMemo(() => threadsByFile(threads()));
@@ -184,6 +206,8 @@ function Overview(props: { pullRequest: ReviewedPullRequest }) {
                 <Markdown class="pr-overview-description" text={props.pullRequest.description} />
               </Show>
             </section>
+
+            <WorkItems linked={workItems()} />
 
             <section class="pr-overview-discussions">
               <div class="pr-overview-section-head">
@@ -293,6 +317,74 @@ function Overview(props: { pullRequest: ReviewedPullRequest }) {
           </aside>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The work items linked to the pull request, if any: the first with its
+ * title and description, the others one line each.
+ */
+function WorkItems(props: { linked: LinkedWorkItems | { error: string } | null }) {
+  const read = () => (props.linked && "kind" in props.linked && props.linked.kind === "read" ? props.linked.items : []);
+  const ids = () => (props.linked && "kind" in props.linked && props.linked.kind === "noAccess" ? props.linked.ids : []);
+  const error = () => (props.linked && "error" in props.linked ? props.linked.error : null);
+  const first = () => read()[0];
+  const count = () => read().length || ids().length;
+  return (
+    <Show when={count() > 0 || error()}>
+      <section class="pr-overview-card pr-overview-work-items">
+        <div class="pr-overview-section-head">
+          <h2>Work items</h2>
+          <Show when={count() > 1}>
+            <span class="pr-overview-count">{count()} linked</span>
+          </Show>
+        </div>
+        <Show when={error()}>
+          {(text) => <p class="pr-overview-empty">Could not read the linked work items: {text()}</p>}
+        </Show>
+        <Show when={first()}>
+          {(item) => (
+            <>
+              <WorkItemLine item={item()} lead />
+              <Show when={item().description.trim()} fallback={<p class="pr-overview-empty">No description.</p>}>
+                <Markdown class="pr-overview-description" text={item().description} html={!item().markdown} />
+              </Show>
+            </>
+          )}
+        </Show>
+        <Show when={read().length > 1}>
+          <ul class="pr-overview-work-item-list">
+            <For each={read().slice(1)}>
+              {(item) => (
+                <li>
+                  <WorkItemLine item={item} />
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+        <Show when={ids().length > 0}>
+          <p class="pr-overview-work-item-ids">
+            <For each={ids()}>{(id) => <span>#{id}</span>}</For>
+          </p>
+          <p class="pr-overview-empty">The token may not read work items (it needs Work Items → Read).</p>
+        </Show>
+      </section>
+    </Show>
+  );
+}
+
+/** A work item's type, number, title and state; a click opens it in the browser. */
+function WorkItemLine(props: { item: WorkItem; lead?: boolean }) {
+  return (
+    <div class="pr-overview-work-item" classList={{ lead: props.lead }}>
+      <span class="tag">{props.item.kind}</span>
+      <button class="pr-overview-work-item-link" onClick={() => openInBrowser(props.item.url)} title={props.item.url}>
+        <span class="pr-overview-id">#{props.item.id}</span>
+        <span class="pr-overview-work-item-title">{props.item.title}</span>
+      </button>
+      <span class="pr-overview-work-item-state">{props.item.state}</span>
     </div>
   );
 }

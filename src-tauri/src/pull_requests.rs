@@ -11,7 +11,8 @@ use std::sync::Mutex;
 use arnold_pr::azure::{self, AzureRepo};
 use arnold_pr::token::{self, TokenSource};
 use arnold_pr::{
-    suggestion, CompletionPolicies, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Side, Thread, Vote, WorkItemLookup,
+    suggestion, CompletionPolicies, LinkedWorkItems, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Side, Thread,
+    Vote, WorkItemLookup,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -808,6 +809,20 @@ pub async fn work_item(
     let (_, repo) = resolve(&app, &root, &remote).await?;
     let token = prs.required_token(&repo).await?;
     blocking(move || azure::work_item(&repo, &token, id)).await?
+}
+
+/// The work items linked to pull request `id` of `remote`, for its overview.
+#[tauri::command]
+pub async fn linked_work_items(
+    root: String,
+    remote: String,
+    id: u64,
+    app: State<'_, AppState>,
+    prs: State<'_, PrState>,
+) -> Result<LinkedWorkItems, PrError> {
+    let (_, repo) = resolve(&app, &root, &remote).await?;
+    let token = prs.required_token(&repo).await?;
+    blocking(move || azure::linked_work_items(&repo, &token, id)).await?
 }
 
 /// The required branch policies of `branch` on `remote` (names), checked

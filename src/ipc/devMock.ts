@@ -16,6 +16,7 @@ import type {
   Comparison,
   CompletionPolicies,
   FilePair,
+  LinkedWorkItems,
   LspEvent,
   NewPullRequest,
   NewPullRequestPlan,
@@ -1874,6 +1875,40 @@ function planPullRequest(head: string, base: string, commit: string): NewPullReq
   };
 }
 
+// !1287 is linked to a user story and a bug, !1291 to a task with a
+// Markdown description, the others to none. With `?workitems=noaccess` the
+// token may not read work items.
+function linkedWorkItems(id: unknown): LinkedWorkItems {
+  const workItem = (id: number, kind: string, title: string, state: string, description: string, markdown = false) => ({
+    id,
+    kind,
+    title,
+    state,
+    url: `https://dev.azure.com/contoso/Shop/_workitems/edit/${id}`,
+    description,
+    markdown,
+  });
+  const items =
+    Number(id) === 1287
+      ? [
+          workItem(
+            1234,
+            "User Story",
+            "Loyalty discount for returning customers",
+            "Active",
+            "<div>As a returning customer I want a discount, so that I keep shopping with us.</div><div><br></div>" +
+              "<div><b>Acceptance criteria</b></div><ul><li>Customers with an earlier order get <b>10 %</b> off</li>" +
+              "<li>The discount shows as its own line on the receipt</li><li>Totals are rounded to two decimals</li></ul>",
+          ),
+          workItem(1241, "Bug", "Order totals are off by a cent", "New", "<div>Rounding happens per line instead of on the total.</div>"),
+        ]
+      : Number(id) === 1291
+        ? [workItem(1250, "Task", "Seasonal and staff discounts", "Active", "Add the **seasonal** (5 %) and **staff** (20 %) discounts.", true)]
+        : [];
+  if (searchParams.get("workitems") === "noaccess") return { kind: "noAccess", ids: items.map((item) => item.id) };
+  return { kind: "read", items };
+}
+
 // `?completepolicies`: the target branch allows squash and semi-linear merges
 // only, needs one approval (the author's does not count), and !1270's build
 // is still running
@@ -2416,6 +2451,11 @@ export function install() {
             checkToken();
             return planPullRequest(args.head, args.base, args.commit);
           }, 600);
+        case "linked_work_items":
+          return slowly(() => {
+            checkToken();
+            return linkedWorkItems(args.id);
+          }, 500);
         case "work_item":
           return slowly(() => {
             checkToken();

@@ -130,6 +130,7 @@ fn main() {
             pull_requests::plan_pull_request,
             pull_requests::create_pull_request,
             pull_requests::work_item,
+            pull_requests::linked_work_items,
             pull_requests::required_branch_policies,
             workspace::prepare_workspace,
             build::build_solution,

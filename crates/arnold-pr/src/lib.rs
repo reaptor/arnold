@@ -101,6 +101,30 @@ pub struct WorkItem {
     pub url: String,
 }
 
+/// A work item linked to a pull request, with its description, for the
+/// pull request's overview.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedWorkItem {
+    #[serde(flatten)]
+    pub item: WorkItem,
+    /// HTML, or Markdown when `markdown` (a field set to Markdown in newer
+    /// Azure DevOps).
+    pub description: String,
+    pub markdown: bool,
+}
+
+/// The work items linked to a pull request.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LinkedWorkItems {
+    /// In the order they were linked.
+    Read { items: Vec<LinkedWorkItem> },
+    /// The token may not read work items (it lacks Work Items → Read): only
+    /// their ids are known.
+    NoAccess { ids: Vec<u64> },
+}
+
 /// Looking a work item up by id.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
