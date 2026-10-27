@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::{
-    Comment, CompletionPolicies, MergeStrategy, NewPullRequest, NewThreadPlace, PrChange, PrError, PullRequest, Reviewer, Side,
-    Thread, ThreadPosition, UnmetPolicy, Vote, WorkItem, WorkItemLookup,
+    Comment, CompletionPolicies, LinkedWorkItem, LinkedWorkItems, MergeStrategy, NewPullRequest, NewThreadPlace, PrChange, PrError,
+    PullRequest, Reviewer, Side, Thread, ThreadPosition, UnmetPolicy, Vote, WorkItem, WorkItemLookup,
 };
 
 /// A repository hosted on Azure DevOps.
@@ -365,6 +365,62 @@ fn parse_work_item(body: &Value, repo: &AzureRepo, id: u64) -> WorkItem {
         state: field("System.State"),
         url: format!("{}/{}/_workitems/edit/{id}", repo.collection_url, repo.project),
     }
+}
+
+/// The work items linked to pull request `id`, with their descriptions.
+/// Reading them takes the Work Items → Read scope; without it only their ids
+/// are known.
+pub fn linked_work_items(repo: &AzureRepo, token: &str, id: u64) -> Result<LinkedWorkItems, PrError> {
+    let refs = get(&repo.api(&format!("/pullrequests/{id}/workitems?api-version={API_VERSION}")), token)?;
+    let ids = parse_work_item_refs(&refs);
+    if ids.is_empty() {
+        return Ok(LinkedWorkItems::Read { items: vec![] });
+    }
+    // Organization-wide, as they may belong to other projects; one the token's owner cannot see is left out.
+    let list = ids.iter().map(u64::to_string).collect::<Vec<_>>().join(",");
+    let url = format!(
+        "{}/_apis/wit/workitems?ids={list}&fields=System.Title,System.WorkItemType,System.State,System.Description\
+         &errorPolicy=omit&api-version={API_VERSION}",
+        repo.collection_url
+    );
+    match get(&url, token) {
+        Ok(body) => Ok(LinkedWorkItems::Read {
+            items: parse_linked_work_items(&body, repo),
+        }),
+        Err(PrError::TokenRejected(_)) => Ok(LinkedWorkItems::NoAccess { ids }),
+        Err(error) => Err(error),
+    }
+}
+
+fn parse_work_item_refs(body: &Value) -> Vec<u64> {
+    let mut ids: Vec<u64> = vec![];
+    for entry in body["value"].as_array().into_iter().flatten() {
+        // A string in the answer, though a number elsewhere.
+        let id = entry["id"].as_str().and_then(|id| id.parse().ok()).or_else(|| entry["id"].as_u64());
+        if let Some(id) = id.filter(|id| !ids.contains(id)) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+fn parse_linked_work_items(body: &Value, repo: &AzureRepo) -> Vec<LinkedWorkItem> {
+    body["value"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        // `errorPolicy=omit` sends null for a work item it could not read.
+        .filter_map(|entry| {
+            let id = entry["id"].as_u64()?;
+            Some(LinkedWorkItem {
+                item: parse_work_item(entry, repo, id),
+                description: entry["fields"]["System.Description"].as_str().unwrap_or_default().to_string(),
+                markdown: entry["multilineFieldsFormat"]["System.Description"]
+                    .as_str()
+                    .is_some_and(|format| format.eq_ignore_ascii_case("markdown")),
+            })
+        })
+        .collect()
 }
 
 /// The names of the required branch policies of `repo` that apply to
@@ -1455,6 +1511,23 @@ mod tests {
                 url: "https://dev.azure.com/contoso/Shop/_workitems/edit/1234".into(),
             }
         );
+
+        let refs = json!({ "count": 3, "value": [
+            { "id": "1234", "url": "…" }, { "id": "77", "url": "…" }, { "id": "1234", "url": "…" } ] });
+        assert_eq!(parse_work_item_refs(&refs), vec![1234, 77]);
+        let items = json!({ "count": 3, "value": [
+            { "id": 1234, "fields": { "System.Title": "Loyalty discount", "System.WorkItemType": "User Story",
+                "System.State": "Active", "System.Description": "<div>Ten percent off</div>" } },
+            null,
+            { "id": 77, "fields": { "System.Title": "Rounding", "System.WorkItemType": "Bug", "System.State": "New",
+                "System.Description": "**Off** by one" }, "multilineFieldsFormat": { "System.Description": "markdown" } },
+        ] });
+        let linked = parse_linked_work_items(&items, &repo);
+        assert_eq!(
+            linked.iter().map(|each| (each.item.id, each.description.as_str(), each.markdown)).collect::<Vec<_>>(),
+            vec![(1234, "<div>Ten percent off</div>", false), (77, "**Off** by one", true)]
+        );
+        assert_eq!(linked[1].item.title, "Rounding");
     }
 
     #[test]

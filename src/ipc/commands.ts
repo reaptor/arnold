@@ -137,6 +137,7 @@ const ACTIVITY: Record<string, string> = {
   completion_policies: "Checking policies",
   requeue_policy: "Re-queuing",
   work_item: "Looking up the work item",
+  linked_work_items: "Reading the work items",
   plan_pull_request: "Preparing the pull request",
   create_pull_request: "Creating the pull request",
   pull_request_threads: "Loading comments",
@@ -696,6 +697,19 @@ export interface WorkItem {
 
 /** `noAccess`: the token may not read work items, which linking one does not need. */
 export type WorkItemLookup = { kind: "found"; item: WorkItem } | { kind: "notFound" } | { kind: "noAccess" };
+
+/** A work item linked to a pull request: `description` is HTML, or Markdown when `markdown`. */
+export interface LinkedWorkItem extends WorkItem {
+  description: string;
+  markdown: boolean;
+}
+
+/** `noAccess`: the token may not read work items, so only their ids are known. */
+export type LinkedWorkItems = { kind: "read"; items: LinkedWorkItem[] } | { kind: "noAccess"; ids: number[] };
+
+/** The work items linked to pull request `id`, in the order they were linked. */
+export const linkedWorkItems = (root: string, remote: string, id: number) =>
+  invoke<LinkedWorkItems>("linked_work_items", { root, remote, id });
 
 /** Looks a work item of the remote's organization up, to show what a new pull request is linked to. */
 export const workItem = (root: string, remote: string, id: number) =>

@@ -3031,6 +3031,18 @@ export async function updatePullRequest(change: PrChange) {
   if (change.kind === "complete") window.setTimeout(() => void checkPullRequest(), 3000);
 }
 
+/** The work items linked to the pull request under review. Throws the error text. */
+export async function linkedWorkItems(): Promise<ipc.LinkedWorkItems> {
+  const repo = state.repo;
+  const pullRequest = state.pullRequest;
+  if (!repo || !pullRequest) throw "No pull request is open.";
+  try {
+    return await ipc.linkedWorkItems(repo.root, pullRequest.remote, pullRequest.id);
+  } catch (error) {
+    throw pullRequests.prErrorText(error);
+  }
+}
+
 /** What the branch policies of its target branch allow when completing the pull request under review. */
 export async function completionPolicies(): Promise<ipc.CompletionPolicies> {
   const repo = state.repo;
