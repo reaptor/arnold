@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSolutionTree,
+  dependencyOrder,
   mainSolution,
   parseProject,
   parseSolution,
+  projectReferences,
   resolvePath,
   solutionOrder,
   type TreeNode,
@@ -219,11 +221,59 @@ describe("solution view", () => {
   it("shows every project without a solution", () => {
     const files = FILES.filter((path) => path !== "Shop.sln");
     const tree = buildSolutionTree(files, null, TEXTS);
+    // By path, but Core after Web, which it references.
     expect(tree.nodes.map((node) => (node.kind === "group" ? node.label : node.key))).toEqual([
-      "Core",
       "Web",
+      "Core",
       "Tools",
       "Files outside projects",
     ]);
+  });
+
+  it("reads a project's references", () => {
+    const text = `<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\\Web\\Web.fsproj" />
+    <!-- <ProjectReference Include="..\\Old\\Old.fsproj" /> -->
+    <ProjectReference Include="$(Root)/Gen.fsproj" />
+    <projectreference include="../../tools/Tools.csproj"></projectreference>
+  </ItemGroup>
+</Project>`;
+    expect(projectReferences("src/Core/Core.fsproj", text)).toEqual(["src/Web/Web.fsproj", "tools/Tools.csproj"]);
+  });
+
+  it("puts each project after the ones it references, through chains and past cycles", () => {
+    const references = (...paths: string[]) => `<Project>${paths.map((path) => `<ProjectReference Include="${path}" />`).join("")}</Project>`;
+    const texts = new Map([
+      ["C.fsproj", references("B.fsproj")],
+      ["B.fsproj", references("A.fsproj", "Missing.fsproj")],
+      ["X.fsproj", references("Y.fsproj")],
+      ["Y.fsproj", references("X.fsproj")],
+    ]);
+    expect(dependencyOrder(["C.fsproj", "X.fsproj", "B.fsproj", "Y.fsproj", "A.fsproj"], texts)).toEqual([
+      "A.fsproj",
+      "B.fsproj",
+      "C.fsproj",
+      "Y.fsproj",
+      "X.fsproj",
+    ]);
+  });
+
+  it("shows a referenced project first, whatever the solution's order, keeping folders in place", () => {
+    const sln = SLN.replace(/^Project.*"Web".*\r?\nEndProject\r?\n/m, "") + SLN.match(/^Project.*"Web".*\r?\nEndProject\r?\n/m)![0];
+    const texts = new Map([
+      ["Shop.sln", sln],
+      ["src/Core/Core.fsproj", CORE],
+      ["src/Web/Web.fsproj", WEB],
+      ["tools/Tools.csproj", `<Project><ItemGroup><ProjectReference Include="..\\src\\Core\\Core.fsproj" /></ItemGroup></Project>`],
+    ]);
+    expect(parseSolution("Shop.sln", sln).map((entry) => (entry.kind === "folder" ? entry.name : entry.path))).toEqual([
+      "build",
+      "src/Core/Core.fsproj",
+      "src/Web/Web.fsproj",
+    ]);
+    const tree = buildSolutionTree(FILES, "Shop.sln", texts);
+    const solution = tree.nodes[0].kind === "group" ? tree.nodes[0].children : [];
+    expect(solution.map((node) => (node.kind === "group" ? node.label : node.key))).toEqual(["Shop.sln", "build", "Web", "Core"]);
   });
 });

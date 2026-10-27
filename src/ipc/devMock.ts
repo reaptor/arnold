@@ -982,6 +982,14 @@ EndGlobal
 `,
 };
 
+// The solution lists Shop before Api, which Shop then references: Api shows first.
+if (searchParams.has("projectrefs")) {
+  SOLUTION_FILES["Shop.fsproj"] = SOLUTION_FILES["Shop.fsproj"].replace(
+    "</ItemGroup>",
+    '  <ProjectReference Include="src\\Api\\Api.csproj" />\n  </ItemGroup>',
+  );
+}
+
 if (searchParams.has("buildfiles")) {
   files.set("Shop.fsproj", {
     base: SOLUTION_FILES["Shop.fsproj"],
