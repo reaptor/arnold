@@ -57,6 +57,7 @@ import { clearSuggestions, onSuggestionsChange, openFor } from "./aiSuggestions"
 import { loadCreators } from "./branchInfo";
 import { track } from "./activity";
 import { forgetBuild } from "./build";
+import * as trust from "./trust";
 import { type Problem, toProblems } from "./problems";
 import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
@@ -88,9 +89,26 @@ export interface ProtectedBranch {
 
 /**
  * Getting F# language features for the reviewed commit: preparing a copy of
- * it, starting FsAutoComplete, waiting for it to load the projects.
+ * it, starting FsAutoComplete, waiting for it to load the projects. Before
+ * any of it, the user may be asked to trust the repository's build code
+ * ("consent"); without that only the diff's own colors are there ("restricted").
  */
-export type SetupPhase = "preparing" | "starting" | "loading" | "ready" | "failed";
+export type SetupPhase = "consent" | "restricted" | "preparing" | "starting" | "loading" | "ready" | "failed";
+
+/** Why the repository's build code waits for the user before it runs. */
+export interface BuildConsent {
+  /** The repository (its opened folder). */
+  repo: string;
+  /** It has not been trusted before. */
+  firstTime: boolean;
+  /** The branch prepared (a pull request's source branch). */
+  branch: string;
+  /**
+   * Build files the reviewed branch or pull request changes, not approved
+   * yet; null when they could not be read.
+   */
+  files: string[] | null;
+}
 
 export interface SetupStep {
   title: string;
@@ -123,6 +141,8 @@ export interface LanguageSetup {
   projects: Record<string, ProjectLoad>;
   /** The project being loaded now. */
   currentProject: string | null;
+  /** Set in the "consent" and "restricted" phases. */
+  consent: BuildConsent | null;
 }
 
 interface State {
@@ -2101,14 +2121,28 @@ function serverRoot(): string | null {
  * and loads the projects. The diff can be used all along; editors get
  * language features once the server runs.
  */
-function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
+async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
+  const key = setupKey(repo, comparison);
+  preparedKey = key;
   const checkout = headCheckout(repo, comparison);
+  // Build files changed anywhere on the branch count, also when only some of its commits are shown.
+  let buildFiles: string[] | null = trust.changedBuildFiles(comparison.files);
+  if (comparison.range) {
+    try {
+      const all = await ipc.compareBranches(repo.root, comparison.base, comparison.head, null, prCheckout());
+      buildFiles = trust.changedBuildFiles(all.files);
+    } catch {
+      buildFiles = null;
+    }
+    if (preparedKey !== key) return;
+  }
   return prepareLanguageFeatures(
-    setupKey(repo, comparison),
+    key,
     checkout ?? repo.root,
     reviewedName(comparison),
     comparison.tipCommit,
     checkout !== null,
+    buildFiles,
   );
 }
 
@@ -2119,10 +2153,47 @@ function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
 export function setUpLanguageFeaturesIn(checkout: string, branch: string, commit: string) {
   const key = inPlaceKey(checkout, branch);
   if (key === preparedKey) return;
-  void prepareLanguageFeatures(key, checkout, branch, commit, true);
+  void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
 }
 
-async function prepareLanguageFeatures(key: string, root: string, name: string, commit: string, inPlace: boolean) {
+/** The setup waiting for the user's consent, to run once it is given. */
+let awaitingConsent: Parameters<typeof prepareLanguageFeatures> | null = null;
+
+/** The user trusts the repository's build code (and the changed build files listed): language features get going. */
+export function trustBuildCode() {
+  const consent = state.languageSetup?.consent;
+  const setup = awaitingConsent;
+  if (!consent || !setup) return;
+  const [, , name, commit] = setup;
+  trust.trust(consent.repo, consent.files?.length !== 0 ? { name, commit } : undefined);
+  void prepareLanguageFeatures(...setup);
+}
+
+/** Not now: the diff without language features, until asked again from the status bar. */
+export function keepRestricted() {
+  if (state.languageSetup?.phase === "consent") setState("languageSetup", "phase", "restricted");
+}
+
+/** Asks again (the status bar's "F# off"). */
+export function askToTrust() {
+  if (state.languageSetup?.phase === "restricted") setState("languageSetup", "phase", "consent");
+}
+
+/**
+ * Prepares `commit` and starts FsAutoComplete there, once the user trusts
+ * the repository's build code: always on its first use, and again for
+ * `buildFiles`, the build files a branch or pull request changes, unless
+ * they were approved for this commit before (null: they could not be read,
+ * so it asks as if they changed).
+ */
+async function prepareLanguageFeatures(
+  key: string,
+  root: string,
+  name: string,
+  commit: string,
+  inPlace: boolean,
+  buildFiles: string[] | null,
+) {
   preparedKey = key;
   const run = ++setupRun;
   const current = () => run === setupRun;
@@ -2144,12 +2215,16 @@ async function prepareLanguageFeatures(key: string, root: string, name: string, 
       problems: [],
       projects: {},
       currentProject: null,
+      consent: null,
     },
   });
 
-  let prepared: { path: string | null };
+  const repo = state.repo?.root ?? root;
+  const firstTime = !trust.isTrusted(repo);
+  const files = trust.isApproved(repo, name, commit) ? [] : buildFiles;
+  let prepared: ipc.Prepared;
   try {
-    prepared = await ipc.prepareWorkspace(root, name, commit, inPlace, (event) => {
+    prepared = await ipc.prepareWorkspace(root, name, commit, inPlace, !firstTime && files?.length === 0, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {
@@ -2160,6 +2235,11 @@ async function prepareLanguageFeatures(key: string, root: string, name: string, 
     return;
   }
   if (!current()) return;
+  if (prepared.untrusted) {
+    awaitingConsent = [key, root, name, commit, inPlace, buildFiles];
+    setState("languageSetup", { phase: "consent", consent: { repo, firstTime, branch: name, files } });
+    return;
+  }
   finishStep("done");
   if (prepared.path === null) {
     setState("languageSetup", null);

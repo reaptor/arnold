@@ -12,7 +12,7 @@ Arnold is a desktop app for macOS and Windows, made for the work AI agents leave
 
 **F#, first class.** Most diff viewers show F# as colored text. Arnold runs [FsAutoComplete](https://github.com/ionide/FsAutoComplete), the language server behind Ionide, in every diff: in Commit mode, in a branch review and in a pull request. Errors as you read, hover, go to definition, find references, rename everywhere, quick fixes, completion and semantic colors. In repositories that use [Fantomas](https://fsprojects.github.io/fantomas/), committing checks the formatting first and can format exactly what is committed.
 
-**Zero setup.** Nothing to install but the .NET SDK. Arnold downloads FsAutoComplete itself, and branches and pull requests get a real checkout (a worktree of their own when they need one), with tools and packages restored, so the language server sees your projects as they are.
+**Zero setup.** Nothing to install but the .NET SDK. Arnold downloads FsAutoComplete itself, and branches and pull requests get a real checkout (a worktree of their own when they need one), with tools and packages restored, so the language server sees your projects as they are, once you trust the repository's build code (see [Trusting a repository's build code](#trusting-a-repositorys-build-code)).
 
 **The whole way, in one window.** Commit what the agent left uncommitted, review the branch, push, open the pull request and review it until it is completed.
 
@@ -293,6 +293,14 @@ How it works:
 - It needs the .NET SDK (8 or newer). The SDK the repository selects (`global.json`) decides which build of the server runs.
 - Only when no checkout of the reviewed commit can be had (checking out failed or was cancelled, or a pull request's checkout holds edits to an earlier push) does it run in a copy of the commit instead, `.arnold/worktrees/<branch>-<hash>`, without edits. Arnold does only what FsAutoComplete needs there: `dotnet tool restore` and `dotnet restore` when project or package files changed since the last restore in that folder, and `dotnet build` only for projects in other languages (such as C#) that F# projects reference, when their files changed. F# projects themselves are never built. Files git ignores are not in a new worktree: for an [Elmish Land](https://elmish.land) app (`elmish-land.json` and the tool in the manifest) Arnold runs `dotnet elmish-land restore` first, when `.elmish-land/` is missing or pages or settings changed, and any other project reference missing on disk is listed as a problem, since FsAutoComplete then fails to load the projects (that failure is shown too). A new commit updates the copy in place, so restore and build output are reused.
 - The server stops when Arnold closes or you pick another branch.
+
+### Trusting a repository's build code
+
+Restoring, building and loading the projects runs code the repository chooses: MSBuild targets (`Directory.Build.props`/`.targets` and any project can run commands), the .NET tools of `.config/dotnet-tools.json`, Paket. In a pull request that is its author's code. So none of it runs, and FsAutoComplete does not start, until you agree:
+
+- **The first time** a repository with F# projects is shown, Arnold asks whether to trust its build code. Trusting is remembered for that folder.
+- **A branch or pull request that changes build files** (project and solution files, `*.props`, `*.targets`, `Directory.*`, `dotnet-tools.json`, `paket.*` and `.paket/`, `global.json`, `nuget.config`, `elmish-land.json`) asks again, also in a trusted repository, and lists them; a click on one shows it, so you can read it first. Running it is remembered for that commit of the branch, so a new push that changes build files asks once more.
+- **Keep F# features off** leaves the diff as it is, with syntax colors but without hover, go to definition or error markers. *F# off* in the status bar asks again.
 
 ### Fantomas
 

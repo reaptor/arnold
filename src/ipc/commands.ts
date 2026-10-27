@@ -780,6 +780,8 @@ export type SetupEvent =
  * `commit` (the tip of `head`): with `inPlace` (`head` is checked out in
  * `root`) in `root` itself, else in a copy in `root`'s `.arnold/worktrees`.
  * Resolves to the folder, or null when the commit has no F# projects.
+ * Without `trusted` (restoring and building run the repository's own code)
+ * nothing is run: `untrusted` then says the commit has F# projects to prepare.
  * Starting another preparation makes this one fail with "cancelled".
  */
 export function prepareWorkspace(
@@ -787,11 +789,17 @@ export function prepareWorkspace(
   head: string,
   commit: string,
   inPlace: boolean,
+  trusted: boolean,
   onEvent: (event: SetupEvent) => void,
 ) {
   const channel = new Channel<SetupEvent>();
   channel.onmessage = onEvent;
-  return invoke<{ path: string | null }>("prepare_workspace", { root, head, commit, inPlace, onEvent: channel });
+  return invoke<Prepared>("prepare_workspace", { root, head, commit, inPlace, trusted, onEvent: channel });
+}
+
+export interface Prepared {
+  path: string | null;
+  untrusted: boolean;
 }
 
 /** Progress of `buildSolution`. */
