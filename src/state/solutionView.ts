@@ -70,7 +70,8 @@ export async function loadSolution(root: string, commit: string, checkout: strin
     const [solutionText] = solution ? await read([solution]) : [];
     if (id !== loading) return;
     const entries = solution && solutionText?.[1] ? parseSolution(solution, solutionText[1]) : null;
-    const projects = projectsOf(files, entries).filter((path) => /\.fsproj$/i.test(path));
+    // Every project, for the references that order them; F# ones also for their files.
+    const projects = projectsOf(files, entries);
     const texts = new Map([...(solutionText ? [solutionText] : []), ...(await read(projects))]);
     if (id !== loading) return;
     const signature = JSON.stringify([files, solution, [...texts]]);

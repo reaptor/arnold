@@ -1,5 +1,6 @@
 // The explorer's Solution view, as Rider shows a .NET solution: its projects
-// in the order of the solution file, and the files of an F# project in the
+// in the order of the solution file, each after the projects it references,
+// and the files of an F# project in the
 // order of the project file (its compile order).
 
 import { comparePaths } from "./pathOrder";
@@ -269,6 +270,55 @@ export function projectsOf(files: readonly string[], solution: SolutionEntry[] |
   return projects;
 }
 
+/** The projects a project file references, as paths from the repository's top. */
+export function projectReferences(path: string, text: string): string[] {
+  const dir = directoryOf(path);
+  const references: string[] = [];
+  for (const tag of withoutComments(text).matchAll(/<ProjectReference\s([^>]*?)\/?>/gi)) {
+    for (const value of (attribute(tag[1], "Include") ?? "").split(";")) {
+      const relative = value.trim().replace(/^\$\(MSBuildThisFileDirectory\)/i, "");
+      if (!relative || relative.includes("$(")) continue;
+      const resolved = resolvePath(dir, relative);
+      if (resolved !== null) references.push(resolved);
+    }
+  }
+  return references;
+}
+
+/**
+ * `projects` in their order, but each after the projects it references, as
+ * Rider and Visual Studio show them; a cycle keeps the order it is met in.
+ */
+export function dependencyOrder(projects: readonly string[], texts: ReadonlyMap<string, string | null>): string[] {
+  const known = new Set(projects);
+  const ordered: string[] = [];
+  const visited = new Set<string>();
+  const visit = (project: string) => {
+    if (visited.has(project)) return;
+    visited.add(project);
+    const text = texts.get(project);
+    if (text) for (const reference of projectReferences(project, text)) if (known.has(reference)) visit(reference);
+    ordered.push(project);
+  };
+  projects.forEach(visit);
+  return ordered;
+}
+
+/** The solution with the projects among each folder's entries in `order`; folders keep their places. */
+function reorderProjects(entries: SolutionEntry[], order: readonly string[]): SolutionEntry[] {
+  const rank = new Map(order.map((project, index) => [project, index]));
+  const rankOf = (entry: SolutionEntry) => (entry.kind === "project" ? (rank.get(entry.path) ?? Infinity) : 0);
+  // Projects missing from the files keep their order, after the rest.
+  const sorted = entries
+    .filter((entry) => entry.kind === "project")
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => rankOf(a.entry) - rankOf(b.entry) || a.index - b.index);
+  let next = 0;
+  return entries.map((entry) =>
+    entry.kind === "folder" ? { ...entry, entries: reorderProjects(entry.entries, order) } : sorted[next++].entry,
+  );
+}
+
 const iconOf = (project: string): GroupIcon =>
   /\.fsproj$/i.test(project) ? "fsharpProject" : /\.csproj$/i.test(project) ? "csharpProject" : "project";
 
@@ -283,8 +333,9 @@ export function buildSolutionTree(
   texts: ReadonlyMap<string, string | null>,
 ): SolutionTree {
   const solutionText = solutionPath === null ? null : (texts.get(solutionPath) ?? null);
-  const solution = solutionPath !== null && solutionText !== null ? parseSolution(solutionPath, solutionText) : null;
-  const projects = projectsOf(files, solution);
+  const parsed = solutionPath !== null && solutionText !== null ? parseSolution(solutionPath, solutionText) : null;
+  const projects = dependencyOrder(projectsOf(files, parsed), texts);
+  const solution = parsed && reorderProjects(parsed, projects);
   const listed = new Map(
     projects.filter((project) => ORDERED.test(project)).map((project) => [project, parseProject(project, texts.get(project) ?? "", files)]),
   );
