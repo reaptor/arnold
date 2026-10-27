@@ -84,8 +84,8 @@ impl PrState {
             return Ok(known.clone());
         }
         let loaded = {
-            let key = key.clone();
-            blocking(move || token::load(&key)).await?.map_err(PrError::Other)?
+            let (key, environment) = (key.clone(), repo.is_services());
+            blocking(move || token::load(&key, environment)).await?.map_err(PrError::Other)?
         };
         self.tokens.lock().unwrap().insert(key, loaded.clone());
         Ok(loaded)

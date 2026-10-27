@@ -6,7 +6,9 @@ use serde::Serialize;
 /// Keychain service the tokens are filed under.
 const SERVICE: &str = "app.arnold.review";
 
-/// Read when no token was saved in Arnold; the Azure CLI uses the same name.
+/// Read when no token was saved in Arnold, for Azure DevOps Services only:
+/// the Azure CLI uses the same name for the user's own organization, and a
+/// server could be any host a remote names. Servers need a saved token.
 pub const ENVIRONMENT_VARIABLE: &str = "AZURE_DEVOPS_EXT_PAT";
 
 /// Where a token came from.
@@ -23,12 +25,16 @@ fn entry(key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, key).map_err(|e| e.to_string())
 }
 
-/// The token for `key` (see `AzureRepo::token_key`), if there is one.
-pub fn load(key: &str) -> Result<Option<(String, TokenSource)>, String> {
+/// The token for `key` (see `AzureRepo::token_key`), if there is one;
+/// `environment` allows falling back on `ENVIRONMENT_VARIABLE`.
+pub fn load(key: &str, environment: bool) -> Result<Option<(String, TokenSource)>, String> {
     match entry(key)?.get_password() {
         Ok(token) => return Ok(Some((token, TokenSource::Keychain))),
         Err(keyring::Error::NoEntry) => {}
         Err(error) => return Err(format!("could not read the token from the credential store: {error}")),
+    }
+    if !environment {
+        return Ok(None);
     }
     Ok(std::env::var(ENVIRONMENT_VARIABLE)
         .ok()

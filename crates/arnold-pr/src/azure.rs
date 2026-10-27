@@ -48,6 +48,12 @@ impl AzureRepo {
         format!("azure-devops:{}", self.collection_url.to_lowercase())
     }
 
+    /// Azure DevOps Services (dev.azure.com) rather than a server, which
+    /// could be any host a remote names.
+    pub fn is_services(&self) -> bool {
+        self.collection_url.starts_with("https://dev.azure.com/")
+    }
+
     /// `contoso / Shop / shop-api`.
     pub fn display_name(&self) -> String {
         format!(
@@ -74,14 +80,15 @@ impl AzureRepo {
 /// `org@vs-ssh.visualstudio.com:v3/org/project/repo` (also as `ssh://`), and
 /// a server's `https://host/[path/]collection/project/_git/repo`. A URL
 /// without the project (`…/org/_git/repo`) means the project has the
-/// repository's name.
+/// repository's name. Plain `http://` remotes are not taken: the token
+/// would travel unencrypted.
 pub fn parse_remote_url(url: &str) -> Option<AzureRepo> {
     let url = url.trim();
     if let Some(repo) = parse_ssh(url) {
         return Some(repo);
     }
     let (scheme, rest) = url.split_once("://")?;
-    if scheme != "https" && scheme != "http" {
+    if scheme != "https" {
         return None;
     }
     let (authority, path) = rest.split_once('/')?;
@@ -1138,6 +1145,8 @@ mod tests {
         );
         // Not enough to tell the collection from the project.
         assert_eq!(parse_remote_url("https://tfs.example.com/_git/shop-api"), None);
+        assert_eq!(parse_remote_url("http://tfs.example.com/tfs/DefaultCollection/Shop/_git/shop-api"), None);
+        assert_eq!(parse_remote_url("http://dev.azure.com/contoso/Shop/_git/shop-api"), None);
     }
 
     #[test]
@@ -1158,6 +1167,9 @@ mod tests {
         let repo = parse_remote_url("https://contoso.visualstudio.com/Shop/_git/shop-api").unwrap();
         assert_eq!(repo.token_settings_url(), "https://dev.azure.com/contoso/_usersSettings/tokens");
         assert_eq!(repo.token_key(), "azure-devops:https://dev.azure.com/contoso");
+        assert!(repo.is_services());
+        let server = parse_remote_url("https://dev.azure.com.example/tfs/DefaultCollection/Shop/_git/shop-api").unwrap();
+        assert!(!server.is_services());
         assert_eq!(repo.pull_request_url(7), "https://dev.azure.com/contoso/Shop/_git/shop-api/pullrequest/7");
         assert_eq!(
             repo.api("/pullrequests"),
