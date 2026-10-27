@@ -84,8 +84,8 @@ impl PrState {
             return Ok(known.clone());
         }
         let loaded = {
-            let key = key.clone();
-            blocking(move || token::load(&key)).await?.map_err(PrError::Other)?
+            let (key, environment) = (key.clone(), repo.is_services());
+            blocking(move || token::load(&key, environment)).await?.map_err(PrError::Other)?
         };
         self.tokens.lock().unwrap().insert(key, loaded.clone());
         Ok(loaded)
@@ -121,12 +121,14 @@ impl PrState {
         pull_request
     }
 
-    /// The credentials header for pushing to `remote` when it is an Azure
-    /// DevOps remote with a token set up; else git's own credentials do.
-    pub(crate) async fn push_header(&self, root: &Path, remote: &str) -> Option<String> {
-        let (_, repo) = azure_remotes(root).await.ok()?.into_iter().find(|(name, _)| name == remote)?;
+    /// The credentials header for fetching from or pushing to `remote` when
+    /// it is an https Azure DevOps remote with a token set up, scoped to the
+    /// remote's URL so git sends it nowhere else; else git's own credentials do.
+    pub(crate) async fn push_header(&self, root: &Path, remote: &str) -> Option<arnold_git::ScopedHeader> {
+        let url = arnold_git::remotes(root).await.ok()?.into_iter().find(|known| known.name == remote)?.url;
+        let (repo, scope) = (azure::parse_remote_url(&url)?, azure::credential_scope(&url)?);
         let (token, _) = self.token(&repo).await.ok()??;
-        Some(format!("Authorization: {}", azure::authorization(&token)))
+        Some(arnold_git::ScopedHeader { url: scope, value: format!("Authorization: {}", azure::authorization(&token)) })
     }
 
     fn forget(&self, key: &str) {

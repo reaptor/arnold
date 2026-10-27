@@ -123,10 +123,13 @@ export function DevOpsSetup(props: Props) {
             things there only when you ask it to: comments, votes, and creating or completing a pull request (creating
             one pushes the branch you reviewed if Azure DevOps does not have it yet).
           </p>
-          <p class="connect-note">
-            Already using the Azure CLI? Arnold also reads a token from the <code>{ENVIRONMENT_VARIABLE}</code>{" "}
-            environment variable when none is saved.
-          </p>
+          {/* The backend reads the variable for Azure DevOps Services only, never for a server. */}
+          <Show when={new URL(props.remote.tokenSettingsUrl).host === "dev.azure.com"}>
+            <p class="connect-note">
+              Already using the Azure CLI? Arnold also reads a token from the <code>{ENVIRONMENT_VARIABLE}</code>{" "}
+              environment variable when none is saved.
+            </p>
+          </Show>
         </li>
       </ol>
 

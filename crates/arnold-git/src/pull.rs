@@ -13,28 +13,21 @@ use crate::cli::{run_raw, run_raw_with, run_text, GitError};
 use crate::publish::BranchSync;
 use crate::push::is_ancestor;
 use crate::refs::list_branches;
+use crate::remotes::ScopedHeader;
 use crate::Result;
 
 /// Fetches every branch of `remote` into its remote-tracking branches
 /// (`refs/remotes/<remote>/*`), whatever the remote's fetch setting says (a
 /// single-branch clone fetches one), and drops those deleted there.
-/// `extra_header` is sent with every HTTP request (credentials), as in
-/// `fetch_objects`; without it git's own credentials are used.
-pub async fn fetch_remote(root: &Path, remote: &str, extra_header: Option<&str>) -> Result<()> {
+/// `extra_header` is sent to the remote's own URL only (credentials); without it git's own credentials are used.
+pub async fn fetch_remote(root: &Path, remote: &str, extra_header: Option<&ScopedHeader>) -> Result<()> {
     if remote.is_empty() || remote.starts_with('-') || remote.contains(['/', '\\', '*', ':']) {
         return Err(GitError::Parse(format!("not a remote name: {remote}")));
     }
     let refspec = format!("+refs/heads/*:refs/remotes/{remote}/*");
     let args = ["fetch", "--quiet", "--prune", "--no-recurse-submodules", remote, &refspec];
-    let mut environment: Vec<(&str, &OsStr)> = Vec::new();
-    if let Some(header) = extra_header {
-        environment.extend([
-            ("GCM_INTERACTIVE", OsStr::new("never")),
-            ("GIT_CONFIG_COUNT", OsStr::new("1")),
-            ("GIT_CONFIG_KEY_0", OsStr::new("http.extraHeader")),
-            ("GIT_CONFIG_VALUE_0", OsStr::new(header)),
-        ]);
-    }
+    let environment = extra_header.map(ScopedHeader::environment);
+    let environment: Vec<(&str, &OsStr)> = environment.iter().flatten().map(|(key, value)| (*key, value.as_os_str())).collect();
     let output = run_raw_with(root, &args, &environment).await?;
     if output.success {
         Ok(())

@@ -47,7 +47,7 @@ pub use refs::{common_dir, git_dir, list_branches, open, Branch, RepoInfo};
 pub use publish::{branch_sync, push_branch, BranchSync};
 pub use pull::{fast_forward_branches, fetch_remote, pull_branch, Pulled};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
-pub use remotes::{fetch_objects, has_commits, remotes, Remote};
+pub use remotes::{fetch_objects, has_commits, remotes, Remote, ScopedHeader};
 pub use worktree::{
     branch_checkout, branch_worktree, detached_worktree, find_worktree, pull_request_checkout, BranchCheckout, CheckedOut, Placement, Worktree,
 };

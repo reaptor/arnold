@@ -253,7 +253,7 @@ pub async fn push_checkout_branch(checkout: String, state: State<'_, AppState>, 
     let branch = status.branch.ok_or("The checkout is not on a branch, so there is no branch to push.")?;
     let sync = status.sync.ok_or("The repository has no remote to push to.")?;
     let header = prs.push_header(&checkout, &sync.remote).await;
-    arnold_git::push_branch(&checkout, &branch, &sync, header.as_deref()).await.map_err(text_error)
+    arnold_git::push_branch(&checkout, &branch, &sync, header.as_ref()).await.map_err(text_error)
 }
 
 /// What fetching from the remotes did.
@@ -280,7 +280,7 @@ async fn fetch_from_remotes(root: &std::path::Path, prs: &PrState) -> Result<Fet
     let mut fetched = Vec::new();
     for remote in arnold_git::remotes(root).await.map_err(text_error)? {
         let header = prs.push_header(root, &remote.name).await;
-        arnold_git::fetch_remote(root, &remote.name, header.as_deref())
+        arnold_git::fetch_remote(root, &remote.name, header.as_ref())
             .await
             .map_err(|error| format!("Fetching from {} failed: {error}", remote.name))?;
         fetched.push(remote.name);

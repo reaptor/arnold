@@ -1250,6 +1250,7 @@ function commitStaged(message: string) {
 // ------------------------------------------------------------ pull requests
 // `?devops`: origin is an Azure DevOps repository with a saved token.
 // `?devops=nopat`: no token yet (pasting "bad" is rejected, anything else works).
+// `?devops=server`: like nopat, on an Azure DevOps Server (no environment token there).
 // `?devops=empty`: no active pull requests. `?devops=rejected`: the saved token no longer works.
 
 const devops = searchParams.get("devops");
@@ -1257,16 +1258,19 @@ const devops = searchParams.get("devops");
 // on that branch; `?yourpr=apart` puts the branch at another commit than the pull request's latest push.
 const yourPr = searchParams.get("yourpr");
 let hasDevOpsRemote = devops !== null;
-let mockToken: PrRemote["token"] = devops === "nopat" ? null : "keychain";
+const onServer = devops === "server";
+let mockToken: PrRemote["token"] = devops === "nopat" || onServer ? null : "keychain";
 let tokenWorks = devops !== "rejected";
+
+const collectionUrl = onServer ? "https://tfs.contoso.com/tfs/DefaultCollection" : "https://dev.azure.com/contoso";
 
 const prRemote = (): PrRemote => ({
   remote: "origin",
   provider: "azureDevOps",
-  name: "contoso / Shop / shop-api",
-  organization: "contoso",
-  webUrl: "https://dev.azure.com/contoso/Shop/_git/shop-api",
-  tokenSettingsUrl: "https://dev.azure.com/contoso/_usersSettings/tokens",
+  name: `${onServer ? "DefaultCollection" : "contoso"} / Shop / shop-api`,
+  organization: onServer ? "DefaultCollection" : "contoso",
+  webUrl: `${collectionUrl}/Shop/_git/shop-api`,
+  tokenSettingsUrl: `${collectionUrl}/_usersSettings/tokens`,
   token: mockToken,
 });
 
