@@ -33,6 +33,18 @@ const EXTRAS = [
     license: "Apache-2.0",
     url: "https://github.com/JetBrains/intellij-community",
   },
+  {
+    name: "IntelliJ Platform new UI icons (file explorer)",
+    version: "",
+    license: "Apache-2.0",
+    url: "https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src/expui",
+  },
+  {
+    name: "F# support for Rider icons (file explorer)",
+    version: "",
+    license: "Apache-2.0",
+    url: "https://github.com/JetBrains/fsharp-support",
+  },
 ];
 
 const LICENSE_FILE = /^(licen[cs]e|copying|notice|copyright)([-._].*)?$/i;

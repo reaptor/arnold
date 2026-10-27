@@ -44,22 +44,10 @@
   --diff-inserted-mark: #8fcb93;
   --diff-old-mark: #e8918f;
   /* File-type icon tones (JetBrains new UI): stroke and tinted fill. */
-  --tone-gray: #6c707e;
-  --tone-gray-fill: #ebecf0;
   --tone-fsharp: #378bba;
   --tone-fsharp-fill: #e3f1fa;
-  --tone-blue: #3574f0;
-  --tone-blue-fill: #e7effd;
   --tone-purple: #834df0;
   --tone-purple-fill: #efe5ff;
-  --tone-green: #208a3c;
-  --tone-green-fill: #f2fcf3;
-  --tone-orange: #e66d17;
-  --tone-orange-fill: #fff4eb;
-  --tone-red: #db3b4b;
-  --tone-red-fill: #fff7f7;
-  --tone-yellow: #c27d04;
-  --tone-yellow-fill: #fff6de;
   --island-radius: 10px;
   --island-gap: 6px;
   font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -103,22 +91,10 @@
   --diff-new-text: #4b5531;
   --diff-inserted-mark: #4f8a3a;
   --diff-old-mark: #a84a4f;
-  --tone-gray: #ced0d6;
-  --tone-gray-fill: #43454a;
   --tone-fsharp: #5ea9d6;
   --tone-fsharp-fill: #21313d;
-  --tone-blue: #548af7;
-  --tone-blue-fill: #25324d;
   --tone-purple: #a571e6;
   --tone-purple-fill: #2f2936;
-  --tone-green: #5fb865;
-  --tone-green-fill: #253627;
-  --tone-orange: #e08855;
-  --tone-orange-fill: #45322b;
-  --tone-red: #db5c5c;
-  --tone-red-fill: #402929;
-  --tone-yellow: #d6ae58;
-  --tone-yellow-fill: #3d3223;
 }
 
 * {
@@ -865,7 +841,8 @@ button.primary:hover:not(:disabled) {
   width: 16px;
 }
 
-/* File-type icons in the explorer (fileIcons.tsx). */
+/* File-type icons in the explorer (fileIcons.tsx): JetBrains' SVGs, or a
+   drawing in the `.tone-*` colors. */
 .file-icon {
   flex: none;
   width: 16px;
@@ -899,49 +876,14 @@ button.primary:hover:not(:disabled) {
   opacity: 0.7;
 }
 
-.file-icon .label {
-  font: 700 6.5px/1 Inter, system-ui, sans-serif;
-  text-anchor: middle;
-}
-
-.tone-gray {
-  --tone: var(--tone-gray);
-  --tone-fill: var(--tone-gray-fill);
-}
-
 .tone-fsharp {
   --tone: var(--tone-fsharp);
   --tone-fill: var(--tone-fsharp-fill);
 }
 
-.tone-blue {
-  --tone: var(--tone-blue);
-  --tone-fill: var(--tone-blue-fill);
-}
-
 .tone-purple {
   --tone: var(--tone-purple);
   --tone-fill: var(--tone-purple-fill);
-}
-
-.tone-green {
-  --tone: var(--tone-green);
-  --tone-fill: var(--tone-green-fill);
-}
-
-.tone-orange {
-  --tone: var(--tone-orange);
-  --tone-fill: var(--tone-orange-fill);
-}
-
-.tone-red {
-  --tone: var(--tone-red);
-  --tone-fill: var(--tone-red-fill);
-}
-
-.tone-yellow {
-  --tone: var(--tone-yellow);
-  --tone-fill: var(--tone-yellow-fill);
 }
 
 .tree-label {
