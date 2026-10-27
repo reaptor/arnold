@@ -42,14 +42,20 @@ pub enum SetupEvent {
 #[serde(rename_all = "camelCase")]
 pub struct Prepared {
     /// Folder to start the language server in; `None` when the commit has no
-    /// F# projects.
+    /// F# projects, or when it has but the preparation was not `trusted`.
     path: Option<PathBuf>,
+    /// The commit has F# projects, but preparing it runs code the repository
+    /// chooses and the user has not agreed to that: nothing was run.
+    untrusted: bool,
 }
 
 /// Gets `commit` (the tip of branch `head`) of the repository at `root`
 /// ready for FsAutoComplete: with `in_place` (`head` is checked out in
 /// `root`) in `root` itself, else in a copy in its `.arnold/worktrees`
 /// folder. Steps are reported on `on_event`.
+/// Without `trusted` nothing is copied or run, as restoring and building
+/// run the repository's own MSBuild targets and .NET tools: the result then
+/// only says whether there was something to prepare.
 /// Starting another preparation stops this one, which then fails with
 /// "cancelled".
 #[tauri::command]
@@ -58,6 +64,7 @@ pub async fn prepare_workspace(
     head: String,
     commit: String,
     in_place: bool,
+    trusted: bool,
     on_event: Channel<SetupEvent>,
     app_state: State<'_, AppState>,
     prepare_state: State<'_, PrepareState>,
@@ -76,7 +83,7 @@ pub async fn prepare_workspace(
             let emit = |event: SetupEvent| {
                 let _ = on_event.send(event);
             };
-            let _ = sender.send(prepare(&root, &head, &commit, in_place, &emit).await);
+            let _ = sender.send(prepare(&root, &head, &commit, in_place, trusted, &emit).await);
         }));
     }
     let prepared = receiver.await.map_err(|_| "cancelled".to_string())??;
@@ -91,6 +98,7 @@ async fn prepare(
     head: &str,
     commit: &str,
     in_place: bool,
+    trusted: bool,
     emit: &(dyn Fn(SetupEvent) + Sync),
 ) -> Result<Prepared, String> {
     let files: Vec<(String, String)> = arnold_git::tree_files(root, commit)
@@ -106,8 +114,11 @@ async fn prepare(
         }
     }
     let Some(plan) = workspace::plan(&files, &projects) else {
-        return Ok(Prepared { path: None });
+        return Ok(Prepared { path: None, untrusted: false });
     };
+    if !trusted {
+        return Ok(Prepared { path: None, untrusted: true });
+    }
 
     let (checkout, state) = if in_place {
         let state = state_folder(root, IN_PLACE).await?;
@@ -144,7 +155,7 @@ async fn prepare(
             ),
         });
     }
-    Ok(Prepared { path: Some(checkout) })
+    Ok(Prepared { path: Some(checkout), untrusted: false })
 }
 
 /// Restores and builds what `plan` asks for, skipping what was done before

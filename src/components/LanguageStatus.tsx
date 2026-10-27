@@ -1,5 +1,7 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { type SetupStep, setupOutput, state } from "../state/review";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { folderName } from "../state/favorites";
+import { askToTrust, keepRestricted, openFile, type SetupStep, setupOutput, state, trustBuildCode } from "../state/review";
+import { CheckIcon, CloseIcon, FileIcon } from "./icons";
 
 const STEP_MARK: Record<SetupStep["state"], string> = {
   running: "",
@@ -34,9 +36,10 @@ export function LanguageStatus() {
   const setup = () => state.languageSetup;
   const phase = () => setup()?.phase;
   const problems = () => setup()?.problems ?? [];
+  const off = () => phase() === "consent" || phase() === "restricted";
   // Nothing is shown while it gets going, unless something already went wrong.
   const notReady = () => phase() === "failed" || problems().length > 0;
-  const shown = () => notReady() || phase() === "ready";
+  const shown = () => off() || notReady() || phase() === "ready";
 
   const explanation = () => {
     switch (phase()) {
@@ -67,14 +70,33 @@ export function LanguageStatus() {
         <div class="language-status" ref={root}>
           <button
             class="language-button"
-            classList={{ warning: notReady() }}
+            classList={{ warning: notReady() || off() }}
             title={`F# language features${state.lspStatus ? ` (${state.lspStatus})` : ""}: click for details`}
             onClick={() => setOpen(!open())}
           >
-            <span class="language-mark">{notReady() ? "!" : "✓"}</span>
-            <span class="language-label">{notReady() ? "F# not ready" : "F# ready"}</span>
+            <span class="language-mark">{notReady() || off() ? "!" : "✓"}</span>
+            <span class="language-label">{off() ? "F# off" : notReady() ? "F# not ready" : "F# ready"}</span>
           </button>
-          <Show when={open()}>
+          <Show when={open() && off()}>
+            <div class="language-popup" role="dialog" aria-label="F# language features">
+              <h3>F# language features are off</h3>
+              <p>
+                Getting them going runs the repository's own build code (restoring packages and .NET tools, building
+                projects), and that waits until you trust it. Meanwhile the diff works as usual, with syntax colors but
+                without hover, go to definition or error markers.
+              </p>
+              <button
+                class="language-trust"
+                onClick={() => {
+                  setOpen(false);
+                  askToTrust();
+                }}
+              >
+                Turn on F# features…
+              </button>
+            </div>
+          </Show>
+          <Show when={open() && !off()}>
             <div class="language-popup" role="dialog" aria-label="F# language features">
               <h3>F# language features</h3>
               <p>{explanation()}</p>
@@ -130,5 +152,96 @@ export function LanguageStatus() {
         </div>
       )}
     </Show>
+  );
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * Asks before the repository's build code runs for F# language features:
+ * the first time in a repository, and again when the reviewed branch or pull
+ * request changes build files (listed, a click opens one).
+ */
+export function TrustDialog() {
+  const consent = () => state.languageSetup!.consent!;
+  const files = () => consent().files;
+  const changed = () => files() === null || files()!.length > 0;
+  let first: HTMLButtonElement | undefined;
+  onMount(() => first?.focus());
+  return (
+    <div
+      class="modal-backdrop"
+      data-tauri-drag-region="false"
+      onPointerDown={(event) => event.target === event.currentTarget && keepRestricted()}
+      onKeyDown={(event) => event.key === "Escape" && keepRestricted()}
+    >
+      <div class="modal complete-dialog trust-dialog" role="alertdialog" aria-label="Run the repository's build code">
+        <h2>
+          {changed() ? `${consent().branch} changes build files` : `Trust the build code of ${folderName(consent().repo)}?`}
+        </h2>
+        <p>
+          For F# language features Arnold restores the projects' packages and .NET tools, builds the projects in other
+          languages that F# code uses, and has FsAutoComplete load the projects. That runs code the repository chooses
+          (MSBuild targets, .NET tools, Paket) on this computer, as you, with access to your files and credentials.
+        </p>
+        <Show
+          when={changed()}
+          fallback={<p>Trust the repository only if you trust everyone who can push to it.</p>}
+        >
+          <Show
+            when={files()}
+            fallback={<p class="complete-warning">Arnold could not read which files the branch changes, so it may change build files.</p>}
+          >
+            {(listed) => (
+              <>
+                <p>
+                  Whoever wrote {consent().branch} decides what {listed().length === 1 ? "this file runs" : `these ${plural(listed().length, "file")} run`}.
+                  Read {listed().length === 1 ? "it" : "them"} first:
+                </p>
+                <ul class="trust-files">
+                  <For each={listed()}>
+                    {(path) => (
+                      <li>
+                        <button
+                          class="trust-file"
+                          title={`Show ${path}`}
+                          onClick={() => {
+                            keepRestricted();
+                            void openFile(path);
+                          }}
+                        >
+                          <FileIcon />
+                          {path}
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </>
+            )}
+          </Show>
+        </Show>
+        <div class="committed-choices">
+          <button ref={first} class="committed-choice" onClick={keepRestricted}>
+            <CloseIcon />
+            <span>
+              Keep F# features off
+              <small>Syntax colors only, without hover, go to definition or error markers. "F# off" in the status bar asks again.</small>
+            </span>
+          </button>
+          <button class="committed-choice primary" onClick={trustBuildCode}>
+            <CheckIcon />
+            <span>
+              {changed() ? "Run the build code" : "Trust and turn on F# features"}
+              <small>
+                {changed()
+                  ? `${consent().firstTime ? `Trusts ${consent().repo} too. ` : ""}Remembered for this commit of ${consent().branch}; a new one that changes build files asks again.`
+                  : `Remembered for ${consent().repo}. Branches and pull requests that change build files ask again.`}
+              </small>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

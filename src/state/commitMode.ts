@@ -224,7 +224,7 @@ async function readWork() {
     setAllFiles(files);
     offerMergeMessage(checkout, work.mergeMessage);
     void loadSolution(repo.root, work.head ?? "HEAD", checkout, files);
-    if (work.head) setUpLanguageFeaturesIn(checkout, work.branch ?? "HEAD", work.head);
+    if (work.head) setUpLanguageFeaturesIn(checkout, work.branch, work.head);
     const place = placePending ? (placePending = false, takePlace(repo.root)) : undefined;
     const known = (key: string | undefined) => {
       if (key === undefined) return false;

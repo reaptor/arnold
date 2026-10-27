@@ -8,7 +8,7 @@ import { checkoutQuestion } from "./state/checkoutChoice";
 import { EditStatus } from "./components/EditStatus";
 import { SuggestDialog } from "./components/SuggestDialog";
 import { FileDock } from "./components/FileDock";
-import { LanguageStatus } from "./components/LanguageStatus";
+import { LanguageStatus, TrustDialog } from "./components/LanguageStatus";
 import { LicensesDialog } from "./components/LicensesDialog";
 import { ProblemsPanel, ProblemsStatus, problemsOpen, toggleProblems } from "./components/ProblemsPanel";
 import { ThemeStatus } from "./components/ThemeStatus";
@@ -310,6 +310,9 @@ export function App() {
       </Show>
       <Show when={checkoutQuestion()}>
         <CheckoutDialog />
+      </Show>
+      <Show when={state.languageSetup?.phase === "consent" && !checkoutQuestion()}>
+        <TrustDialog />
       </Show>
       <Show when={notifyQuestion()}>
         <NotifyDialog />

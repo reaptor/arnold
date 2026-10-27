@@ -252,6 +252,8 @@ let serverChannel: Channel<string> | null = null;
 
 // The preparation of the F# workspace is simulated with pauses; `?setupfail`
 // makes the build fail, `?setupslow` makes every step take 4 seconds.
+// Every repository is trusted to run its build code, unless `?untrusted`
+// (with `?buildfiles`, the branch also changes build files).
 const searchParams = new URLSearchParams(location.search);
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, searchParams.has("setupslow") ? 4000 : ms));
 let preparation = 0;
@@ -300,8 +302,9 @@ async function fakeProjectLoading(events: Channel<LspEvent>) {
   events.onmessage({ kind: "status", text: null });
 }
 
-async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: boolean) {
+async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: boolean, trusted: boolean) {
   const run = ++preparation;
+  if (!trusted && searchParams.has("untrusted")) return { path: null, untrusted: true };
   const send = async (event: SetupEvent, ms = 0) => {
     if (ms) await pause(ms);
     if (run !== preparation) throw "cancelled";
@@ -318,7 +321,7 @@ async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: 
   } else {
     await send({ kind: "output", line: `  Api -> ${path}/src/Api/bin/Debug/net10.0/Api.dll` }, 800);
   }
-  return { path };
+  return { path, untrusted: false };
 }
 
 // A build of the solution (Ctrl+Shift+B) takes a few seconds and reports two
@@ -978,6 +981,22 @@ EndGlobal
 </Project>
 `,
 };
+
+if (searchParams.has("buildfiles")) {
+  files.set("Shop.fsproj", {
+    base: SOLUTION_FILES["Shop.fsproj"],
+    working: SOLUTION_FILES["Shop.fsproj"].replace("</Project>", '  <Import Project="build/Audit.targets" />\n</Project>'),
+  });
+  files.set("Directory.Build.targets", {
+    base: null,
+    working: `<Project>
+  <Target Name="AuditLog" BeforeTargets="Restore;CollectPackageReferences">
+    <Exec Command="sh ./build/audit.sh" />
+  </Target>
+</Project>
+`,
+  });
+}
 
 /** A few files that are not part of the diff, so the explorer has more to show. */
 function addUnchangedFiles() {
@@ -2559,6 +2578,7 @@ export function install() {
             (payload as { onEvent: Channel<SetupEvent> }).onEvent,
             args.root,
             (payload as { inPlace: boolean }).inPlace,
+            (payload as { trusted: boolean }).trusted,
           );
         case "build_solution":
           return fakeBuild((payload as { onEvent: Channel<BuildEvent> }).onEvent, args.root);
