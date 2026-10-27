@@ -5466,14 +5466,21 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   margin-left: 0;
 }
 
+.pr-overview-work-item-link > svg {
+  flex: none;
+  align-self: center;
+  color: var(--accent);
+}
+
 .pr-overview-work-item-title {
+  color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pr-overview-work-item-link:hover .pr-overview-work-item-title {
-  color: var(--accent);
+.pr-overview-work-item-link:hover .pr-overview-work-item-title,
+.pr-overview-work-item-link:hover .pr-overview-id {
   text-decoration: underline;
 }
 
@@ -5499,6 +5506,10 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.pr-overview-work-item-ids .pr-overview-id {
+  color: var(--accent);
 }
 
 .pr-overview-discussions {

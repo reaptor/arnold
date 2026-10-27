@@ -18,7 +18,7 @@ import { openInBrowser } from "./DevOpsSetup";
 import { ThreadCard, threadsByFile, where } from "./DiscussionPicker";
 import { splitPath } from "./FileDock";
 import { CommentIcon, ExternalIcon, FilesIcon } from "./icons";
-import { Markdown } from "./Markdown";
+import { azureHostLinks, Markdown } from "./Markdown";
 import { PullRequestNotifyButton } from "./PullRequestPanel";
 
 const VOTE_LABELS: Record<Reviewer["vote"], { text: string; kind: string }> = {
@@ -207,7 +207,7 @@ function Overview(props: { pullRequest: ReviewedPullRequest }) {
               </Show>
             </section>
 
-            <WorkItems linked={workItems()} />
+            <WorkItems linked={workItems()} pullRequestUrl={props.pullRequest.url} />
 
             <section class="pr-overview-discussions">
               <div class="pr-overview-section-head">
@@ -325,7 +325,7 @@ function Overview(props: { pullRequest: ReviewedPullRequest }) {
  * The work items linked to the pull request, if any: the first with its
  * title and description, the others one line each.
  */
-function WorkItems(props: { linked: LinkedWorkItems | { error: string } | null }) {
+function WorkItems(props: { linked: LinkedWorkItems | { error: string } | null; pullRequestUrl: string }) {
   const read = () => (props.linked && "kind" in props.linked && props.linked.kind === "read" ? props.linked.items : []);
   const ids = () => (props.linked && "kind" in props.linked && props.linked.kind === "noAccess" ? props.linked.ids : []);
   const error = () => (props.linked && "error" in props.linked ? props.linked.error : null);
@@ -366,7 +366,19 @@ function WorkItems(props: { linked: LinkedWorkItems | { error: string } | null }
         </Show>
         <Show when={ids().length > 0}>
           <p class="pr-overview-work-item-ids">
-            <For each={ids()}>{(id) => <span>#{id}</span>}</For>
+            <For each={ids()}>
+              {(id) => {
+                const url = azureHostLinks(props.pullRequestUrl)?.workItem(id);
+                return url ? (
+                  <button class="pr-overview-work-item-link" onClick={() => openInBrowser(url)} title={url}>
+                    <span class="pr-overview-id">#{id}</span>
+                    <ExternalIcon />
+                  </button>
+                ) : (
+                  <span>#{id}</span>
+                );
+              }}
+            </For>
           </p>
           <p class="pr-overview-empty">The token may not read work items (it needs Work Items → Read).</p>
         </Show>
@@ -375,7 +387,7 @@ function WorkItems(props: { linked: LinkedWorkItems | { error: string } | null }
   );
 }
 
-/** A work item's type, number, title and state; a click opens it in the browser. */
+/** A work item's type, number, title and state; a click opens it in Azure DevOps. */
 function WorkItemLine(props: { item: WorkItem; lead?: boolean }) {
   return (
     <div class="pr-overview-work-item" classList={{ lead: props.lead }}>
@@ -383,6 +395,7 @@ function WorkItemLine(props: { item: WorkItem; lead?: boolean }) {
       <button class="pr-overview-work-item-link" onClick={() => openInBrowser(props.item.url)} title={props.item.url}>
         <span class="pr-overview-id">#{props.item.id}</span>
         <span class="pr-overview-work-item-title">{props.item.title}</span>
+        <ExternalIcon />
       </button>
       <span class="pr-overview-work-item-state">{props.item.state}</span>
     </div>
