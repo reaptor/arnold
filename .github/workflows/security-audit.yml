@@ -1,0 +1,18 @@
+name: Security audit
+
+# Claude reads the whole codebase at main for security problems and files the
+# findings as one issue (public, like the repo); reply to it with `@claude` and
+# what to do. Started by hand: `gh workflow run security-audit.yml`.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    uses: reaptor/claude-agents/.github/workflows/security-audit.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
