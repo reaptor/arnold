@@ -2077,6 +2077,39 @@ let preparedKey: string | null = null;
 let setupRun = 0;
 
 /**
+ * F# language features start off in every repository and mode, without
+ * asking: they run the repository's build code and keep dotnet busy. The
+ * status bar's "F# off" turns them on for the repository and mode open,
+ * until another is opened (the browser preview's `?lsp` starts them on).
+ */
+let featuresOn: string | null = null;
+const startOn = import.meta.env.DEV && new URLSearchParams(location.search).has("lsp");
+const featuresKey = () => `${state.repo?.root}\n${state.source}`;
+const featuresWanted = () => startOn || featuresOn === featuresKey();
+/** Sets up language features again for what is reviewed now (once they are turned on). */
+let setUpAgain: (() => void) | null = null;
+
+// Another repository or mode: features are off again, and the server of the
+// one left stops at once instead of keeping dotnet busy meanwhile.
+createRoot(() =>
+  createEffect(
+    on(
+      featuresKey,
+      () => {
+        featuresOn = null;
+        setUpAgain = null;
+        awaitingConsent = null;
+        preparedKey = null;
+        setupRun++;
+        setState({ languageSetup: null, lspStatus: null });
+        void lsp.stop();
+      },
+      { defer: true },
+    ),
+  ),
+);
+
+/**
  * What the language server is set up for. A checkout the server runs in
  * as it is (the opened folder, or Commit mode's checkout) is the same
  * whatever its commit: its files on disk are what the server reads.
@@ -2124,10 +2157,12 @@ function serverRoot(): string | null {
 async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
   const key = setupKey(repo, comparison);
   preparedKey = key;
+  setUpAgain = () => void setUpLanguageFeatures(repo, comparison);
   const checkout = headCheckout(repo, comparison);
-  // Build files changed anywhere on the branch count, also when only some of its commits are shown.
+  // Build files changed anywhere on the branch count, also when only some of
+  // its commits are shown (looked up only once features are on: nothing runs before).
   let buildFiles: string[] | null = trust.changedBuildFiles(comparison.files);
-  if (comparison.range) {
+  if (comparison.range && featuresWanted()) {
     try {
       const all = await ipc.compareBranches(repo.root, comparison.base, comparison.head, null, prCheckout());
       buildFiles = trust.changedBuildFiles(all.files);
@@ -2151,6 +2186,7 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
  * included. Nothing happens when they are already set up for it.
  */
 export function setUpLanguageFeaturesIn(checkout: string, branch: string | null, commit: string) {
+  setUpAgain = () => setUpLanguageFeaturesIn(checkout, branch, commit);
   if (branch !== null) {
     const key = inPlaceKey(checkout, branch);
     if (key !== preparedKey) void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
@@ -2181,18 +2217,28 @@ export function trustBuildCode() {
   void prepareLanguageFeatures(...setup);
 }
 
-/** Not now: the diff without language features, until asked again from the status bar. */
+/** Not now: the diff without language features, until turned on from the status bar. */
 export function keepRestricted() {
+  featuresOn = null;
   if (state.languageSetup?.phase === "consent") setState("languageSetup", "phase", "restricted");
 }
 
-/** Asks again (the status bar's "F# off"). */
+/**
+ * Turns language features on (the status bar's "F# off") for the repository
+ * and mode open: they get going, after asking when the repository is not
+ * trusted yet or the reviewed branch changes build files.
+ */
 export function askToTrust() {
-  if (state.languageSetup?.phase === "restricted") setState("languageSetup", "phase", "consent");
+  if (state.languageSetup?.phase !== "restricted" || !setUpAgain) return;
+  featuresOn = featuresKey();
+  preparedKey = null;
+  setUpAgain();
 }
 
 /**
- * Prepares `commit` and starts FsAutoComplete there, once the user trusts
+ * Prepares `commit` and starts FsAutoComplete there, once features are
+ * turned on (otherwise it only finds out whether there are F# projects, for
+ * the status bar's "F# off") and the user trusts
  * the repository's build code: always on its first use, and again for
  * `buildFiles`, the build files a branch or pull request changes, unless
  * they were approved for this commit before (null: they could not be read,
@@ -2236,7 +2282,8 @@ async function prepareLanguageFeatures(
   const files = trust.isApproved(repo, name, commit) ? [] : buildFiles;
   let prepared: ipc.Prepared;
   try {
-    prepared = await ipc.prepareWorkspace(root, name, commit, inPlace, !firstTime && files?.length === 0, (event) => {
+    const trusted = featuresWanted() && !firstTime && files?.length === 0;
+    prepared = await ipc.prepareWorkspace(root, name, commit, inPlace, trusted, (event) => {
       if (current()) onSetupEvent(event);
     });
   } catch (error) {
@@ -2249,7 +2296,8 @@ async function prepareLanguageFeatures(
   if (!current()) return;
   if (prepared.untrusted) {
     awaitingConsent = [key, root, name, commit, inPlace, buildFiles];
-    setState("languageSetup", { phase: "consent", consent: { repo, firstTime, branch: name, files } });
+    const phase = featuresWanted() ? "consent" : "restricted";
+    setState("languageSetup", { phase, consent: { repo, firstTime, branch: name, files } });
     return;
   }
   finishStep("done");

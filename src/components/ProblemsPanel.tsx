@@ -99,7 +99,7 @@ export function ProblemsPanel() {
   const empty = () => {
     if (!state.languageSetup) return "No F# projects here: there is no language server to report problems.";
     const phase = state.languageSetup.phase;
-    if (phase === "consent" || phase === "restricted") return "F# language features are off until you trust the repository's build code (F# off in the status bar).";
+    if (phase === "consent" || phase === "restricted") return "F# language features are off: F# off in the status bar turns them on.";
     if (build.running) return `Building ${buildTarget()}…`;
     if (build.error) return build.error;
     if (build.outcome === "failed") return `The build failed without reporting errors: ${build.tail.at(-1) ?? "dotnet build printed nothing"}`;
