@@ -1062,7 +1062,7 @@ export async function refresh() {
     const dropped =
       shown !== null && isChanged(shown) && !comparison.files.some((file) => file.path === shown) ? shown : null;
     setState("comparison", reconcile(comparison, { key: "path" }));
-    void loadAllFiles(repo, comparison);
+    const solution = loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
     setState("visited", (visited) => [
       ...visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
@@ -1098,8 +1098,19 @@ export async function refresh() {
     } else {
       await selectFile(comparison.files[0]?.path ?? null);
     }
-    if (place !== undefined) restoreListPlace(place, listed);
     void checkChangedFiles();
+    if (place === undefined) return;
+    // Which file is first is known once the solution is read (the explorer's order).
+    const picked = state.selected;
+    await solution;
+    if (repo !== state.repo || state.comparison?.headCommit !== comparison.headCommit) return;
+    const first = state.comparison.files[0]?.path ?? null;
+    if (place === null && state.view === "all") {
+      // Moved on meanwhile: that stays.
+      if (state.selected !== picked) return placesReady();
+      setState("selected", first);
+    }
+    restoreListPlace(place, listed, first);
   } catch (error) {
     fail(error);
   }
@@ -1110,7 +1121,7 @@ async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
     const files = await ipc.listFiles(repo.root, comparison);
     if (repo !== state.repo || comparison.headCommit !== state.comparison?.headCommit) return;
     setAllFiles(files);
-    void loadSolution(repo.root, comparison.headCommit, comparison.checkout ?? null, files);
+    await loadSolution(repo.root, comparison.headCommit, comparison.checkout ?? null, files);
   } catch (error) {
     fail(error);
   }
@@ -1815,14 +1826,14 @@ export function placeReview(): string | null {
 
 /**
  * The place kept for the review shown, taken once: later refreshes leave the
- * views alone. Its view only for the first review since the app started.
+ * views alone. Only the first review since the app started goes back to where
+ * the user was; switching modes, branches or pull requests later starts at the
+ * first file, at the top of the all-files view.
  */
 export function takePlace(root: string): Place | null {
   placePending = false;
   const review = placeReview();
-  const place = review ? placeIn(root, review) : null;
-  if (!firstReview() && place) delete place.view;
-  return place;
+  return firstReview() && review ? placeIn(root, review) : null;
 }
 
 /** The view changed: noted for next time. */
@@ -1838,15 +1849,22 @@ export const snapshotOf = (place: { anchor: number; head: number; scrollTop: num
 });
 
 /**
- * All-files view: scrolls back to where the list was, once its sections are
- * drawn, then lets moving save again. `listed` tells whether a key is still
- * in the list.
+ * All-files view: scrolls back to where the list was, else to its `first`
+ * file, once its sections are drawn, then lets moving save again. `listed`
+ * tells whether a key is still in the list.
  */
-export function restoreListPlace(place: Place | null, listed: (key: string | undefined) => boolean, reveal = revealSection) {
-  const list = place?.list;
-  if (state.view !== "all" || !list || !listed(list.key)) return placesReady();
+export function restoreListPlace(
+  place: Place | null,
+  listed: (key: string | undefined) => boolean,
+  first: string | null,
+  reveal = revealSection,
+) {
+  if (state.view !== "all") return placesReady();
+  const list = place?.list && listed(place.list.key) ? place.list : null;
+  const key = list?.key ?? first;
+  if (key === null) return placesReady();
   requestAnimationFrame(() => {
-    reveal(list.key, list.offset);
+    reveal(key, list?.offset);
     placesReady();
   });
 }
