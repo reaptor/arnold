@@ -12,7 +12,7 @@
 //! request checked out nowhere out, so it can be edited (and the language
 //! server run on its files): in the opened folder by default, or, to leave
 //! the uncommitted changes there untouched, in a registered worktree in
-//! `.arnold/worktrees` (`branch_worktree`, `detached_worktree`).
+//! `.arnold/worktrees` (`branch_worktree`).
 //!
 //! A comparison whose branch is checked out reads that checkout's files, so
 //! they can be edited (saved through `working`).
@@ -49,7 +49,7 @@ pub use pull::{fast_forward_branches, fetch_remote, pull_branch, Pulled};
 pub use push::{count_commits, is_ancestor, push_commit, set_remote_tracking};
 pub use remotes::{fetch_objects, has_commits, remotes, Remote, ScopedHeader};
 pub use worktree::{
-    branch_checkout, branch_worktree, detached_worktree, find_worktree, pull_request_checkout, BranchCheckout, CheckedOut, Placement, Worktree,
+    branch_checkout, branch_worktree, pull_request_checkout, BranchCheckout, CheckedOut, Placement, Worktree,
 };
 pub use working::{
     commit, delete_files, discard, encode_like, ignore, ignored_paths, is_tracked, on_disk, read_index, read_stage, read_worktree, reset_to_head, set_index_text, stage, start_branch, undo_edits, unstage, untrack,

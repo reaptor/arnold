@@ -6,10 +6,8 @@
 //! checking out in a registered git worktree of the app's own, in
 //! `.arnold/worktrees` (`Placement::Worktree`):
 //! - `branch_checkout` / `branch_worktree`: a branch checked out nowhere;
-//! - `pull_request_checkout` / `detached_worktree`: detached at a commit,
-//!   where a pull request is checked out (its edits become suggestions on the
-//!   pull request rather than commits); your own pull request is edited on
-//!   its branch instead, where that is checked out.
+//! - `pull_request_checkout`: a pull request, on its source branch (never
+//!   detached).
 
 use std::path::{Path, PathBuf};
 
@@ -26,152 +24,95 @@ pub struct Worktree {
     pub path: PathBuf,
     /// The commit checked out there.
     pub head: String,
-    /// Whether it has uncommitted changes (edits not suggested yet).
+    /// Whether it has uncommitted changes.
     pub edited: bool,
-    /// The local branch checked out there, for your own pull request edited
-    /// on its branch; `None` when detached at the pull request's commit.
-    pub branch: Option<String>,
+    /// The pull request's source branch, checked out there.
+    pub branch: String,
+    /// Whether it was checked out just now.
+    pub created: bool,
 }
 
-/// `<root>/.arnold/worktrees/<name>`.
-async fn folder(root: &Path, name: &str) -> Result<PathBuf> {
-    if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
-        return Err(GitError::Parse(format!("not a worktree name: {name}")));
-    }
-    Ok(app_folder(root).await?.join("worktrees").join(name))
-}
-
-async fn registered(root: &Path, path: &Path) -> Result<bool> {
-    let out = run_text(root, &["worktree", "list", "--porcelain"]).await?;
-    let wanted = path.canonicalize().ok();
-    Ok(out
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .any(|listed| Path::new(listed).canonicalize().ok().is_some_and(|listed| Some(listed) == wanted)))
-}
-
-async fn describe(path: &Path) -> Result<Worktree> {
+async fn describe(path: &Path, branch: &str, created: bool) -> Result<Worktree> {
     let (head, status) = tokio::try_join!(
         run_text(path, &["rev-parse", "--verify", "HEAD^{commit}"]),
         run(path, &["status", "--porcelain", "-z", "--untracked-files=normal"]),
     )?;
-    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty(), branch: None })
+    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty(), branch: branch.to_string(), created })
 }
 
-/// The app's worktree `name`, if it has been made.
-pub async fn find_worktree(root: &Path, name: &str) -> Result<Option<Worktree>> {
-    let path = folder(root, name).await?;
-    if !tokio::fs::try_exists(&path).await.unwrap_or(false) || !registered(root, &path).await? {
-        return Ok(None);
+/// The pull request's branch checked out at `path`, moved up to `commit`
+/// when that is a fast-forward and it has no uncommitted changes, or with
+/// `discard` after throwing them away (untracked files included). A branch
+/// with commits of its own (not pushed yet) is never moved.
+async fn follow(path: &Path, branch: &str, commit: &str, discard: bool, created: bool) -> Result<Worktree> {
+    let found = describe(path, branch, created).await?;
+    if found.head == commit || (found.edited && !discard) {
+        return Ok(found);
     }
-    describe(&path).await.map(Some)
-}
-
-/// The app's worktree `name` at `commit`: made if need be, and moved to
-/// `commit` when it is elsewhere and has no uncommitted changes (with
-/// changes it stays where it is, and says so by its `head`). With `discard`
-/// its uncommitted changes are thrown away first, untracked files included.
-pub async fn detached_worktree(root: &Path, name: &str, commit: &str, discard: bool) -> Result<Worktree> {
-    let path = folder(root, name).await?;
-    if let Some(found) = find_worktree(root, name).await? {
-        return follow(found, commit, discard).await;
+    let ancestor = run_raw(path, &["merge-base", "--is-ancestor", &found.head, commit]).await?.success;
+    if !ancestor {
+        return Ok(found);
     }
-    // A folder left from a worktree git has forgotten (or deleted by hand).
-    run(root, &["worktree", "prune"]).await?;
-    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Err(GitError::Failed {
-            command: "worktree add".into(),
-            stderr: format!("{} is in the way; delete it and try again.", path.display()),
-        });
-    }
-    let target = path.to_string_lossy().into_owned();
-    let out = run_raw(root, &["worktree", "add", "--quiet", "--detach", &target, commit]).await?;
-    if !out.success {
-        return Err(GitError::Failed { command: "worktree add".into(), stderr: out.stderr });
-    }
-    describe(&path).await
-}
-
-/// A detached checkout moved to `commit` when it is elsewhere and has no
-/// uncommitted changes, or with `discard` after throwing them away.
-async fn follow(found: Worktree, commit: &str, discard: bool) -> Result<Worktree> {
-    let path = &found.path;
-    if found.edited && discard {
+    if found.edited {
         run(path, &["reset", "--hard", "--quiet"]).await?;
         run(path, &["clean", "-d", "--force", "--quiet"]).await?;
     }
-    if found.head != commit && (!found.edited || discard) {
-        run(path, &["checkout", "--quiet", "--detach", commit]).await?;
-        return describe(path).await;
-    }
-    Ok(found)
+    run(path, &["merge", "--ff-only", "--quiet", commit]).await?;
+    describe(path, branch, created).await
 }
 
-/// Where pull request `id` is checked out: with `branch` (the source branch
-/// of your own pull request), wherever that local branch is checked out,
-/// as it is (never moved, nor its edits thrown away); else the opened
-/// folder, when Arnold detached it there and it still is, else its worktree
-/// `.arnold/worktrees/pr-<id>`. Moved to `commit` as `detached_worktree`
-/// says (`Placement::Discard` throws edits away). Checked out nowhere, it
-/// is checked out at `commit` as `placement` says when `create`, else `None`.
+/// Where pull request `id` is checked out: on its source branch `branch`
+/// (a local branch tracking `remote`'s, made at `commit` when there is
+/// none), never detached. Wherever that is checked out already (the opened
+/// folder, a linked worktree) it is used there, moved to `commit` as
+/// `follow` says (`Placement::Discard` throws its edits away). Checked out
+/// nowhere, it is checked out as `placement` says when `create`, else `None`:
+/// in the opened folder, or in a worktree of its own in `.arnold/worktrees`.
 pub async fn pull_request_checkout(
     root: &Path,
     id: u64,
     commit: &str,
-    branch: Option<&str>,
+    branch: &str,
+    remote: Option<&str>,
     create: bool,
     placement: Placement,
 ) -> Result<Option<CheckedOut<Worktree>>> {
-    if let Some(branch) = branch {
-        // Worktrees deleted by hand, whose branches git would still call checked out.
-        run(root, &["worktree", "prune"]).await?;
-        if let Some(path) = checked_out_at(root, branch, has_branch(root, branch).await?).await? {
-            let found = describe(&path).await?;
-            return Ok(Some(CheckedOut::Done(Worktree { branch: Some(branch.to_string()), ..found })));
+    if branch.starts_with('-') || !run_raw(root, &["check-ref-format", "--branch", branch]).await?.success {
+        return Err(GitError::Parse(format!("not a branch name: {branch}")));
+    }
+    let remote = match remote {
+        Some(name) if !remotes(root).await?.iter().any(|known| known.name == name) => {
+            return Err(GitError::Parse(format!("not a remote: {name}")));
         }
-    }
+        other => other,
+    };
     let discard = placement == Placement::Discard;
-    let marker = app_folder(root).await?.join("pull-request");
-    if let Some(found) = in_folder(root, &marker, id).await? {
-        let moved = follow(found, commit, discard).await?;
-        mark(&marker, id, &moved.head).await?;
-        return Ok(Some(CheckedOut::Done(moved)));
-    }
-    let name = format!("pr-{id}");
-    if find_worktree(root, &name).await?.is_some() {
-        return detached_worktree(root, &name, commit, discard).await.map(|found| Some(CheckedOut::Done(found)));
+    // Worktrees deleted by hand, whose branches git would still call checked out.
+    run(root, &["worktree", "prune"]).await?;
+    let exists = has_branch(root, branch).await?;
+    if let Some(path) = checked_out_at(root, branch, exists).await? {
+        return follow(&path, branch, commit, discard, false).await.map(|found| Some(CheckedOut::Done(found)));
     }
     if !create {
         return Ok(None);
     }
-    if placement == Placement::Worktree {
-        return detached_worktree(root, &name, commit, false).await.map(|made| Some(CheckedOut::Done(made)));
+    let path = if placement == Placement::Worktree {
+        add_worktree(root, branch, exists, commit).await?
+    } else {
+        if let Some(changes) = clear_folder(root, placement, &format!("pull request !{id}")).await? {
+            return Ok(Some(changes));
+        }
+        if exists {
+            run(root, &["switch", "--quiet", branch]).await?;
+        } else {
+            run(root, &["switch", "--quiet", "--no-track", "--create", branch, commit]).await?;
+        }
+        root.to_path_buf()
+    };
+    if let (false, Some(remote)) = (exists, remote) {
+        track(root, branch, remote).await?;
     }
-    if let Some(changes) = clear_folder(root, placement, &format!("pull request !{id}")).await? {
-        return Ok(Some(changes));
-    }
-    run(root, &["switch", "--quiet", "--detach", commit]).await?;
-    mark(&marker, id, commit).await?;
-    describe(root).await.map(|made| Some(CheckedOut::Done(made)))
-}
-
-/// The opened folder, when it has pull request `id` checked out: detached
-/// at the commit Arnold last checked it out at (`mark`).
-async fn in_folder(root: &Path, marker: &Path, id: u64) -> Result<Option<Worktree>> {
-    let Ok(text) = tokio::fs::read_to_string(marker).await else { return Ok(None) };
-    let Some((marked, at)) = text.trim().split_once(' ') else { return Ok(None) };
-    if marked != id.to_string() || run_raw(root, &["symbolic-ref", "--quiet", "HEAD"]).await?.success {
-        return Ok(None);
-    }
-    let found = describe(root).await?;
-    Ok((found.head == at).then_some(found))
-}
-
-async fn mark(marker: &Path, id: u64, commit: &str) -> Result<()> {
-    tokio::fs::write(marker, format!("{id} {commit}\n")).await.map_err(|e| GitError::Failed {
-        command: "checkout".into(),
-        stderr: format!("{}: {e}", marker.display()),
-    })
+    follow(&path, branch, commit, false, true).await.map(|made| Some(CheckedOut::Done(made)))
 }
 
 /// Where a branch or pull request checked out nowhere yet is checked out.
@@ -295,22 +236,28 @@ pub async fn branch_worktree(root: &Path, branch: &str) -> Result<BranchCheckout
     if let Some(path) = checked_out_at(root, &local, exists).await? {
         return Ok(BranchCheckout { branch: local, path, created: false });
     }
-    let path = free_folder(root, &slug(&local)).await?;
+    let path = add_worktree(root, &local, exists, branch).await?;
+    if let (false, Some(remote)) = (exists, remote) {
+        track(root, &local, &remote).await?;
+    }
+    Ok(BranchCheckout { branch: local, path, created: true })
+}
+
+/// A new worktree of the local branch `local` in `.arnold/worktrees`, made
+/// at `start` when the branch is new (its upstream is set by hand: `track`).
+async fn add_worktree(root: &Path, local: &str, exists: bool, start: &str) -> Result<PathBuf> {
+    let path = free_folder(root, &slug(local)).await?;
     let target = path.to_string_lossy().into_owned();
-    // The upstream is set by hand (`track`).
     let args: Vec<&str> = if exists {
-        vec!["worktree", "add", "--quiet", &target, &local]
+        vec!["worktree", "add", "--quiet", &target, local]
     } else {
-        vec!["worktree", "add", "--quiet", "--no-track", "-b", &local, &target, branch]
+        vec!["worktree", "add", "--quiet", "--no-track", "-b", local, &target, start]
     };
     let out = run_raw(root, &args).await?;
     if !out.success {
         return Err(GitError::Failed { command: "worktree add".into(), stderr: out.stderr });
     }
-    if let (false, Some(remote)) = (exists, remote) {
-        track(root, &local, &remote).await?;
-    }
-    Ok(BranchCheckout { branch: local, path, created: true })
+    Ok(path)
 }
 
 async fn has_branch(root: &Path, name: &str) -> Result<bool> {
