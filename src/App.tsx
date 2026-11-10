@@ -19,6 +19,7 @@ import { PullRequestDashboard } from "./components/PullRequestDashboard";
 import { PullRequestOverview } from "./components/PullRequestOverview";
 import { NotifyDialog, PullRequestPanel, TokenDialog } from "./components/PullRequestPanel";
 import { Toolbar } from "./components/Toolbar";
+import { ViewBar } from "./components/ViewBar";
 import { WorkingDock } from "./components/WorkingDock";
 import { LINE_ACTION_KEYS, type LineAction } from "./editor/diffEditor";
 import { startupPath, type WorkingSide } from "./ipc/commands";
@@ -263,6 +264,9 @@ export function App() {
           <div class="splitter" classList={{ hidden: dockHidden() }} onPointerDown={startResize} />
         </Show>
         <div class="content-column" classList={{ hidden: listShown() }} ref={contentColumn}>
+        <Show when={state.repo && (state.source !== "pullRequest" || state.pullRequest)}>
+          <ViewBar />
+        </Show>
         {/* The overview covers the files rather than replacing them, which keep their places. */}
         <section class="content" classList={{ overview: overviewShown() }}>
           <Show when={overviewShown()}>

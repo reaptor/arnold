@@ -1,23 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createSignal, onCleanup, Show } from "solid-js";
-import {
-  editsToCommit,
-  goBack,
-  goForward,
-  headBranch,
-  nextChange,
-  previousChange,
-  setBranches,
-  setRange,
-  setIgnoreWhitespace,
-  setMode,
-  overviewShown,
-  setSource,
-  setView,
-  showOverview,
-  state,
-} from "../state/review";
+import { editsToCommit, goBack, goForward, headBranch, setBranches, setRange, setSource, state } from "../state/review";
 import { prs } from "../state/pullRequests";
 import { attentionCount, dashboard, showDashboard } from "../state/dashboard";
 import { favorites } from "../state/favorites";
@@ -31,23 +15,7 @@ import { CreatePullRequestButton } from "./CreatePullRequest";
 import { DiscussionPicker } from "./DiscussionPicker";
 import { PullRequestActions } from "./PullRequestActions";
 import { PullRequestPicker } from "./PullRequestPicker";
-import {
-  ArrowDownIcon,
-  BranchIcon,
-  ArrowUpIcon,
-  BackIcon,
-  ForwardIcon,
-  CommitIcon,
-  DashboardIcon,
-  FileIcon,
-  FilesIcon,
-  OverviewIcon,
-  PullRequestIcon,
-  SparkleIcon,
-  SplitIcon,
-  UnifiedIcon,
-  WhitespaceIcon,
-} from "./icons";
+import { BranchIcon, BackIcon, ForwardIcon, CommitIcon, DashboardIcon, PullRequestIcon, SparkleIcon } from "./icons";
 import { ai, toggleOpen as toggleAi } from "../state/ai";
 import { RepoPicker } from "./RepoPicker";
 import { WindowControls } from "./WindowControls";
@@ -218,85 +186,7 @@ export function Toolbar() {
         <CreatePullRequestButton />
         <span class="toolbar-separator" />
       </Show>
-      <Show when={reviewed() && (state.source !== "pullRequest" || state.pullRequest)}>
-        <div class="segmented" role="group" aria-label="Files shown">
-          <Show when={state.source === "pullRequest"}>
-            <button
-              classList={{ on: overviewShown() }}
-              onClick={() => showOverview(true)}
-              title="Overview: the pull request's description, status and every discussion"
-              aria-label="Overview"
-            >
-              <OverviewIcon />
-            </button>
-          </Show>
-          <button
-            classList={{ on: state.view === "file" && !overviewShown() }}
-            onClick={() => {
-              showOverview(false);
-              void setView("file");
-            }}
-            title="One file: show the file selected in the dock"
-            aria-label="One file"
-          >
-            <FileIcon />
-          </button>
-          <button
-            classList={{ on: state.view === "all" && !overviewShown() }}
-            onClick={() => {
-              showOverview(false);
-              void setView("all");
-            }}
-            title={
-              state.source === "commit"
-                ? "All files: every uncommitted file in one list, Unstaged then Staged"
-                : "All files: show every file of the diff in one list"
-            }
-            aria-label="All files"
-          >
-            <FilesIcon />
-          </button>
-        </div>
-        <div class="segmented" role="group" aria-label="Diff layout">
-          <button
-            classList={{ on: state.mode === "split" }}
-            onClick={() => setMode("split")}
-            title="Side-by-side diff"
-          >
-            <SplitIcon />
-          </button>
-          <button
-            classList={{ on: state.mode === "unified" }}
-            onClick={() => setMode("unified")}
-            title="Unified diff"
-          >
-            <UnifiedIcon />
-          </button>
-        </div>
-        <button
-          class="icon-button whitespace-toggle"
-          classList={{ on: !state.ignoreWhitespace }}
-          onClick={() => setIgnoreWhitespace(!state.ignoreWhitespace)}
-          title={
-            state.ignoreWhitespace
-              ? "Whitespace: changes in whitespace are left out of the diff (click to show them)"
-              : "Whitespace: changes in whitespace are shown (click to leave them out)"
-          }
-          aria-label="Show whitespace changes"
-          aria-pressed={!state.ignoreWhitespace}
-        >
-          <WhitespaceIcon />
-        </button>
-        <span class="toolbar-separator" />
-        <button class="icon-button" onClick={previousChange} title="Previous change (Shift+F7)">
-          <ArrowUpIcon />
-        </button>
-        <button class="icon-button" onClick={nextChange} title="Next change (F7)">
-          <ArrowDownIcon />
-        </button>
-      </Show>
       <Show when={reviewed()}>
-        <span class="toolbar-separator" />
         <button
           class="icon-button ai-toggle"
           classList={{ on: ai.open }}
