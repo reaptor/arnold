@@ -254,8 +254,13 @@ let serverChannel: Channel<string> | null = null;
 // The preparation of the F# workspace is simulated with pauses; `?setupfail`
 // makes the build fail, `?setupslow` makes every step take 4 seconds.
 // Every repository is trusted to run its build code, unless `?untrusted`
-// (with `?buildfiles`, the branch also changes build files).
+// (with `?buildfiles`, the branch also changes build files). F# features
+// start off, as in the app, unless `?lsp`.
 const searchParams = new URLSearchParams(location.search);
+if (!searchParams.has("untrusted")) {
+  const roots = [ROOT, "/src/shop-api-agent-work", "/src/web-shop", "/src/billing", "/src/docs", "/src/infra", "/src/notes"];
+  localStorage.setItem("arnold.trust", JSON.stringify({ repos: roots, approved: [] }));
+}
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, searchParams.has("setupslow") ? 4000 : ms));
 let preparation = 0;
 
@@ -305,7 +310,7 @@ async function fakeProjectLoading(events: Channel<LspEvent>) {
 
 async function fakePrepare(onEvent: Channel<SetupEvent>, root: string, inPlace: boolean, trusted: boolean) {
   const run = ++preparation;
-  if (!trusted && searchParams.has("untrusted")) return { path: null, untrusted: true };
+  if (!trusted) return { path: null, untrusted: true };
   const send = async (event: SetupEvent, ms = 0) => {
     if (ms) await pause(ms);
     if (run !== preparation) throw "cancelled";
