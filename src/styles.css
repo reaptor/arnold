@@ -1033,6 +1033,92 @@ button.primary:hover:not(:disabled) {
   display: none;
 }
 
+/* How the diff is shown, on the frame over it, level with the dock's filter;
+   its labels give way first when the diff gets narrow. */
+.content-column {
+  container-type: inline-size;
+}
+
+.view-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding-bottom: var(--island-gap);
+  color: var(--muted);
+}
+
+.view-bar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  border-color: transparent;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+}
+
+.view-bar .segmented {
+  margin: 0 4px 0 0;
+}
+
+.view-bar .segmented + .segmented,
+.view-bar .toolbar-space + .segmented {
+  margin-left: 4px;
+}
+
+.view-bar .segmented button {
+  height: 24px;
+}
+
+.view-bar .whitespace-toggle:not(.on) {
+  color: var(--muted);
+}
+
+.view-bar .whitespace-toggle.on {
+  background: var(--pressed);
+}
+
+.view-bar .whitespace-toggle.on .icon {
+  stroke: var(--accent);
+}
+
+.change-steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.change-steps > .view-label {
+  padding: 0 4px;
+}
+
+.change-steps button {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+.view-bar {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The layout, whitespace and change labels go first, then which files. */
+@container (max-width: 920px) {
+  .view-bar .toolbar-space ~ * .view-label {
+    display: none;
+  }
+}
+
+@container (max-width: 560px) {
+  .view-bar .view-label {
+    display: none;
+  }
+}
+
 /* Same size as the gaps between the dock's islands. */
 .content-sash {
   flex: none;
@@ -3609,17 +3695,17 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 }
 
 /* Commit mode's Pull, Push and Review buttons leave the branch name room. */
-@media (max-width: 1440px) {
-  .branch-actions .action-label {
+@media (max-width: 1240px) {
+  .branch-actions .action-label,
+  .create-pr-button .action-label,
+  .toolbar-word {
     display: none;
   }
 }
 
-@media (max-width: 1280px) {
-  .create-pr-button .action-label,
+@media (max-width: 1060px) {
   .pr-actions .action-label,
-  .source-switch span:not(.mode-count),
-  .toolbar-word {
+  .source-switch span:not(.mode-count) {
     display: none;
   }
 

@@ -63,7 +63,7 @@ Without a folder they open the current one. Terminals that were open during the 
    - *Commit*: the uncommitted changes of a checkout, to go through and commit (see [Committing](#committing)).
    - *Branches*: a branch against the base branch it goes into (see [Comparing branches](#comparing-branches)).
    - *Pull request*: shown when a remote of the repository is on Azure DevOps (also one added while Arnold is open); one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
-3. **Go through the changes:** pick files in the dock or scroll the all-files list, and step from change to change with `F7`.
+3. **Go through the changes:** pick files in the dock or scroll the all-files list, and step from change to change with `F7`. The bar over the diff sets how it shows: one file or all files (and a pull request's overview), side by side or unified, with or without whitespace changes, and steps to the previous or next change.
 
 A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was.
 
@@ -91,7 +91,7 @@ The files dock has three parts:
 
 The parts track each other: a file picked in Unstaged or Staged (by click or arrow keys) is marked in All files too, its folders opened and scrolled to, and a file picked in All files is marked in the lists that hold it, ready for `S`, `U` and `R` there. The editor keeps showing what was picked, and the keyboard stays where it was.
 
-*Commit* starts in the toolbar's *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys in the lists move through it and the lists follow as you scroll; clicking a file shows it on its own, as in a review, and the choice of view is remembered.
+*Commit* starts in the *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys in the lists move through it and the lists follow as you scroll; clicking a file shows it on its own, as in a review, and the choice of view is remembered.
 
 What `S`, `U` and `R` do:
 
@@ -152,7 +152,7 @@ The filter above them applies to both. Drag the gap between them to resize, clic
 
 ### One file or all files
 
-The toolbar switches between one file at a time and *All files*: every file of the diff in one scrolling list, as in a pull request's "all files" view. *All files* is where new reviews start. In it:
+The bar over the diff switches between one file at a time and *All files*: every file of the diff in one scrolling list, as in a pull request's "all files" view. *All files* is where new reviews start. In it:
 
 - each file has a header that stays in view while you scroll through it; click it to fold the file;
 - clicking a file in the dock scrolls to it, and the dock follows as you scroll;
@@ -230,7 +230,7 @@ The dashboard button next to the repository button (four tiles) lists the active
 
 ### The overview
 
-A pull request opens on its overview, in place of its files: the title, who wants to merge which branch into which, its state, the description, and on the right its status (merge conflicts, the target branch's required policies not met yet, active discussions), the reviewers with their votes and a summary of the changes. Under the description are the work items linked to the pull request: the first with its title and description, the others one line each, each a link that opens it in Azure DevOps (reading them needs a token with *Work Items → Read*; without it only their numbers show, still as links). Below them are all of its discussions: those about the pull request as a whole, then those about each file, each with *Reply*, *Accept suggestion* for an open suggestion, and *Show in diff*, which opens the file at the discussion. The overview button in the toolbar, left of *One file* and *All files*, comes back to it; picking a file in the dock, `F7` or those buttons leave it.
+A pull request opens on its overview, in place of its files: the title, who wants to merge which branch into which, its state, the description, and on the right its status (merge conflicts, the target branch's required policies not met yet, active discussions), the reviewers with their votes and a summary of the changes. Under the description are the work items linked to the pull request: the first with its title and description, the others one line each, each a link that opens it in Azure DevOps (reading them needs a token with *Work Items → Read*; without it only their numbers show, still as links). Below them are all of its discussions: those about the pull request as a whole, then those about each file, each with *Reply*, *Accept suggestion* for an open suggestion, and *Show in diff*, which opens the file at the discussion. The *Overview* button over the diff, left of *One file* and *All files*, comes back to it; picking a file in the dock, `F7` or those buttons leave it.
 
 ### Discussions and comments
 
