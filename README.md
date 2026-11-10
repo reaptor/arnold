@@ -183,11 +183,11 @@ With *All changes* picked, type straight into the diff (the right side, or the f
 
 ### Checking out
 
-A branch or pull request checked out nowhere is checked out in the opened folder, as `git switch` would (a pull request detached at its latest push). Arnold does this in every mode: comparing a branch in *Branches*, opening a pull request, or picking a branch to commit on in *Commit*.
+A branch or pull request checked out nowhere is checked out in the opened folder, as `git switch` would. A pull request is checked out on its source branch, never detached: the local branch, made at its latest push to track the remote's when there is none. Arnold does this in every mode: comparing a branch in *Branches*, opening a pull request, or picking a branch to commit on in *Commit*.
 
 If the opened folder has uncommitted changes (untracked files included), Arnold asks first:
 
-- **Check out in a worktree**: in a git worktree of its own, `.arnold/worktrees/<branch>` (`pr-<id>` for a pull request). Your folder, its branch and its changes are not touched.
+- **Check out in a worktree**: in a git worktree of its own, `.arnold/worktrees/<branch>` (for a pull request, its source branch). Your folder, its branch and its changes are not touched.
 - **Stash changes and check out here**: puts every uncommitted change, new files included, on the git stash (*Arnold: before checking out …*), then checks out in the folder. `git stash pop` brings them back.
 - **Discard all changes and check out here**: throws every uncommitted change away, new files included, then checks out in the folder. Arnold asks once more before it does, with the button that does it in red (*Back* or `Esc` returns to the choices); this cannot be undone.
 - **Cancel**: nothing is checked out, and the diff stays read-only until you check it out from *Read-only* in the status bar.
@@ -244,11 +244,11 @@ Discussions show with all changes only: a commit picked in the commit picker has
 
 ### Suggesting changes
 
-Rather than describing a fix, make it: type into the diff. Opening a pull request checks it out detached at its latest push: in the opened folder, or, if that has uncommitted changes and you would rather keep them, in a git worktree of its own, `.arnold/worktrees/pr-<id>` (see [Checking out](#checking-out)). F# language features run in that checkout, so they see your edits.
+Rather than describing a fix, make it: type into the diff. Opening a pull request checks out its source branch at its latest push, where it is not checked out already: in the opened folder, or, if that has uncommitted changes and you would rather keep them, in a git worktree of its own, `.arnold/worktrees/<branch>` (see [Checking out](#checking-out)). A clean checkout of it is moved up to a new push (a fast-forward), as `git pull` would. F# language features run in that checkout, so they see your edits.
 
 Editing works as in [Editing while comparing](#editing-while-comparing): saved as you type, framed in amber, undone from the right-click menu (files are not marked *edited* here: edits are only a way to make suggestions). As soon as you change something, a *Suggest* button shows on a row of its own under it. It turns that change into an Azure DevOps suggestion comment on the lines it replaces, which the author can apply with a click; add a message if you like. Once posted, it shows as every open suggestion does: the lines it would replace framed in amber, and the suggested code in the same frame in its discussion. New and deleted files cannot be suggested.
 
-Your own pull request is different when its branch is already checked out, in the opened folder or a linked worktree: Arnold reviews it there, without checking it out again, and editing works exactly as in [Editing while comparing](#editing-while-comparing). Edits are uncommitted edits to that branch, marked **● edited** and counted in the status bar with *Commit…*, with no *Suggest* button: commit and push them as for any branch. The branch is never moved or reset; while it is not at the pull request's latest push (commits not pushed yet, or a push it lacks), the diff is read-only and *Read-only* says so.
+Your own pull request is different: Arnold reviews it on its branch, in the opened folder or a linked worktree, and editing works exactly as in [Editing while comparing](#editing-while-comparing). Edits are uncommitted edits to that branch, marked **● edited** and counted in the status bar with *Commit…*, with no *Suggest* button: commit and push them as for any branch. Its edits are never thrown away, nor commits of its own; while it is not at the pull request's latest push (commits not pushed yet, or a push it lacks), the diff is read-only and *Read-only* says so.
 
 Open suggestions, your colleagues' or your own, have *Accept suggestion*, in the diff and in the overview. After asking, Arnold commits the suggested lines to the source branch on Azure DevOps, on top of the latest push you were shown (as Azure DevOps' own *Apply change* does; if the branch has moved on since, nothing is committed), and marks the discussion resolved. The new push then shows as any other does. The button is disabled, with the reason as its tooltip, while the pull request is not active or has a push newer than the one shown. Accepting needs a token with *Code → Read & write*.
 
@@ -301,7 +301,7 @@ Restoring, building and loading the projects runs code the repository chooses: M
 - **F# features start off** whenever you open a repository, switch between Commit, Branches and Pull request mode, or pick another branch or pull request, without asking: the diff has syntax colors but no hover, go to definition or error markers, and dotnet stays idle. *F# off* in the status bar turns them on for what is open, until you open or pick something else.
 - **The first time** you turn them on in a repository, Arnold asks whether to trust its build code. Trusting is remembered for that folder.
 - **A branch or pull request that changes build files** (project and solution files, a project's `.user` file, `*.props`, `*.targets`, `*.rsp`, `Directory.*`, `dotnet-tools.json`, `paket.*` and `.paket/`, `global.json`, `nuget.config`, `elmish-land.json`) asks again, also in a trusted repository, and lists them; a click on one shows it, so you can read it first. Running it is remembered for that commit of the branch, so a new push that changes build files asks once more.
-- **Commit mode** on a branch needs only the repository to be trusted. On a detached checkout, such as a pull request checked out in the opened folder, it asks for each commit, unless running that pull request's commit was agreed to already.
+- **Commit mode** on a branch needs only the repository to be trusted. On a detached checkout, or someone else's pull request checked out while it is open, it asks for each commit, unless running that pull request's commit was agreed to already.
 - **Keep F# features off** leaves them off; *F# off* in the status bar asks again.
 
 ### Fantomas
@@ -383,7 +383,7 @@ Reviewing writes nothing to the repository's files until you edit. Edits you mak
 - to the remote, when you select *Push* or *Push & create PR* in *Commit*: the branch checked out, never forced, with its upstream set the first time;
 - from the remotes, when you select *Fetch* in a branch picker or *Pull* in *Commit*: every branch into the remote-tracking branches (deleted ones dropped), and local branches checked out nowhere that are only behind moved up to their remote; *Pull* also fast-forwards or merges the branch checked out;
 - to Azure DevOps, when you ask it to: new pull requests (linked to a work item if you give one), comments and suggestions, accepted suggestions (a commit on the pull request's source branch, and the discussion resolved), votes, and completing, abandoning, drafting or publishing a pull request;
-- when you open a pull request: its latest push checked out detached, in the opened folder or (as for a branch) in a registered git worktree, `.arnold/worktrees/pr-<id>`, holding your edits until you suggest or undo them; `.arnold/pull-request` notes which pull request the folder has. Your own pull request whose branch is checked out is edited on that branch instead, as when comparing a branch.
+- when you open a pull request: its source branch checked out (a local branch made at its latest push and tracking the remote's when there is none), in the opened folder or (as for a branch) in a registered git worktree, `.arnold/worktrees/<branch>`, holding your edits until you suggest or undo them, and moved up to a new push while it has none. Your own pull request is edited on that branch as when comparing a branch.
 
 Outside the repository, explaining code and suggesting improvements with AI send the code you ask about (for suggestions, also a few unchanged files beside the changed ones) to GitHub Copilot, keeps your GitHub sign-in in the system's credential store, and keeps the Copilot CLI and its state in Arnold's data folder.
 

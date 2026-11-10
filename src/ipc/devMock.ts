@@ -689,9 +689,6 @@ function discardFolder() {
   worktree = new Map(headMap());
 }
 
-/** The pull request detached in the opened folder, if any. */
-let folderPullRequest: number | null = null;
-
 /** `branch_checkout`: in the opened folder unless it has changes (`here`), after throwing them away, or in a worktree. */
 function branchCheckout(name: string, placement: Placement) {
   if (searchParams.has("checkoutfail")) throw "git switch failed: fatal: could not lock HEAD (dev mock)";
@@ -704,7 +701,6 @@ function branchCheckout(name: string, placement: Placement) {
   if (changes) discardFolder();
   for (const other of repo.branches) if (other.worktreePath === ROOT) other.worktreePath = null;
   prTrees.delete(ROOT);
-  folderPullRequest = null;
   local.worktreePath = ROOT;
   repo.currentBranch = local.name;
   committedOn = local.name;
@@ -783,46 +779,51 @@ function filesAt(commit: string) {
 }
 
 /**
- * `pull_request_checkout`: your own pull request's `branch` where it is checked out, else the opened folder or
- * the pull request's worktree, as `placement` says when it has none.
+ * `pull_request_checkout`: the pull request's source `branch` where it is checked out, else checked out (made
+ * when there is none) in the opened folder or a worktree of its own, as `placement` says. Never detached.
  */
-function pullRequestCheckout(root: string, id: number, commit: string, branch: string | null, create: boolean, placement: Placement) {
+function pullRequestCheckout(root: string, commit: string, branch: string, create: boolean, placement: Placement) {
   checkoutState();
-  const local = branch && repo.branches.find((candidate) => !candidate.isRemote && candidate.name === branch && candidate.worktreePath);
-  if (local) {
+  const local = repo.branches.find((candidate) => !candidate.isRemote && candidate.name === branch);
+  if (local?.worktreePath && !prTrees.has(local.worktreePath)) {
     // The mock's checkouts share one set of files, at the branch's tip.
     const head = yourPr === "apart" ? "9c2b4e6f8a1d3c5e7f9b0d2a4c6e8f1a3b5d7c9e" : TIP;
-    return { kind: "done", path: local.worktreePath, head, edited: folderChanges() !== null, branch: local.name };
+    return { kind: "done", path: local.worktreePath, head, edited: folderChanges() !== null, branch, created: false };
   }
-  const inFolder = folderPullRequest === id && prTrees.has(ROOT);
-  const own = prTrees.has(`${root}/.arnold/worktrees/pr-${id}`);
-  if (inFolder || own || (create && placement === "worktree")) {
-    const found = pullRequestWorktree(inFolder ? ROOT : `${root}/.arnold/worktrees/pr-${id}`, commit, true, placement === "discard");
-    return { kind: "done", ...found };
+  if (local?.worktreePath) {
+    return { kind: "done", ...pullRequestWorktree(local.worktreePath, branch, commit, placement === "discard"), created: false };
   }
   if (!create) return null;
-  const changes = folderChanges();
-  if (changes && placement === "here") return changes;
-  if (changes) discardFolder();
-  for (const other of repo.branches) if (other.worktreePath === ROOT) other.worktreePath = null;
-  repo.currentBranch = null;
-  prTrees.delete(ROOT);
-  folderPullRequest = id;
-  setTimeout(() => void emit("refs-changed"), 50);
-  return { kind: "done", ...pullRequestWorktree(ROOT, commit, true, false) };
+  let path = `${root}/.arnold/worktrees/${branch.replace(/[^\w.-]/g, "-")}`;
+  if (placement === "worktree") {
+    repo.worktrees.push(path);
+  } else {
+    const changes = folderChanges();
+    if (changes && placement === "here") return changes;
+    if (changes) discardFolder();
+    for (const other of repo.branches) if (other.worktreePath === ROOT) other.worktreePath = null;
+    repo.currentBranch = branch;
+    committedOn = branch;
+    prTrees.delete(ROOT);
+    path = ROOT;
+    setTimeout(() => void emit("refs-changed"), 50);
+  }
+  const made = local ?? { ...(repo.branches.find((candidate) => candidate.name === `origin/${branch}`) ?? repo.branches[0]), name: branch, isRemote: false };
+  if (!local) repo.branches.push(made);
+  made.worktreePath = path;
+  return { kind: "done", ...pullRequestWorktree(path, branch, commit, false), created: true };
 }
 
-function pullRequestWorktree(path: string, commit: string, create: boolean, discard: boolean) {
+function pullRequestWorktree(path: string, branch: string, commit: string, discard: boolean) {
   let entry = prTrees.get(path);
-  if (!entry && !create) return null;
   const edited = () => !!entry && diffOf(entry.tip, entry.tree).length > 0;
-  // As git: made, or moved to the commit when it has no edits (or they are thrown away).
+  // As git: made, or moved up to the commit when it has no edits (or they are thrown away).
   if (!entry || (entry.head !== commit && (!edited() || discard)) || discard) {
     const tip = filesAt(commit);
     entry = { tree: new Map(tip), head: commit, tip };
     prTrees.set(path, entry);
   }
-  return { path, head: entry.head, edited: edited(), branch: null };
+  return { path, head: entry.head, edited: edited(), branch };
 }
 
 // ------------------------------------------------------------- Fantomas
@@ -2225,8 +2226,8 @@ export function install() {
           } satisfies Comparison;
         }
         case "pull_request_checkout": {
-          const { id, branch, create, placement } = payload as { id: number; branch: string | null; create: boolean; placement: Placement };
-          return slowly(() => pullRequestCheckout(args.root, id, args.commit, branch, create, placement), 400);
+          const { branch, create, placement } = payload as { branch: string; create: boolean; placement: Placement };
+          return slowly(() => pullRequestCheckout(args.root, args.commit, branch, create, placement), 400);
         }
         case "branch_checkout":
           return slowly(() => branchCheckout(args.branch, (payload as { placement: Placement }).placement), 300);

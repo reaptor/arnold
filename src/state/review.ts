@@ -1401,10 +1401,11 @@ export function editBlocked(): { reason: string; action: EditAction | null } | n
     const pullRequest = state.pullRequest;
     if (!pullRequest) return null;
     const worktree = prWorktreeOf(pullRequest);
-    if (worktree?.branch && worktree.head !== pullRequest.sourceCommit) {
+    // Your own branch's edits are never thrown away from here; nor is a branch with commits of its own moved.
+    if (worktree && worktree.head !== pullRequest.sourceCommit && (pullRequest.yours || !worktree.edited)) {
       const where = worktree.path === repo.root ? "the opened folder" : (relativeTo(repo.root, worktree.path) ?? worktree.path);
       return {
-        reason: `${worktree.branch} in ${where} is at ${worktree.head.slice(0, 8)}, not at this pull request's latest push (${(pullRequest.sourceCommit ?? "").slice(0, 8)}). Push or pull it, so they match, to edit your pull request there.`,
+        reason: `${worktree.branch} in ${where} is at ${worktree.head.slice(0, 8)}, not at this pull request's latest push (${(pullRequest.sourceCommit ?? "").slice(0, 8)}). ${pullRequest.yours ? "Push or pull it" : "Pull it"}, so they match, to edit the pull request there.`,
         action: null,
       };
     }
@@ -1508,11 +1509,11 @@ const prWorktreeOf = (pullRequest: ReviewedPullRequest) =>
  * Your own pull request's local branch, when the diff is edited on it where
  * it is checked out (the opened folder or a linked worktree): its edits are
  * then uncommitted edits to commit, as in Branches, not suggestions. Null
- * for anyone else's pull request, or one checked out detached.
+ * for anyone else's pull request, whose edits become suggestions.
  */
 export function prEditBranch(): string | null {
   const pullRequest = state.pullRequest;
-  if (state.source !== "pullRequest" || !pullRequest || !state.comparison?.checkout) return null;
+  if (state.source !== "pullRequest" || !pullRequest?.yours || !state.comparison?.checkout) return null;
   return prWorktreeOf(pullRequest)?.branch ?? null;
 }
 
@@ -1528,12 +1529,13 @@ function prCheckout(): string | null {
 }
 
 /**
- * Reads the checkout of the pull request under review (the opened folder,
- * or its worktree), or with `create` checks it out: in the opened folder,
- * or when that has uncommitted changes, where the user picks. One without
- * edits moves to the pull request's latest push, and with `discard` one
- * with edits does too, throwing them away. Your own pull request is edited
- * on its branch where that is checked out, which is never moved or reset.
+ * Reads the checkout of the pull request under review, on its source
+ * branch wherever that is checked out, or with `create` checks that branch
+ * out: in the opened folder, or when that has uncommitted changes, where
+ * the user picks (a worktree of its own among them). Never detached. One
+ * without edits moves up to the pull request's latest push, and with
+ * `discard` one with edits does too, throwing them away (never asked for
+ * your own pull request, whose edits are yours to commit).
  */
 async function loadPrWorktree(create: boolean, discard = false) {
   const repo = state.repo;
@@ -1541,9 +1543,8 @@ async function loadPrWorktree(create: boolean, discard = false) {
   if (!repo || !pullRequest?.sourceCommit) return;
   const key = checkoutKey(repo.root, `!${pullRequest.id}`);
   const commit = pullRequest.sourceCommit;
-  const own = pullRequest.yours ? pullRequest.sourceBranch : null;
   const check = (create: boolean, placement: Placement) =>
-    ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, own, create, placement);
+    ipc.pullRequestCheckout(repo.root, pullRequest.id, commit, pullRequest.sourceBranch, pullRequest.remote, create, placement);
   try {
     let worktree: Worktree | null;
     let stashed = false;
@@ -1553,7 +1554,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
         // Edits on an earlier push are thrown away only when asked to (`discard`).
         async (placement) => (await check(true, discard ? "discard" : placement))!,
       );
-      worktree = made && { path: made.path, head: made.head, edited: made.edited, branch: made.branch };
+      worktree = made && { path: made.path, head: made.head, edited: made.edited, branch: made.branch, created: made.created };
       stashed = made?.stashed ?? false;
       if (!worktree) setCheckoutProblem({ key, error: CANCELLED });
     } else {
@@ -1564,7 +1565,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
     if (worktree && create) {
       setCheckoutProblem(null);
-      if (worktree.path === repo.root && !worktree.branch) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id}`, worktree.path, stashed));
+      if (worktree.created) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id} (${worktree.branch})`, worktree.path, stashed));
     }
   } catch (error) {
     setCheckoutProblem({ key, error: String(error) });
@@ -2196,21 +2197,23 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
  */
 export function setUpLanguageFeaturesIn(checkout: string, branch: string | null, commit: string) {
   setUpAgain = () => setUpLanguageFeaturesIn(checkout, branch, commit);
-  if (branch !== null) {
+  // Someone else's pull request checked out here (on its branch), or a
+  // detached HEAD: its build files are not known, so each commit asks unless
+  // the pull request's was approved.
+  const worktree = state.prWorktree;
+  const pullRequest =
+    worktree?.path === checkout && state.pullRequest?.id === worktree.pullRequest && (branch === null || branch === worktree.branch)
+      ? state.pullRequest
+      : null;
+  if (branch !== null && (!pullRequest || pullRequest.yours)) {
     const key = inPlaceKey(checkout, branch);
     if (key !== preparedKey) void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
     return;
   }
-  // A detached HEAD may be a pull request Arnold checked out here: its build
-  // files are not known, so each commit asks unless the pull request's was approved.
   const key = inPlaceKey(checkout, commit);
   if (key === preparedKey) return;
-  const worktree = state.prWorktree;
-  const pullRequest =
-    worktree?.path === checkout && worktree.head === commit && state.pullRequest?.id === worktree.pullRequest
-      ? state.pullRequest
-      : null;
-  void prepareLanguageFeatures(key, checkout, pullRequest?.sourceBranch ?? commit.slice(0, 8), commit, true, null);
+  const name = pullRequest && worktree?.head === commit ? pullRequest.sourceBranch : commit.slice(0, 8);
+  void prepareLanguageFeatures(key, checkout, name, commit, true, null);
 }
 
 /** The setup waiting for the user's consent, to run once it is given. */
