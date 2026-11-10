@@ -1563,6 +1563,8 @@ async function loadPrWorktree(create: boolean, discard = false) {
     }
     if (state.repo !== repo || state.pullRequest?.id !== pullRequest.id) return;
     setState("prWorktree", worktree && { ...worktree, pullRequest: pullRequest.id });
+    // Its build code stays the author's in Commit mode, also once the pull request is closed.
+    if (worktree && !pullRequest.yours) trust.markForeign(repo.root, worktree.branch);
     if (worktree && create) {
       setCheckoutProblem(null);
       if (worktree.created) commitMode.notify(checkedOutText(repo.root, `pull request !${pullRequest.id} (${worktree.branch})`, worktree.path, stashed));
@@ -2197,22 +2199,23 @@ async function setUpLanguageFeatures(repo: RepoInfo, comparison: Comparison) {
  */
 export function setUpLanguageFeaturesIn(checkout: string, branch: string | null, commit: string) {
   setUpAgain = () => setUpLanguageFeaturesIn(checkout, branch, commit);
-  // Someone else's pull request checked out here (on its branch), or a
-  // detached HEAD: its build files are not known, so each commit asks unless
-  // the pull request's was approved.
+  // Someone else's pull request checked out here (on its branch, now or
+  // ever before), or a detached HEAD: its build files are not known, so each
+  // commit asks unless the pull request's was approved.
   const worktree = state.prWorktree;
   const pullRequest =
     worktree?.path === checkout && state.pullRequest?.id === worktree.pullRequest && (branch === null || branch === worktree.branch)
       ? state.pullRequest
       : null;
-  if (branch !== null && (!pullRequest || pullRequest.yours)) {
+  const foreign = branch !== null && trust.isForeign(state.repo?.root ?? checkout, branch);
+  if (branch !== null && !foreign && (!pullRequest || pullRequest.yours)) {
     const key = inPlaceKey(checkout, branch);
     if (key !== preparedKey) void prepareLanguageFeatures(key, checkout, branch, commit, true, []);
     return;
   }
   const key = inPlaceKey(checkout, commit);
   if (key === preparedKey) return;
-  const name = pullRequest && worktree?.head === commit ? pullRequest.sourceBranch : commit.slice(0, 8);
+  const name = pullRequest && worktree?.head === commit ? pullRequest.sourceBranch : (branch ?? commit.slice(0, 8));
   void prepareLanguageFeatures(key, checkout, name, commit, true, null);
 }
 

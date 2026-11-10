@@ -12,20 +12,29 @@ const KEY = "arnold.trust";
 /** Approvals of single branches kept; the oldest go first. */
 const MAX_APPROVALS = 200;
 
+/** Branches of someone else's pull requests kept; the oldest go first. */
+const MAX_FOREIGN = 200;
+
 interface Stored {
   /** Trusted repositories, by root path. */
   repos: string[];
   /** Branches whose build files were looked at and run, as `approvalKey` gives them. */
   approved: string[];
+  /**
+   * Local branches someone else's pull request was checked out on, as
+   * `branchKey` gives them: their build code is the pull request author's,
+   * so each of their commits asks, also once the pull request is closed.
+   */
+  foreign: string[];
 }
 
 function load(): Stored {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
     const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item) => typeof item === "string") : []);
-    return { repos: strings(stored.repos), approved: strings(stored.approved) };
+    return { repos: strings(stored.repos), approved: strings(stored.approved), foreign: strings(stored.foreign) };
   } catch {
-    return { repos: [], approved: [] };
+    return { repos: [], approved: [], foreign: [] };
   }
 }
 
@@ -34,6 +43,20 @@ function save(stored: Stored) {
 }
 
 const approvalKey = (root: string, branch: string, commit: string) => `${root}\n${branch}\n${commit}`;
+
+const branchKey = (root: string, branch: string) => `${root}\n${branch}`;
+
+/** Whether someone else's pull request was checked out on `branch` of the repository at `root`. */
+export const isForeign = (root: string, branch: string) => load().foreign.includes(branchKey(root, branch));
+
+/** Someone else's pull request is checked out on `branch` of the repository at `root`. */
+export function markForeign(root: string, branch: string) {
+  const stored = load();
+  const key = branchKey(root, branch);
+  if (stored.foreign.at(-1) === key) return;
+  stored.foreign = [...stored.foreign.filter((other) => other !== key), key].slice(-MAX_FOREIGN);
+  save(stored);
+}
 
 export const isTrusted = (root: string) => load().repos.includes(root);
 

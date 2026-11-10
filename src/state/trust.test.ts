@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChangedFile } from "../ipc/commands";
-import { changedBuildFiles, isApproved, isBuildFile, isTrusted, trust } from "./trust";
+import { changedBuildFiles, isApproved, isBuildFile, isForeign, isTrusted, markForeign, trust } from "./trust";
 
 const stored = new Map<string, string>();
 globalThis.localStorage = {
@@ -79,5 +79,21 @@ describe("trust", () => {
     expect(isTrusted("/src/shop")).toBe(false);
     trust("/src/shop");
     expect(isTrusted("/src/shop")).toBe(true);
+  });
+});
+
+describe("someone else's pull request branches", () => {
+  beforeEach(() => stored.clear());
+
+  it("remembers the branches they were checked out on, per repository", () => {
+    expect(isForeign("/repo", "feature/x")).toBe(false);
+    markForeign("/repo", "feature/x");
+    markForeign("/repo", "feature/x");
+    expect(isForeign("/repo", "feature/x")).toBe(true);
+    expect(isForeign("/other", "feature/x")).toBe(false);
+    expect(isForeign("/repo", "main")).toBe(false);
+    // Trusting the repository keeps them.
+    trust("/repo", { name: "feature/x", commit: "abc" });
+    expect(isForeign("/repo", "feature/x")).toBe(true);
   });
 });

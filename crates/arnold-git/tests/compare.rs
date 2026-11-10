@@ -452,10 +452,14 @@ async fn checks_pull_requests_out_on_their_branch() {
         other => panic!("not checked out: {other:?}"),
     };
     let origin = Some("origin");
-    assert_eq!(pull_request_checkout(root, 7, &feature_tip, "topic", origin, false, Placement::Here).await.unwrap(), None);
+    // Pushed to the remote straight from its URL: its remote-tracking branches are fetched by the checkout.
+    let url = remote.path().to_str().unwrap().to_string();
+    let publish = |commit: &str, branch: &str| git(root, &["push", "--quiet", "--force", &url, &format!("{commit}:refs/heads/{branch}")]);
+    publish(&feature_tip, "topic");
+    assert_eq!(pull_request_checkout(root, 7, &feature_tip, "topic", origin, None, false, Placement::Here).await.unwrap(), None);
 
     // Clean: the folder switches to the source branch, made at the pull request's commit to track the remote's.
-    let made = done(pull_request_checkout(root, 7, &feature_tip, "topic", origin, true, Placement::Here).await.unwrap());
+    let made = done(pull_request_checkout(root, 7, &feature_tip, "topic", origin, None, true, Placement::Here).await.unwrap());
     assert_eq!((made.path.as_path(), made.head.as_str(), made.edited, made.created), (root, feature_tip.as_str(), false, true));
     assert_eq!(made.branch, "topic");
     assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("topic"));
@@ -464,27 +468,31 @@ async fn checks_pull_requests_out_on_their_branch() {
 
     // Found again without `create`, and moved up to a new push while clean.
     let next = push_on(root, &feature_tip);
-    let moved = done(pull_request_checkout(root, 7, &next, "topic", origin, false, Placement::Here).await.unwrap());
+    publish(&next, "topic");
+    let moved = done(pull_request_checkout(root, 7, &next, "topic", origin, None, false, Placement::Here).await.unwrap());
     assert_eq!((moved.path.as_path(), moved.head.as_str(), moved.created), (root, next.as_str(), false));
     assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("topic"));
     // Edited: it stays where it is, until the edits are thrown away.
     let later = push_on(root, &next);
+    publish(&later, "topic");
     write(root, "a.txt", "edited\n");
-    let kept = done(pull_request_checkout(root, 7, &later, "topic", origin, false, Placement::Here).await.unwrap());
+    let kept = done(pull_request_checkout(root, 7, &later, "topic", origin, None, false, Placement::Here).await.unwrap());
     assert_eq!((kept.head.as_str(), kept.edited), (next.as_str(), true));
-    let fresh = done(pull_request_checkout(root, 7, &later, "topic", origin, false, Placement::Discard).await.unwrap());
+    let fresh = done(pull_request_checkout(root, 7, &later, "topic", origin, None, false, Placement::Discard).await.unwrap());
     assert_eq!((fresh.head.as_str(), fresh.edited), (later.as_str(), false));
     // Never moved back, nor onto a commit that is not ahead of it.
-    let kept = done(pull_request_checkout(root, 7, &main_tip, "topic", origin, false, Placement::Here).await.unwrap());
+    publish(&main_tip, "topic");
+    let kept = done(pull_request_checkout(root, 7, &main_tip, "topic", origin, None, false, Placement::Here).await.unwrap());
     assert_eq!(kept.head, later);
 
     // Another pull request while the folder has edits: refused, or a worktree of its branch.
     write(root, "a.txt", "edited\n");
+    publish(&main_tip, "other");
     assert_eq!(
-        pull_request_checkout(root, 8, &main_tip, "other", origin, true, Placement::Here).await.unwrap(),
+        pull_request_checkout(root, 8, &main_tip, "other", origin, None, true, Placement::Here).await.unwrap(),
         Some(CheckedOut::Changes { files: 1, untracked: 0 })
     );
-    let aside = done(pull_request_checkout(root, 8, &main_tip, "other", origin, true, Placement::Worktree).await.unwrap());
+    let aside = done(pull_request_checkout(root, 8, &main_tip, "other", origin, None, true, Placement::Worktree).await.unwrap());
     assert!(aside.path.ends_with(".arnold/worktrees/other"), "{}", aside.path.display());
     assert_eq!((aside.branch.as_str(), aside.head.as_str(), aside.created), ("other", main_tip.as_str(), true));
     assert_eq!(String::from_utf8(git_output(&aside.path, &["branch", "--show-current"])).unwrap().trim(), "other");
@@ -494,12 +502,32 @@ async fn checks_pull_requests_out_on_their_branch() {
     // An existing local branch checked out nowhere is switched to, and brought up to the pull request.
     git(root, &["checkout", "--quiet", "--force", "main"]);
     let ahead = push_on(root, &feature_tip);
-    let switched = done(pull_request_checkout(root, 9, &ahead, "feature", origin, true, Placement::Here).await.unwrap());
+    publish(&ahead, "feature");
+    let switched = done(pull_request_checkout(root, 9, &ahead, "feature", origin, None, true, Placement::Here).await.unwrap());
     assert_eq!((switched.path.as_path(), switched.head.as_str()), (root, ahead.as_str()));
     assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
 
-    assert!(pull_request_checkout(root, 10, &main_tip, "--force", origin, true, Placement::Here).await.is_err());
-    assert!(pull_request_checkout(root, 10, &main_tip, "x", Some("nowhere"), true, Placement::Here).await.is_err());
+    // A pull request from a fork's `main`, ahead of the remote's: your `main` is not moved, nor
+    // is a new branch made under that name; it gets one of its own, followed to new pushes.
+    publish(&main_tip, "main");
+    let forked = push_on(root, &main_tip);
+    let fork = done(pull_request_checkout(root, 11, &forked, "main", origin, None, true, Placement::Here).await.unwrap());
+    assert_eq!((fork.branch.as_str(), fork.head.as_str(), fork.path.as_path()), ("pr/11/main", forked.as_str(), root));
+    assert_eq!(String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim(), main_tip);
+    assert!(String::from_utf8(git_output(root, &["config", "--get-regexp", "^branch\\."])).unwrap().lines().all(|line| !line.contains("pr/11")));
+    let forked_again = push_on(root, &forked);
+    let fork = done(pull_request_checkout(root, 11, &forked_again, "main", origin, None, false, Placement::Here).await.unwrap());
+    assert_eq!((fork.branch.as_str(), fork.head.as_str()), ("pr/11/main", forked_again.as_str()));
+    assert_eq!(String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim(), main_tip);
+    // Nor is a branch of yours with that name moved when there is no remote to check it against.
+    git(root, &["checkout", "--quiet", "--force", "main"]);
+    let unknown = push_on(root, &main_tip);
+    let aside = done(pull_request_checkout(root, 12, &unknown, "main", None, None, true, Placement::Here).await.unwrap());
+    assert_eq!((aside.branch.as_str(), aside.head.as_str()), ("pr/12/main", unknown.as_str()));
+    assert_eq!(String::from_utf8(git_output(root, &["rev-parse", "main"])).unwrap().trim(), main_tip);
+
+    assert!(pull_request_checkout(root, 10, &main_tip, "--force", origin, None, true, Placement::Here).await.is_err());
+    assert!(pull_request_checkout(root, 10, &main_tip, "x", Some("nowhere"), None, true, Placement::Here).await.is_err());
 }
 
 #[tokio::test]
@@ -516,27 +544,27 @@ async fn edits_your_own_pull_request_on_its_checked_out_branch() {
 
     // The folder has the branch, with edits: used as it is, edits and all.
     write(root, "a.txt", "edited\n");
-    let found = done(pull_request_checkout(root, 7, &feature_tip, "feature", None, true, Placement::Here).await.unwrap());
+    let found = done(pull_request_checkout(root, 7, &feature_tip, "feature", None, None, true, Placement::Here).await.unwrap());
     // As git names it (canonical, as `list_branches` gives it).
     assert_eq!(found.path.canonicalize().unwrap(), root.canonicalize().unwrap());
     assert_eq!((found.head.as_str(), found.edited, found.created), (feature_tip.as_str(), true, false));
     assert_eq!(found.branch, "feature");
     assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("feature"));
     assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
-    // Not moved to an older commit either: the branch stays where it is.
+    // Not at the pull request's commit, without a remote to check that against: never moved.
     git(root, &["checkout", "--quiet", "--", "a.txt"]);
-    let kept = done(pull_request_checkout(root, 7, &main_tip, "feature", None, false, Placement::Here).await.unwrap());
-    assert_eq!((kept.head.as_str(), kept.branch.as_str()), (feature_tip.as_str(), "feature"));
+    assert_eq!(pull_request_checkout(root, 7, &main_tip, "feature", None, None, false, Placement::Here).await.unwrap(), None);
+    assert_eq!(String::from_utf8(git_output(root, &["rev-parse", "feature"])).unwrap().trim(), feature_tip);
 
     // A branch checked out in a linked worktree is used there.
     let elsewhere = tempfile::tempdir().unwrap();
     let linked = elsewhere.path().join("main");
     git(root, &["worktree", "add", "--quiet", linked.to_str().unwrap(), "main"]);
-    let there = done(pull_request_checkout(root, 8, &main_tip, "main", None, false, Placement::Here).await.unwrap());
+    let there = done(pull_request_checkout(root, 8, &main_tip, "main", None, None, false, Placement::Here).await.unwrap());
     assert_eq!(there.path.canonicalize().unwrap(), linked.canonicalize().unwrap());
     assert_eq!((there.head.as_str(), there.branch.as_str()), (main_tip.as_str(), "main"));
 
     // A branch checked out nowhere: found nowhere without `create`.
     git(root, &["branch", "elsewhere", "main"]);
-    assert_eq!(pull_request_checkout(root, 9, &main_tip, "elsewhere", None, false, Placement::Here).await.unwrap(), None);
+    assert_eq!(pull_request_checkout(root, 9, &main_tip, "elsewhere", None, None, false, Placement::Here).await.unwrap(), None);
 }

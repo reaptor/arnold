@@ -9,13 +9,14 @@
 //! - `pull_request_checkout`: a pull request, on its source branch (never
 //!   detached).
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{run, run_raw, run_text, GitError};
+use crate::cli::{run, run_raw, run_raw_with, run_text, GitError};
 use crate::export::app_folder;
-use crate::remotes::remotes;
+use crate::remotes::{remotes, ScopedHeader};
 use crate::Result;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -61,19 +62,26 @@ async fn follow(path: &Path, branch: &str, commit: &str, discard: bool, created:
     describe(path, branch, created).await
 }
 
-/// Where pull request `id` is checked out: on its source branch `branch`
-/// (a local branch tracking `remote`'s, made at `commit` when there is
-/// none), never detached. Wherever that is checked out already (the opened
-/// folder, a linked worktree) it is used there, moved to `commit` as
-/// `follow` says (`Placement::Discard` throws its edits away). Checked out
-/// nowhere, it is checked out as `placement` says when `create`, else `None`:
-/// in the opened folder, or in a worktree of its own in `.arnold/worktrees`.
+/// Where pull request `id` is checked out: on a local branch of its own,
+/// never detached. That is its source branch `branch` (a local branch
+/// tracking `remote`'s, made at `commit` when there is none) only while
+/// `remote`'s `branch` is at `commit` (fetched with `header` when it is not
+/// yet), so the pull request's commits are that branch's and nothing else
+/// ever moves a branch of yours: a pull request from a fork, or from another
+/// repository, is checked out on `pr/<id>/<branch>` instead. Wherever that is
+/// checked out already (the opened folder, a linked worktree) it is used
+/// there, moved to `commit` as `follow` says (`Placement::Discard` throws its
+/// edits away). Checked out nowhere, it is checked out as `placement` says
+/// when `create`, else `None`: in the opened folder, or in a worktree of its
+/// own in `.arnold/worktrees`.
+#[allow(clippy::too_many_arguments)]
 pub async fn pull_request_checkout(
     root: &Path,
     id: u64,
     commit: &str,
     branch: &str,
     remote: Option<&str>,
+    header: Option<&ScopedHeader>,
     create: bool,
     placement: Placement,
 ) -> Result<Option<CheckedOut<Worktree>>> {
@@ -89,6 +97,11 @@ pub async fn pull_request_checkout(
     let discard = placement == Placement::Discard;
     // Worktrees deleted by hand, whose branches git would still call checked out.
     run(root, &["worktree", "prune"]).await?;
+    let (branch, remote) = match local_for(root, id, commit, branch, remote, header).await? {
+        Local::Source => (branch.to_string(), remote),
+        Local::Own(name) => (name, None),
+    };
+    let branch = branch.as_str();
     let exists = has_branch(root, branch).await?;
     if let Some(path) = checked_out_at(root, branch, exists).await? {
         return follow(&path, branch, commit, discard, false).await.map(|found| Some(CheckedOut::Done(found)));
@@ -113,6 +126,70 @@ pub async fn pull_request_checkout(
         track(root, branch, remote).await?;
     }
     follow(&path, branch, commit, false, true).await.map(|made| Some(CheckedOut::Done(made)))
+}
+
+/// The local branch a pull request is checked out on.
+enum Local {
+    /// Its source branch: the remote's branch is at the pull request's
+    /// commit (so moving the local branch there is a pull), or the local
+    /// branch is there already.
+    Source,
+    /// `pr/<id>/<branch>`, Arnold's own for that pull request.
+    Own(String),
+}
+
+/// Which local branch pull request `id` (`branch` at `commit`) is checked
+/// out on: its source branch only when that brings in no commits but the
+/// remote branch's (see `Local`), else one of its own. Once that exists it
+/// is kept, so a fork's pull request is not fetched for again and again.
+async fn local_for(
+    root: &Path,
+    id: u64,
+    commit: &str,
+    branch: &str,
+    remote: Option<&str>,
+    header: Option<&ScopedHeader>,
+) -> Result<Local> {
+    let own = format!("pr/{id}/{branch}");
+    if has_branch(root, &own).await? {
+        return Ok(Local::Own(own));
+    }
+    let local = format!("refs/heads/{branch}");
+    if commit_of(root, &local).await.as_deref() == Some(commit) {
+        return Ok(Local::Source);
+    }
+    let Some(remote) = remote else { return Ok(Local::Own(own)) };
+    let tracking = format!("refs/remotes/{remote}/{branch}");
+    let mut on_remote = commit_of(root, &tracking).await.as_deref() == Some(commit);
+    // A new push not fetched yet; a fork's branch of the same name never gets there.
+    if !on_remote && fetch_branch(root, remote, branch, header).await.is_ok() {
+        on_remote = commit_of(root, &tracking).await.as_deref() == Some(commit);
+    }
+    // An existing branch that follows some other branch is left alone.
+    let upstream = run_text(root, &["for-each-ref", "--format=%(upstream)", &local]).await?;
+    if on_remote && (upstream.is_empty() || upstream == tracking) {
+        Ok(Local::Source)
+    } else {
+        Ok(Local::Own(own))
+    }
+}
+
+async fn commit_of(root: &Path, reference: &str) -> Option<String> {
+    run_text(root, &["rev-parse", "--verify", "--quiet", &format!("{reference}^{{commit}}")]).await.ok()
+}
+
+/// Fetches `remote`'s `branch` into its remote-tracking branch.
+async fn fetch_branch(root: &Path, remote: &str, branch: &str, header: Option<&ScopedHeader>) -> Result<()> {
+    let refspec = format!("+refs/heads/{branch}:refs/remotes/{remote}/{branch}");
+    let args = ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", remote, &refspec];
+    let environment = header.map(ScopedHeader::environment);
+    let environment: Vec<(&str, &OsStr)> = environment.iter().flatten().map(|(key, value)| (*key, value.as_os_str())).collect();
+    let output = run_raw_with(root, &args, &environment).await?;
+    if output.success {
+        Ok(())
+    } else {
+        Err(GitError::Failed { command: "fetch".into(), stderr: output.stderr })
+    }
 }
 
 /// Where a branch or pull request checked out nowhere yet is checked out.

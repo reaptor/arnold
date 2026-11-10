@@ -142,7 +142,9 @@ pub async fn compare_branches(
 }
 
 /// Where pull request `id` is checked out to be edited in: on its source
-/// `branch` (tracking `remote`'s) wherever that is checked out, moved up to
+/// `branch` (tracking `remote`'s; `pr/<id>/<branch>` unless `remote`'s
+/// branch is at `commit`, see `arnold_git::pull_request_checkout`) wherever
+/// that is checked out, moved up to
 /// `commit` when it has no edits (or with `discard` placement, after
 /// throwing them away). With `create` it is checked out as `placement` says
 /// when it is nowhere (in the opened folder, or a worktree of its own);
@@ -157,12 +159,19 @@ pub async fn pull_request_checkout(
     create: bool,
     placement: Placement,
     state: State<'_, AppState>,
+    prs: State<'_, crate::pull_requests::PrState>,
 ) -> Result<Option<CheckedOut<Worktree>>, String> {
     let root = state.checked_root(&root)?;
     if commit.is_empty() || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("not a commit id: {commit}"));
     }
-    let checkout = arnold_git::pull_request_checkout(&root, id, &commit, &branch, remote.as_deref(), create, placement).await.map_err(text_error)?;
+    let header = match remote.as_deref() {
+        Some(remote) => prs.push_header(&root, remote).await,
+        None => None,
+    };
+    let checkout = arnold_git::pull_request_checkout(&root, id, &commit, &branch, remote.as_deref(), header.as_ref(), create, placement)
+        .await
+        .map_err(text_error)?;
     if let Some(CheckedOut::Done(worktree)) = &checkout {
         state.allow_root(&worktree.path);
     }

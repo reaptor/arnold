@@ -183,7 +183,7 @@ With *All changes* picked, type straight into the diff (the right side, or the f
 
 ### Checking out
 
-A branch or pull request checked out nowhere is checked out in the opened folder, as `git switch` would. A pull request is checked out on its source branch, never detached: the local branch, made at its latest push to track the remote's when there is none. Arnold does this in every mode: comparing a branch in *Branches*, opening a pull request, or picking a branch to commit on in *Commit*.
+A branch or pull request checked out nowhere is checked out in the opened folder, as `git switch` would. A pull request is checked out on its source branch, never detached: the local branch, made at its latest push to track the remote's when there is none. That is only while the remote's branch is at the pull request's latest push (Arnold fetches it to check), so nothing but the remote's own commits ever lands on a branch of yours. A pull request from a fork or another repository, or whose branch name is taken by a local branch that follows something else, gets a branch of its own instead, `pr/<id>/<branch>`. Arnold does this in every mode: comparing a branch in *Branches*, opening a pull request, or picking a branch to commit on in *Commit*.
 
 If the opened folder has uncommitted changes (untracked files included), Arnold asks first:
 
@@ -301,7 +301,7 @@ Restoring, building and loading the projects runs code the repository chooses: M
 - **F# features start off** whenever you open a repository, switch between Commit, Branches and Pull request mode, or pick another branch or pull request, without asking: the diff has syntax colors but no hover, go to definition or error markers, and dotnet stays idle. *F# off* in the status bar turns them on for what is open, until you open or pick something else.
 - **The first time** you turn them on in a repository, Arnold asks whether to trust its build code. Trusting is remembered for that folder.
 - **A branch or pull request that changes build files** (project and solution files, a project's `.user` file, `*.props`, `*.targets`, `*.rsp`, `Directory.*`, `dotnet-tools.json`, `paket.*` and `.paket/`, `global.json`, `nuget.config`, `elmish-land.json`) asks again, also in a trusted repository, and lists them; a click on one shows it, so you can read it first. Running it is remembered for that commit of the branch, so a new push that changes build files asks once more.
-- **Commit mode** on a branch needs only the repository to be trusted. On a detached checkout, or someone else's pull request checked out while it is open, it asks for each commit, unless running that pull request's commit was agreed to already.
+- **Commit mode** on a branch needs only the repository to be trusted. On a detached checkout, or a branch someone else's pull request was checked out on (remembered for that folder, also once the pull request is closed), it asks for each commit, unless running that commit was agreed to already.
 - **Keep F# features off** leaves them off; *F# off* in the status bar asks again.
 
 ### Fantomas
