@@ -2077,20 +2077,29 @@ let preparedKey: string | null = null;
 let setupRun = 0;
 
 /**
- * F# language features start off in every repository and mode, without
- * asking: they run the repository's build code and keep dotnet busy. The
- * status bar's "F# off" turns them on for the repository and mode open,
- * until another is opened (the browser preview's `?lsp` starts them on).
+ * F# language features start off in every repository, mode, branch and pull
+ * request, without asking: they run the repository's build code and keep
+ * dotnet busy. The status bar's "F# off" turns them on for what is open,
+ * until something else is (the browser preview's `?lsp` starts them on).
  */
 let featuresOn: string | null = null;
 const startOn = import.meta.env.DEV && new URLSearchParams(location.search).has("lsp");
-const featuresKey = () => `${state.repo?.root}\n${state.source}`;
+/** What is open: the repository, the mode and the checkout, branches or pull request picked in it. */
+const featuresKey = () => {
+  const picked =
+    state.source === "commit"
+      ? state.checkout
+      : state.source === "pullRequest"
+        ? pullRequestKey(state.pullRequest)
+        : `${state.base}\n${state.head}`;
+  return `${state.repo?.root}\n${state.source}\n${picked}`;
+};
 const featuresWanted = () => startOn || featuresOn === featuresKey();
 /** Sets up language features again for what is reviewed now (once they are turned on). */
 let setUpAgain: (() => void) | null = null;
 
-// Another repository or mode: features are off again, and the server of the
-// one left stops at once instead of keeping dotnet busy meanwhile.
+// Another repository, mode, branch or pull request: features are off again,
+// and the server of the one left stops at once instead of keeping dotnet busy meanwhile.
 createRoot(() =>
   createEffect(
     on(
@@ -2224,8 +2233,8 @@ export function keepRestricted() {
 }
 
 /**
- * Turns language features on (the status bar's "F# off") for the repository
- * and mode open: they get going, after asking when the repository is not
+ * Turns language features on (the status bar's "F# off") for what is open
+ * (see `featuresKey`): they get going, after asking when the repository is not
  * trusted yet or the reviewed branch changes build files.
  */
 export function askToTrust() {

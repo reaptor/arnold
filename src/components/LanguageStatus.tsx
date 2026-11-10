@@ -81,7 +81,7 @@ export function LanguageStatus() {
             <div class="language-popup" role="dialog" aria-label="F# language features">
               <h3>F# language features are off</h3>
               <p>
-                They start off in every repository and mode: getting them going runs the repository's own build code
+                They start off in every repository, mode, branch and pull request: getting them going runs the repository's own build code
                 (restoring packages and .NET tools, building projects), so Arnold asks before running it the first time.
                 Meanwhile the diff works as usual, with syntax colors but without hover, go to definition or error
                 markers.
