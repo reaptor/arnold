@@ -50,6 +50,8 @@
   --tone-purple-fill: #efe5ff;
   --island-radius: 10px;
   --island-gap: 6px;
+  /* The dock's filter and the bar over the diff, so both islands start on one line. */
+  --frame-bar-height: 28px;
   font: 13px/1.4 "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -666,6 +668,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .dock .dock-filter {
+  height: var(--frame-bar-height);
   background: var(--bg);
   border-color: transparent;
   border-radius: 6px;
@@ -1044,7 +1047,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 28px;
+  height: calc(var(--frame-bar-height) + var(--island-gap));
   padding-bottom: var(--island-gap);
   color: var(--muted);
 }
@@ -1061,6 +1064,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .view-bar .segmented {
+  height: var(--frame-bar-height);
   margin: 0 4px 0 0;
 }
 
