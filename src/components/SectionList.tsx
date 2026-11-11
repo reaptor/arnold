@@ -66,8 +66,6 @@ export interface SectionSource {
    * far into the file); null when the list goes away.
    */
   onReveal(handler: ((key: string, offset?: number) => void) | null): void;
-  /** The list was scrolled: the file at its top, and how far into it. */
-  onPlace?(key: string, offset: number): void;
   /** Shown when there are no files. */
   placeholder(): string;
   /** Buttons at the end of a file's header. */
@@ -265,16 +263,6 @@ export function SectionList(props: { source: SectionSource }) {
     load(section);
   }
 
-  /** The file at the top of the list (whose bottom is below the top edge), and how far the list is into it. */
-  const topPlace = (): { key: string; offset: number } | null => {
-    const top = scroller.scrollTop;
-    for (const key of keys()) {
-      const section = sections.get(key);
-      if (section && section.offsetTop + section.offsetHeight > top) return { key, offset: Math.max(0, top - section.offsetTop) };
-    }
-    return null;
-  };
-
   const observe = (key: string, section: HTMLElement) => {
     sections.set(key, section);
     loader.observe(section);
@@ -337,8 +325,6 @@ export function SectionList(props: { source: SectionSource }) {
     if (spyFrame) return;
     spyFrame = requestAnimationFrame(() => {
       spyFrame = 0;
-      const place = topPlace();
-      if (place) source.onPlace?.(place.key, place.offset);
       follow();
     });
   };

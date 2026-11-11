@@ -1,7 +1,6 @@
 // Application state and the actions that change it. Components read `state`
 // and call these functions; the CodeMirror editor is driven from here.
 
-import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createEffect, createRoot, createSignal, on } from "solid-js";
@@ -59,7 +58,6 @@ import { track } from "./activity";
 import { forgetBuild } from "./build";
 import * as trust from "./trust";
 import { type Problem, toProblems } from "./problems";
-import { firstReview, holdPlaces, notePlace, type Place, placeIn, placesReady } from "./places";
 
 /**
  * What is shown: the uncommitted changes of a checkout, to commit them (the
@@ -320,7 +318,7 @@ export const [state, setState] = createStore<State>({
   comparison: null,
   visited: [],
   selected: null,
-  view: localStorage.getItem("arnold.view") === "all" ? "all" : "file",
+  view: "all",
   mode: (localStorage.getItem("arnold.mode") as DiffMode | null) ?? "split",
   ignoreWhitespace: localStorage.getItem("arnold.ignoreWhitespace") !== "false",
   problems: {},
@@ -693,10 +691,6 @@ export function editorCallbacks(pathOf: () => string | null, side?: WorkingSide)
       if (state.source === "commit") commitMode.showChanges();
       else showChanges(path);
     },
-    onPlaceChange() {
-      // Sections of the all-files view: the list keeps the place there.
-      if (state.view === "file" && pathOf() === state.selected) noteFilePlace();
-    },
     onBlockedEdit(edit) {
       if (!editBlocked()) return;
       const path = pathOf();
@@ -1008,14 +1002,14 @@ export async function setRange(range: CommitRange | null) {
 
 /**
  * Forgets the files of the last comparison. The language server keeps
- * running: it is replaced only when the reviewed commit changes.
+ * running: it is replaced only when the reviewed commit changes. `again`:
+ * the same review is read anew, staying at the file picked.
  */
-export function resetSessions() {
+export function resetSessions(again = false) {
   // An edit waiting to be saved still goes to the checkout it was made in.
   void flushSave();
-  // Another review: where the user was in it is restored by the next refresh.
-  holdPlaces();
-  placePending = true;
+  // Another review: the next refresh starts it at its first file.
+  opening = again ? "again" : "review";
   editInfoShown = false;
   sessions.clear();
   heldAlone.clear();
@@ -1062,7 +1056,7 @@ export async function refresh() {
     const dropped =
       shown !== null && isChanged(shown) && !comparison.files.some((file) => file.path === shown) ? shown : null;
     setState("comparison", reconcile(comparison, { key: "path" }));
-    void loadAllFiles(repo, comparison);
+    const solution = loadAllFiles(repo, comparison);
     // A visited file that has since been edited is now part of the diff.
     setState("visited", (visited) => [
       ...visited.filter((file) => !comparison.files.some((changed) => changed.path === file.path)),
@@ -1071,18 +1065,10 @@ export async function refresh() {
     setState("error", null);
     if (setupKey(repo, comparison) !== preparedKey) void setUpLanguageFeatures(repo, comparison);
 
-    // A review just opened: where the user was in it last time.
-    const place = placePending ? takePlace(repo.root) : undefined;
-    const listed = (path: string | undefined) => path !== undefined && comparison.files.some((file) => file.path === path);
-    // Nothing is shown yet, so the view can just be set.
-    // (The file on its own only while that file is still in the diff.)
-    if (place?.view === "all" || (place?.view === "file" && listed(place.file?.key))) setState("view", place.view);
-    if (state.view === "file" && place?.file && listed(place.file.key)) {
-      restoring = { path: place.file.key, snapshot: snapshotOf(place.file) };
-      setState("selected", place.file.key);
-    } else if (state.view === "all" && place?.list && listed(place.list.key)) {
-      setState("selected", place.list.key);
-    }
+    // A review just opened shows all files. Nothing is shown yet, so the view can just be set.
+    const opened = opening;
+    opening = null;
+    if (opened === "review") setState("view", "all");
 
     const selected = fileAt(state.selected);
     if (state.view === "all") {
@@ -1098,8 +1084,19 @@ export async function refresh() {
     } else {
       await selectFile(comparison.files[0]?.path ?? null);
     }
-    if (place !== undefined) restoreListPlace(place, listed);
     void checkChangedFiles();
+    const picked = state.selected;
+    // Read anew: the list goes back to the file picked.
+    if (opened === "again" && state.view === "all" && picked !== null) requestAnimationFrame(() => revealSection(picked));
+    if (opened !== "review") return;
+    // It starts at its first file, which is known once the solution is read (the explorer's order).
+    await solution;
+    if (repo !== state.repo || state.comparison?.headCommit !== comparison.headCommit || state.view !== "all") return;
+    // Moved on meanwhile: that stays.
+    if (state.selected !== picked) return;
+    const first = state.comparison.files[0]?.path ?? null;
+    setState("selected", first);
+    if (first !== null) requestAnimationFrame(() => revealSection(first));
   } catch (error) {
     fail(error);
   }
@@ -1110,7 +1107,7 @@ async function loadAllFiles(repo: RepoInfo, comparison: Comparison) {
     const files = await ipc.listFiles(repo.root, comparison);
     if (repo !== state.repo || comparison.headCommit !== state.comparison?.headCommit) return;
     setAllFiles(files);
-    void loadSolution(repo.root, comparison.headCommit, comparison.checkout ?? null, files);
+    await loadSolution(repo.root, comparison.headCommit, comparison.checkout ?? null, files);
   } catch (error) {
     fail(error);
   }
@@ -1140,12 +1137,15 @@ const unchangedFile = (path: string): ChangedFile => ({
   binary: false,
 });
 
-/** Opens any file of the checkout (file explorer): a changed one with its diff, others on their own. */
-/** A file picked by hand in the dock: shown on its own, leaving the all-files view. */
+/**
+ * A file picked by hand in the dock (Changes, All files). The all-files view
+ * stays and scrolls to a changed file; any other file is shown on its own.
+ */
 export async function openFile(path: string) {
   leaveOverview();
   if (path !== activePath() || (state.source === "commit" && state.workSide !== null)) noteDeparture();
-  if (state.source === "commit") return commitMode.openTreeFile(path);
+  if (state.source === "commit") return commitMode.pickTreeFile(path);
+  if (state.view === "all" && isChanged(path)) return selectFile(path);
   if (!fileAt(path)) setState("visited", (visited) => [...visited, unchangedFile(path)]);
   if (state.view === "file") {
     if (path !== state.selected) await selectFile(path);
@@ -1214,8 +1214,6 @@ async function showFile(file: ChangedFile) {
       return;
     }
     const session = sessionFor(file, pair);
-    if (restoring?.path === file.path) session.snapshot = restoring.snapshot;
-    restoring = null;
     setState("placeholder", null);
     editor?.open(documentOf(file, session), state.mode, session.snapshot ?? undefined);
     if (editor) void attachLanguageServer(file, editor);
@@ -1589,7 +1587,7 @@ async function makeEditableAs(action: EditAction | null | undefined) {
   if (action.kind === "checkOut" && state.source === "branches") {
     // Tried again on the next refresh.
     setCheckoutProblem(null);
-    resetSessions();
+    resetSessions(true);
     return refresh();
   }
   if (action.kind === "discard") {
@@ -1602,7 +1600,7 @@ async function makeEditableAs(action: EditAction | null | undefined) {
   setState({ busy: true, error: null });
   try {
     await loadPrWorktree(true, action.kind === "discard");
-    resetSessions();
+    resetSessions(true);
     await refresh();
   } finally {
     setState("busy", false);
@@ -1799,81 +1797,12 @@ export function onRevealSection(handler: (path: string, offset?: number) => void
   revealSection = handler;
 }
 
-// ----------------------------------------------------------------- places
-
-/** A review was opened (or left): its place is restored once its files are read. */
-let placePending = true;
-/** The place restored into the file shown on its own, applied when it is read. */
-let restoring: { path: string; snapshot: Snapshot } | null = null;
-
-/** The review shown, as places keeps them apart; null while there is none. */
-export function placeReview(): string | null {
-  if (state.source === "commit") return state.checkout ? `commit:${state.checkout}` : null;
-  if (state.source === "pullRequest") return state.pullRequest ? `pr:${state.pullRequest.remote}!${state.pullRequest.id}` : null;
-  return state.base && state.head ? `branches:${state.base}...${state.head}` : null;
-}
-
-/**
- * The place kept for the review shown, taken once: later refreshes leave the
- * views alone. Its view only for the first review since the app started.
- */
-export function takePlace(root: string): Place | null {
-  placePending = false;
-  const review = placeReview();
-  const place = review ? placeIn(root, review) : null;
-  if (!firstReview() && place) delete place.view;
-  return place;
-}
-
-/** The view changed: noted for next time. */
-export function noteView() {
-  const root = state.repo?.root;
-  const review = placeReview();
-  if (root && review) notePlace(root, review, { view: state.view });
-}
-
-export const snapshotOf = (place: { anchor: number; head: number; scrollTop: number }): Snapshot => ({
-  selection: EditorSelection.single(place.anchor, place.head),
-  scrollTop: place.scrollTop,
-});
-
-/**
- * All-files view: scrolls back to where the list was, once its sections are
- * drawn, then lets moving save again. `listed` tells whether a key is still
- * in the list.
- */
-export function restoreListPlace(place: Place | null, listed: (key: string | undefined) => boolean, reveal = revealSection) {
-  const list = place?.list;
-  if (state.view !== "all" || !list || !listed(list.key)) return placesReady();
-  requestAnimationFrame(() => {
-    reveal(list.key, list.offset);
-    placesReady();
-  });
-}
-
-/** The file shown on its own moved (or another was shown): noted for next time. */
-function noteFilePlace() {
-  const root = state.repo?.root;
-  const review = placeReview();
-  const snapshot = editor?.snapshot();
-  const key =
-    state.selected === null ? null : state.source === "commit" ? `${state.workSide ?? "file"}:${state.selected}` : state.selected;
-  if (!root || !review || !snapshot || key === null) return;
-  const { anchor, head } = snapshot.selection.main;
-  notePlace(root, review, { view: "file", file: { key, anchor, head, scrollTop: snapshot.scrollTop } });
-}
-
-/** The all-files view was scrolled: noted for next time. */
-export function noteListPlace(key: string, offset: number) {
-  const root = state.repo?.root;
-  const review = placeReview();
-  if (root && review && state.view === "all") notePlace(root, review, { view: "all", list: { key, offset: Math.round(offset) } });
-}
+/** A review was opened (or left): the next refresh starts it at its first file (or, read anew, at the file picked). */
+let opening: "review" | "again" | null = "review";
 
 export async function setView(view: ViewMode) {
   if (state.source === "commit") return commitMode.setView(view);
   if (view === state.view) return;
-  localStorage.setItem("arnold.view", view);
   const path = activePath();
   heldAlone.clear();
   if (view === "all") {
@@ -1888,7 +1817,6 @@ export async function setView(view: ViewMode) {
     setState({ view, menu: null });
     await selectFile(path);
   }
-  noteView();
 }
 
 /** All-files view: `host` is where the file at `path` is shown once it is near the screen. */

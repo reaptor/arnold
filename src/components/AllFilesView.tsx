@@ -1,6 +1,5 @@
 import {
   hideSection,
-  noteListPlace,
   onRevealSection,
   registerSection,
   sectionEditorOf,
@@ -34,7 +33,6 @@ const reviewSource: SectionSource = {
   hide: hideSection,
   editor: sectionEditorOf,
   onReveal: (handler) => onRevealSection(handler ?? (() => {})),
-  onPlace: noteListPlace,
   placeholder: () =>
     state.comparison ? "No differences." : state.repo ? (isBusy() ? "Loading the changes…" : "") : "Open a repository to start reviewing.",
 };
