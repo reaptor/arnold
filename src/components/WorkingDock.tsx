@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show, untrack } from "solid-js";
 import type { ChangedFile, WorkingSide } from "../ipc/commands";
-import { type FileAction, filesAction, listOf, openWorkFile, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
+import { type FileAction, filesAction, listOf, selectWorkFile, stageAll, unstageAll } from "../state/commitMode";
 import { isMac } from "../platform";
 import { allFiles, explainFilesItem, ignoreTarget, noteDeparture, setState, state } from "../state/review";
 import { CommitBox } from "./CommitPanel";
@@ -191,7 +191,7 @@ export function WorkingDock(props: { width: number; hidden?: boolean }) {
     } else {
       pickOnly(side, path);
       if (!selectedIn(side, path)) noteDeparture();
-      void openWorkFile(side, path);
+      void selectWorkFile(side, path);
     }
   };
 

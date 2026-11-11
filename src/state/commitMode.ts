@@ -27,19 +27,14 @@ import {
   fetching,
   fileEditor,
   openPullRequest,
-  restoreListPlace,
   setAllFiles,
   setBranches,
   setState,
   setUpLanguageFeaturesIn,
-  noteView,
-  snapshotOf,
   state,
-  takePlace,
   type ViewMode,
   whileFetching,
 } from "./review";
-import { holdPlaces, placesReady } from "./places";
 import { openFor } from "./aiSuggestions";
 
 /** How long a notice stays in the status bar. */
@@ -149,9 +144,8 @@ export async function setCheckout(path: string) {
 
 async function openCheckout(path: string) {
   await flushSave();
-  // Where the user was in this checkout is restored once its lists are read.
-  holdPlaces();
-  placePending = true;
+  // It starts at its first file once its lists are read.
+  opening = true;
   snapshots.clear();
   shownKey = null;
   shownAlone = null;
@@ -162,7 +156,7 @@ async function openCheckout(path: string) {
   setAllFiles([]);
   clearSolution();
   setMessage(localStorage.getItem(messageKey(path)) ?? "");
-  // All files, from the first one (the app's first review may go back to where it was instead).
+  // All files, from the first one.
   setState({
     checkout: path,
     work: null,
@@ -225,38 +219,21 @@ async function readWork() {
     offerMergeMessage(checkout, work.mergeMessage);
     const solution = loadSolution(repo.root, work.head ?? "HEAD", checkout, files);
     if (work.head) setUpLanguageFeaturesIn(checkout, work.branch, work.head);
-    const place = placePending ? (placePending = false, takePlace(repo.root)) : undefined;
-    const known = (key: string | undefined) => {
-      if (key === undefined) return false;
-      const path = pathOfKey(key);
-      return key.startsWith("file:") ? files.includes(path) : !!entryOf(sideOfKey(key), path);
-    };
-    // Only the lists are in the all-files view.
-    const listed = (key: string | undefined) => key !== undefined && !key.startsWith("file:") && known(key);
-    // Nothing is shown yet, so the view can just be set.
-    // (The file on its own only while that file is still there.)
-    if (place?.view === "all" || (place?.view === "file" && known(place.file?.key))) setState("view", place.view);
-    if (state.view === "file" && place?.file && known(place.file.key)) {
-      const key = place.file.key;
-      snapshots.set(key, snapshotOf(place.file));
-      setState({ selected: pathOfKey(key), workSide: key.startsWith("file:") ? null : sideOfKey(key) });
-    } else if (state.view === "all" && place?.list && listed(place.list.key)) {
-      setState({ selected: pathOfKey(place.list.key), workSide: sideOfKey(place.list.key) });
-    }
+    const opened = opening;
+    opening = false;
     await keepSelection(index);
-    if (place === undefined) return;
+    if (!opened) return;
     // Which file is first is known once the solution is read (the explorer's order).
     const selectedKey = () => (state.selected === null ? null : keyOf(state.workSide, state.selected));
     const picked = selectedKey();
     await solution;
-    if (state.checkout !== checkout || state.source !== "commit") return;
-    const first = sectionEntries()[0] ?? null;
-    if (place === null && state.view === "all") {
-      // Moved on meanwhile: that stays.
-      if (selectedKey() !== picked) return placesReady();
-      if (first) setState({ selected: first.file.path, workSide: sideOfKey(first.key) });
-    }
-    restoreListPlace(place, listed, first?.key ?? null, (key, offset) => revealSection?.(key, offset));
+    if (state.checkout !== checkout || state.source !== "commit" || state.view !== "all") return;
+    // Moved on meanwhile: that stays.
+    if (selectedKey() !== picked) return;
+    const first = sectionEntries()[0];
+    if (!first) return;
+    setState({ selected: first.file.path, workSide: sideOfKey(first.key) });
+    requestAnimationFrame(() => revealSection?.(first.key));
   } catch (error) {
     fail("Reading the uncommitted changes")(error);
   }
@@ -292,14 +269,7 @@ async function keepSelection(formerIndex: number) {
   return all ? refreshSections() : show();
 }
 
-/** A file clicked in Unstaged or Staged: shown on its own, leaving the all-files view. */
-export async function openWorkFile(side: WorkingSide, path: string) {
-  if (state.view !== "all") return selectWorkFile(side, path);
-  setState({ selected: path, workSide: side, menu: null });
-  await setView("file");
-}
-
-/** Picks a file in Unstaged or Staged (arrow keys, a menu); the all-files view scrolls to it. */
+/** Picks a file in Unstaged or Staged (click, arrow keys, a menu); the all-files view scrolls to it. */
 export async function selectWorkFile(side: WorkingSide, path: string) {
   if (state.view === "all") {
     setState({ selected: path, workSide: side, menu: null });
@@ -310,6 +280,16 @@ export async function selectWorkFile(side: WorkingSide, path: string) {
   stash();
   setState({ selected: path, workSide: side, menu: null });
   await show();
+}
+
+/**
+ * A file picked in the explorer. The all-files view stays and scrolls to it
+ * when it is in Unstaged (else Staged); any other file is shown on its own.
+ */
+export async function pickTreeFile(path: string) {
+  const side = entryOf("unstaged", path) ? "unstaged" : entryOf("staged", path) ? "staged" : null;
+  if (state.view === "all" && side) return selectWorkFile(side, path);
+  return openTreeFile(path);
 }
 
 /**
@@ -769,8 +749,8 @@ const sectionLoads = new Map<string, number>();
 /** The section with keyboard focus: it is not unloaded while scrolled away. */
 let focusedKey: string | null = null;
 let revealSection: ((key: string, offset?: number) => void) | null = null;
-/** A checkout was opened: where the user was in it is restored once its lists are read. */
-let placePending = false;
+/** A checkout was opened: it starts at its first file once its lists are read. */
+let opening = false;
 
 const sideOfKey = (key: string): WorkingSide => (key.startsWith("unstaged:") ? "unstaged" : "staged");
 const pathOfKey = (key: string) => key.slice(key.indexOf(":") + 1);
@@ -780,7 +760,7 @@ function sectionSnapshotsClear() {
   for (const key of [...snapshots.keys()]) if (key.startsWith("unstaged:") || key.startsWith("staged:")) snapshots.delete(key);
 }
 
-/** Switches between one file at a time and every listed file; `remember` keeps the choice for next time. */
+/** Switches between one file at a time and every listed file. */
 export async function setView(view: ViewMode) {
   if (view === state.view) return;
   if (view === "all") {
@@ -802,7 +782,6 @@ export async function setView(view: ViewMode) {
     setState({ view, menu: null });
     await show();
   }
-  noteView();
 }
 
 /** The files of the all-files view: Unstaged, then Staged. */

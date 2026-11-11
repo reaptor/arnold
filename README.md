@@ -65,7 +65,7 @@ Without a folder they open the current one. Terminals that were open during the 
    - *Pull request*: shown when a remote of the repository is on Azure DevOps (also one added while Arnold is open); one of its active pull requests (see [Azure DevOps pull requests](#azure-devops-pull-requests)).
 3. **Go through the changes:** pick files in the dock or scroll the all-files list, and step from change to change with `F7`. The bar over the diff sets how it shows: one file or all files (and a pull request's overview), side by side or unified, with or without whitespace changes, and steps to the previous or next change.
 
-A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was, and the review where you left it. Switching mode, branch or pull request later always starts in *All files*, at the top with the first file selected.
+A repository with uncommitted changes opens in *Commit*. Otherwise it opens on the branch checked out in its folder, against the base branch you picked last (or its default branch). Arnold puts the window back where it was. Every review (at startup, and on switching mode, branch or pull request) starts in *All files*, at the top with the first file selected; a pull request shows its overview first.
 
 Arnold is light or dark as the operating system is set, in JetBrains' Islands look (the dark editor in Rider's own colors). The button at the right end of the status bar picks *Light* or *Dark* instead (or *System* again); the choice is remembered.
 
@@ -91,7 +91,7 @@ The files dock has three parts:
 
 The parts track each other: a file picked in Unstaged or Staged (by click or arrow keys) is marked in All files too, its folders opened and scrolled to, and a file picked in All files is marked in the lists that hold it, ready for `S`, `U` and `R` there. The editor keeps showing what was picked, and the keyboard stays where it was.
 
-*Commit* starts in the *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys in the lists move through it and the lists follow as you scroll; clicking a file shows it on its own, as in a review.
+*Commit* starts in the *All files* view: every file of Unstaged and then of Staged in one scrolling list, each as it shows when picked in its list (editable with `S` and `R`, or read-only with `U` and `R`), with a *Stage* or *Unstage* button in its header and `F7` stepping from change to change across files. Arrow keys and clicks in the lists move through it and the lists follow as you scroll; a file of the *All files* explorer scrolls to it when it is listed, and otherwise shows on its own.
 
 What `S`, `U` and `R` do:
 
@@ -125,7 +125,7 @@ Arnold says what it committed in the status bar and stays in Commit mode. On the
 - **Push**, with the number of commits it would send: pushes the branch to its upstream, or to `origin` as a new branch that then becomes its upstream. Never forced: when the remote's branch has commits the local one lacks, the button is off and says to pull first. To an Azure DevOps remote Arnold sends the personal access token it has; otherwise git's own credentials are used.
 - **Push & create PR** (with an Azure DevOps remote): pushes as *Push* does, then reviews the branch in *Branches* with the *Create pull request* dialog open. With nothing to push it reads *Create PR*. When the branch has an active pull request already, it reads *Push & view PR* (or *View PR*) and opens that pull request in *Pull request* instead.
 
-The lists follow changes made anywhere: by the agent, an editor or a terminal. In *Commit*, the dock's *All files* explorer opens a file on its own. F# language features work as everywhere else (see [F#](#f)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
+The lists follow changes made anywhere: by the agent, an editor or a terminal. In *Commit*, the dock's *All files* explorer opens a file without changes on its own. F# language features work as everywhere else (see [F#](#f)), with completion and signature help while typing; the server runs in the checkout itself and sees edits as they are made.
 
 ## Comparing branches
 
@@ -155,7 +155,7 @@ The filter above them applies to both. Drag the gap between them to resize, clic
 The bar over the diff switches between one file at a time and *All files*: every file of the diff in one scrolling list, as in a pull request's "all files" view. *All files* is where new reviews start. In it:
 
 - each file has a header that stays in view while you scroll through it; click it to fold the file;
-- clicking a file in the dock scrolls to it, and the dock follows as you scroll;
+- clicking a file in the dock (Changes or the explorer) scrolls to it and stays in *All files*, and the dock follows as you scroll; a file outside the diff shows on its own. In one file at a time, picking a file keeps that view;
 - deleted files start folded;
 - files load as they come near the screen, so large diffs stay fast.
 

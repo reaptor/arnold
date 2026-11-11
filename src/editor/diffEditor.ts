@@ -163,8 +163,6 @@ export interface DiffEditorCallbacks {
   onBlockedEdit?(edit: BlockedEdit): void;
   /** A framed change's Suggest button: `block` is the change, in lines of the committed and the working text. */
   onSuggest?(block: LineBlock): void;
-  /** A file was shown, or its cursor or scroll moved. */
-  onPlaceChange?(): void;
   /** The "Show changes" button of an edited file shown alone (`DiffDocument.showChanges`). */
   onShowChanges?(): void;
 }
@@ -903,7 +901,6 @@ export class DiffEditor {
         const edited = update.transactions.some((tr) => tr.docChanged && !tr.annotation(fromOutside));
         if (update.docChanged) this.syncChangesButton(update.state.doc.toString());
         if (edited && this.document?.editable) this.callbacks.onChange?.(update.state.doc.toString());
-        if (update.selectionSet) this.callbacks.onPlaceChange?.();
       }),
     ];
 
@@ -971,9 +968,7 @@ export class DiffEditor {
     this.showThreads();
     if (snapshot) this.restoreScroll(snapshot.scrollTop);
     const scroller = this.scroller();
-    scroller?.addEventListener("scroll", () => this.callbacks.onPlaceChange?.(), { passive: true });
     if (this.scrolls && scroller) this.ruler = new OverviewRuler(scroller, this.parent, () => this.overviewBands(scroller));
-    this.callbacks.onPlaceChange?.();
   }
 
   /**
