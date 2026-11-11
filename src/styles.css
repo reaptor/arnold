@@ -2434,6 +2434,15 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   stroke: var(--accent);
 }
 
+/* The star of the favorites, as in the repository menu. */
+.toolbar .dashboard-toggle .icon-star {
+  stroke: var(--star);
+}
+
+.toolbar .dashboard-toggle.on .icon-star {
+  fill: var(--star);
+}
+
 .dashboard-card {
   width: min(980px, 100%);
 }
@@ -3702,6 +3711,7 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
 @media (max-width: 1240px) {
   .branch-actions .action-label,
   .create-pr-button .action-label,
+  .dashboard-label,
   .toolbar-word {
     display: none;
   }

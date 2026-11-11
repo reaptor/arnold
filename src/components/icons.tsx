@@ -168,13 +168,17 @@ export const PullRequestIcon = (props: IconProps) => (
   </Icon>
 );
 
-/** Four tiles: the dashboard of every favorite's pull requests. */
+/** A pull request under a star: the dashboard of the favorite repositories' active pull requests. */
 export const DashboardIcon = (props: IconProps) => (
   <Icon {...props}>
-    <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
-    <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
-    <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
-    <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
+    <circle cx="3.5" cy="3.5" r="1.5" />
+    <circle cx="3.5" cy="12.5" r="1.5" />
+    <circle cx="11.5" cy="12.5" r="1.5" />
+    <path d="M3.5 5v6M11.5 11V9" />
+    <path
+      class="icon-star"
+      d="M11.5 1l.85 2.33 2.48.09-1.95 1.53.68 2.38-2.06-1.38-2.06 1.38.68-2.38-1.95-1.53 2.48-.09z"
+    />
   </Icon>
 );
 
