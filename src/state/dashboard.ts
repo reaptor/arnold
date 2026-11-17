@@ -9,7 +9,7 @@ import type { PrError, PrRemote, PullRequest } from "../ipc/commands";
 import { favorites, sortFavorites } from "./favorites";
 import { attention, byCreators, type Creator, creatorsOf, newCreators } from "./prStatus";
 import { preferredRemote } from "./pullRequests";
-import { openPullRequestIn } from "./review";
+import { goToFirstFile, openPullRequestIn, underReview } from "./review";
 
 const SETTING = "arnold.dashboard";
 
@@ -206,7 +206,8 @@ export function setHideDrafts(on: boolean) {
 /**
  * Reviews a pull request picked on the dashboard, as if it were picked in the
  * list of its repository (opening that first): it is checked out if needed,
- * then the dashboard gives way to it.
+ * then the dashboard gives way to it, at its first file (also when it was
+ * already under review).
  */
 export async function openFromDashboard(root: string, remote: string, id: number) {
   if (dashboard.opening !== null) return;
@@ -216,4 +217,6 @@ export async function openFromDashboard(root: string, remote: string, id: number
   } finally {
     setDashboard({ opening: null, open: false });
   }
+  // Once its files show: hidden behind the dashboard, they could not scroll.
+  if (underReview(root, remote, id)) await goToFirstFile();
 }

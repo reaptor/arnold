@@ -53,11 +53,13 @@ export function Toolbar() {
           classList={{ on: dashboard.open }}
           aria-pressed={dashboard.open}
           onClick={() => showDashboard(!dashboard.open)}
-          title={`Dashboard: the active pull requests of all favorite repositories${
+          aria-label="Favorites' pull requests"
+          title={`Favorites' pull requests: the active pull requests of every favorite (★) repository, in one list${
             attentionCount() > 0 ? `\n${attentionCount()} waiting on you` : ""
           }`}
         >
           <DashboardIcon />
+          <span class="dashboard-label">Favorites' PRs</span>
           <Show when={attentionCount() > 0}>
             <span class="mode-count" aria-label={`${attentionCount()} waiting on you`}>
               {attentionCount()}

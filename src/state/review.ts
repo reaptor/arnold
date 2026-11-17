@@ -946,6 +946,26 @@ export async function openPullRequestIn(root: string, remote: string, id: number
   if (!open) await openPullRequest(remote, id);
 }
 
+/** Whether pull request `id` of `remote` in the repository at `root` is the one under review. */
+export const underReview = (root: string, remote: string, id: number) =>
+  state.repo?.root === root &&
+  state.source === "pullRequest" &&
+  state.pullRequest?.remote === remote &&
+  state.pullRequest.id === id;
+
+/**
+ * Shows the review in All files from the top, its first file picked, as a
+ * review just opened does. For one opened (or gone back to) from behind the
+ * dashboard, whose files could not scroll while it covered them.
+ */
+export async function goToFirstFile() {
+  if (!state.comparison) return;
+  await setView("all");
+  const first = state.comparison?.files[0]?.path ?? null;
+  setState("selected", first);
+  if (first !== null) requestAnimationFrame(() => revealSection(first));
+}
+
 /** Leaves the pull request, back to the list of them. */
 export function closePullRequest() {
   if (state.repo) rememberReview(state.repo.root, { pullRequest: null });
