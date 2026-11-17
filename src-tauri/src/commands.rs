@@ -142,11 +142,12 @@ pub async fn compare_branches(
 }
 
 /// Where pull request `id` is checked out to be edited in: on its source
-/// `branch` (tracking `remote`'s) wherever that is checked out, moved up to
-/// `commit` when it has no edits (or with `discard` placement, after
-/// throwing them away). With `create` it is checked out as `placement` says
-/// when it is nowhere (in the opened folder, or a worktree of its own);
-/// without, `None` then. Never detached.
+/// `branch` (tracking `remote`'s) wherever that is checked out. With
+/// `create` it is moved up to `commit` when it has no edits (or with
+/// `discard` placement, after throwing them away), and checked out as
+/// `placement` says when it is nowhere (in the opened folder, or a worktree
+/// of its own). Without, it is only read (`None` when checked out nowhere).
+/// Never detached.
 #[tauri::command]
 pub async fn pull_request_checkout(
     root: String,

@@ -462,21 +462,24 @@ async fn checks_pull_requests_out_on_their_branch() {
     assert_eq!(String::from_utf8(git_output(root, &["config", "branch.topic.remote"])).unwrap().trim(), "origin");
     assert_eq!(String::from_utf8(git_output(root, &["config", "branch.topic.merge"])).unwrap().trim(), "refs/heads/topic");
 
-    // Found again without `create`, and moved up to a new push while clean.
+    // Found again without `create`, but left where it is behind a new push: only shown.
     let next = push_on(root, &feature_tip);
-    let moved = done(pull_request_checkout(root, 7, &next, "topic", origin, false, Placement::Here).await.unwrap());
-    assert_eq!((moved.path.as_path(), moved.head.as_str(), moved.created), (root, next.as_str(), false));
+    let found = done(pull_request_checkout(root, 7, &next, "topic", origin, false, Placement::Here).await.unwrap());
+    assert_eq!((found.head.as_str(), found.behind), (feature_tip.as_str(), true));
+    // Asked to (`create`): moved up to it while clean.
+    let moved = done(pull_request_checkout(root, 7, &next, "topic", origin, true, Placement::Here).await.unwrap());
+    assert_eq!((moved.path.as_path(), moved.head.as_str(), moved.created, moved.behind), (root, next.as_str(), false, false));
     assert_eq!(open(root).await.unwrap().current_branch.as_deref(), Some("topic"));
     // Edited: it stays where it is, until the edits are thrown away.
     let later = push_on(root, &next);
     write(root, "a.txt", "edited\n");
-    let kept = done(pull_request_checkout(root, 7, &later, "topic", origin, false, Placement::Here).await.unwrap());
-    assert_eq!((kept.head.as_str(), kept.edited), (next.as_str(), true));
-    let fresh = done(pull_request_checkout(root, 7, &later, "topic", origin, false, Placement::Discard).await.unwrap());
+    let kept = done(pull_request_checkout(root, 7, &later, "topic", origin, true, Placement::Here).await.unwrap());
+    assert_eq!((kept.head.as_str(), kept.edited, kept.behind), (next.as_str(), true, true));
+    let fresh = done(pull_request_checkout(root, 7, &later, "topic", origin, true, Placement::Discard).await.unwrap());
     assert_eq!((fresh.head.as_str(), fresh.edited), (later.as_str(), false));
     // Never moved back, nor onto a commit that is not ahead of it.
-    let kept = done(pull_request_checkout(root, 7, &main_tip, "topic", origin, false, Placement::Here).await.unwrap());
-    assert_eq!(kept.head, later);
+    let kept = done(pull_request_checkout(root, 7, &main_tip, "topic", origin, true, Placement::Here).await.unwrap());
+    assert_eq!((kept.head.as_str(), kept.behind), (later.as_str(), false));
 
     // Another pull request while the folder has edits: refused, or a worktree of its branch.
     write(root, "a.txt", "edited\n");
