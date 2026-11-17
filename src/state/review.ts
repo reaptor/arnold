@@ -1028,11 +1028,16 @@ export function resetSessions(again = false) {
 
 // ---------------------------------------------------------------- comparison
 
-/** Re-reads the changed-file list and brings the open file up to date. */
-export async function refresh() {
+/**
+ * Re-reads the changed-file list and brings the open file up to date.
+ * `checkOut` false: a change made outside Arnold (a branch switched in a
+ * terminal or another program) is only shown, the compared branch is not
+ * checked out again over it.
+ */
+export async function refresh(checkOut = true) {
   void commitMode.countUncommitted();
   const repo = state.repo;
-  if (repo && state.source === "branches" && !(await checkOutHead(repo))) return;
+  if (checkOut && repo && state.source === "branches" && !(await checkOutHead(repo))) return;
   const revs = compared();
   if (!repo || !revs) return;
   try {
@@ -3076,7 +3081,7 @@ export async function startWatching() {
   await ipc.onCheckoutChanged(() => {
     if (state.source === "commit" || !state.comparison?.checkout) return;
     window.clearTimeout(checkoutTimer);
-    checkoutTimer = window.setTimeout(() => void refresh(), 150);
+    checkoutTimer = window.setTimeout(() => void refresh(false), 150);
   });
   // The backend watches the repository's branches: a commit, fetch or new
   // branch updates the branch pickers and the diff.
@@ -3127,7 +3132,8 @@ async function refsChanged() {
   if (state.source === "commit") return commitMode.refreshWork();
   // The opened folder may have left the pull request's commit (checked out elsewhere).
   if (state.source === "pullRequest") await loadPrWorktree(false);
-  await refresh();
+  // Only shown: what was checked out elsewhere is not checked out over again.
+  await refresh(false);
 }
 
 /** Asks the host whether the pull request under review has new pushes, and shows them. */
