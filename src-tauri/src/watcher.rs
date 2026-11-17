@@ -11,13 +11,23 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use notify::RecursiveMode;
-use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{new_debouncer_opt, DebounceEventHandler, DebounceEventResult, Debouncer, NoCache};
 use tauri::{AppHandle, Emitter};
 
 pub const EVENT: &str = "refs-changed";
 pub const CONFIG_EVENT: &str = "config-changed";
 const DEBOUNCE: Duration = Duration::from_millis(400);
+
+/// A debouncer without a file id cache. The cache the debouncer picks by
+/// default on macOS and Windows reads the id of every file under a folder
+/// when it starts watching it: for a large checkout (with `bin/`, `obj/`) or
+/// `.git/objects` that takes seconds, and opening a repository or a pull
+/// request waits for it. It only pairs up the two halves of a rename, which
+/// nothing here looks at.
+fn debouncer<F: DebounceEventHandler>(handler: F) -> Result<Debouncer<RecommendedWatcher, NoCache>, String> {
+    new_debouncer_opt(DEBOUNCE, None, handler, NoCache, notify::Config::default()).map_err(|e| e.to_string())
+}
 
 /// Keeps the watch alive; dropping it stops watching.
 pub struct WatchHandle(#[allow(dead_code)] Box<dyn Any + Send>);
@@ -25,7 +35,7 @@ pub struct WatchHandle(#[allow(dead_code)] Box<dyn Any + Send>);
 /// Watches `git_dir`, the `.git` folder shared by every checkout.
 pub fn watch(app: AppHandle, git_dir: PathBuf) -> Result<WatchHandle, String> {
     let root = git_dir.clone();
-    let mut debouncer = new_debouncer(DEBOUNCE, None, move |result: DebounceEventResult| {
+    let mut debouncer = debouncer(move |result: DebounceEventResult| {
         let Ok(events) = result else { return };
         let paths: Vec<&PathBuf> = events
             .iter()
@@ -38,8 +48,7 @@ pub fn watch(app: AppHandle, git_dir: PathBuf) -> Result<WatchHandle, String> {
         if paths.iter().any(|path| is_ref(&root, path)) {
             let _ = app.emit(EVENT, ());
         }
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     debouncer
         .watch(&git_dir, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
@@ -56,7 +65,7 @@ pub const CHECKOUT_EVENT: &str = "checkout-changed";
 /// set off would run git and redraw the lists while it lasts.
 pub fn watch_checkout(app: AppHandle, checkout: PathBuf, git_dir: PathBuf) -> Result<WatchHandle, String> {
     let (root, git) = (checkout.clone(), git_dir.clone());
-    let mut debouncer = new_debouncer(DEBOUNCE, None, move |result: DebounceEventResult| {
+    let mut debouncer = debouncer(move |result: DebounceEventResult| {
         let Ok(events) = result else { return };
         let mut always = false;
         let mut files = Vec::new();
@@ -78,8 +87,7 @@ pub fn watch_checkout(app: AppHandle, checkout: PathBuf, git_dir: PathBuf) -> Re
                 let _ = app.emit(CHECKOUT_EVENT, ());
             }
         });
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     debouncer
         .watch(&checkout, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;

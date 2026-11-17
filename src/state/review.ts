@@ -785,12 +785,13 @@ export async function openRepoAt(path: string, pullRequest?: { remote: string; i
     await pullRequests.loadRemotes(repo.root);
     if (opened !== state.repo) return;
     if (pullRequest) {
-      if (pullRequests.prs.remote !== pullRequest.remote) await pullRequests.selectRemote(pullRequest.remote);
+      // Its list loads alongside: the pull request does not wait for it.
+      if (pullRequests.prs.remote !== pullRequest.remote) void pullRequests.selectRemote(pullRequest.remote);
       await openPullRequest(pullRequest.remote, pullRequest.id);
       // It could not be opened: the list of them, under why.
       if (opened === state.repo && !state.pullRequest) {
         setState("source", "pullRequest");
-        if (pullRequests.prs.list === null) void pullRequests.loadPullRequests();
+        if (pullRequests.prs.list === null && !pullRequests.prs.loading) void pullRequests.loadPullRequests();
       }
       return;
     }
@@ -941,7 +942,7 @@ export async function openPullRequest(remote: string, id: number) {
 /** Reviews pull request `id` of `remote` in the repository at `root`, opening that first unless it is open. */
 export async function openPullRequestIn(root: string, remote: string, id: number) {
   if (state.repo?.root !== root) return openRepoAt(root, { remote, id });
-  if (pullRequests.prs.remote !== remote) await pullRequests.selectRemote(remote);
+  if (pullRequests.prs.remote !== remote) void pullRequests.selectRemote(remote);
   const open = state.source === "pullRequest" && state.pullRequest?.remote === remote && state.pullRequest.id === id;
   if (!open) await openPullRequest(remote, id);
 }
