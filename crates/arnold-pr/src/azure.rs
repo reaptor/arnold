@@ -853,7 +853,14 @@ fn change_tracking_id(repo: &AzureRepo, token: &str, id: u64, iteration: u64, pa
         .as_u64()
 }
 
+/// One agent for every request, so its connections (and their TLS
+/// handshakes) are reused, and the system's certificates are loaded once.
 fn agent() -> ureq::Agent {
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    AGENT.get_or_init(new_agent).clone()
+}
+
+fn new_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(15)))
         // Certificates are checked against the system's store, as git does: a
