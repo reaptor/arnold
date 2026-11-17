@@ -834,7 +834,8 @@ export async function setBranches(change: { base?: string; head?: string }) {
   resetSessions();
   setState({ selected: null });
   await setView("all");
-  await refresh();
+  // Picked: checked out when it is checked out nowhere.
+  await refresh(true);
 }
 
 // ------------------------------------------------------------- pull requests
@@ -884,7 +885,8 @@ export async function setSource(source: Source, remember = true) {
   if (remember) rememberReview(state.repo.root, { source });
   const reopen = source === "pullRequest" && !state.pullRequest ? rememberedPullRequest(state.repo.root) : null;
   if (reopen) {
-    await openPullRequest(reopen.remote, reopen.id);
+    // Reopened, not picked: shown as it is checked out, not checked out.
+    await openPullRequest(reopen.remote, reopen.id, false);
     // It could not be opened (gone, or no token): the list, with why.
     if (state.pullRequest) return;
   }
@@ -894,18 +896,18 @@ export async function setSource(source: Source, remember = true) {
   if (source === "commit") return commitMode.enter();
   await setView("all");
   if (source === "pullRequest" && pullRequests.prs.list === null) void pullRequests.loadPullRequests();
-  // Checked out again if the opened folder moved on meanwhile (unless that was cancelled or failed).
-  if (source === "pullRequest" && state.pullRequest) {
-    await loadPrWorktree(checkoutProblem()?.key !== checkoutKey(state.repo.root, `!${state.pullRequest.id}`));
-  }
+  // Read again, as the opened folder may have moved on meanwhile: shown, not checked out again.
+  if (source === "pullRequest" && state.pullRequest) await loadPrWorktree(false);
   await refresh();
 }
 
 /**
  * Reviews pull request `id` of `remote`: reads it and fetches its commits if
  * the repository lacks them, then compares them as a pull request does.
+ * With `checkOut` (picked by the user) it is checked out too; otherwise
+ * (reopened by itself) it is shown as it is checked out, if at all.
  */
-export async function openPullRequest(remote: string, id: number) {
+export async function openPullRequest(remote: string, id: number, checkOut = true) {
   const repo = state.repo;
   if (!repo) return;
   setState({ openingPullRequest: id, error: null });
@@ -926,9 +928,9 @@ export async function openPullRequest(remote: string, id: number) {
     rememberReview(repo.root, { source: "pullRequest", pullRequest: { remote, id } });
     setHostLinks(azureHostLinks(pullRequest.url));
     void loadThreads();
-    // Checked out from the start, so it can be edited (into suggestions) and
-    // the language server runs on its files.
-    await loadPrWorktree(true);
+    // Picked: checked out from the start, so it can be edited (into
+    // suggestions) and the language server runs on its files.
+    await loadPrWorktree(checkOut);
     await setView("all");
     await refresh();
   } catch (error) {
@@ -1029,12 +1031,14 @@ export function resetSessions(again = false) {
 // ---------------------------------------------------------------- comparison
 
 /**
- * Re-reads the changed-file list and brings the open file up to date.
- * `checkOut` false: a change made outside Arnold (a branch switched in a
- * terminal or another program) is only shown, the compared branch is not
- * checked out again over it.
+ * Re-reads the changed-file list and brings the open file up to date. Only
+ * with `checkOut` (the user picked the branch, or asked to check it out) is
+ * the compared branch checked out in Branches; otherwise what is checked out
+ * is only shown (also a change made outside Arnold, a branch switched in a
+ * terminal or another program), and the Read-only status offers to check
+ * it out.
  */
-export async function refresh(checkOut = true) {
+export async function refresh(checkOut = false) {
   void commitMode.countUncommitted();
   const repo = state.repo;
   if (checkOut && repo && state.source === "branches" && !(await checkOutHead(repo))) return;
@@ -1404,6 +1408,14 @@ export function editBlocked(): { reason: string; action: EditAction | null } | n
     const pullRequest = state.pullRequest;
     if (!pullRequest) return null;
     const worktree = prWorktreeOf(pullRequest);
+    // Behind the latest push without edits: moved up only when the user asks to.
+    if (worktree?.behind && !worktree.edited) {
+      const where = worktree.path === repo.root ? "the opened folder" : (relativeTo(repo.root, worktree.path) ?? worktree.path);
+      return {
+        reason: `${worktree.branch} in ${where} is at ${worktree.head.slice(0, 8)}, behind this pull request's latest push (${(pullRequest.sourceCommit ?? "").slice(0, 8)}). Update it to the latest push to edit the pull request there.`,
+        action: { kind: "checkOut", label: "Update" },
+      };
+    }
     // Your own branch's edits are never thrown away from here; nor is a branch with commits of its own moved.
     if (worktree && worktree.head !== pullRequest.sourceCommit && (pullRequest.yours || !worktree.edited)) {
       const where = worktree.path === repo.root ? "the opened folder" : (relativeTo(repo.root, worktree.path) ?? worktree.path);
@@ -1535,10 +1547,12 @@ function prCheckout(): string | null {
  * Reads the checkout of the pull request under review, on its source
  * branch wherever that is checked out, or with `create` checks that branch
  * out: in the opened folder, or when that has uncommitted changes, where
- * the user picks (a worktree of its own among them). Never detached. One
- * without edits moves up to the pull request's latest push, and with
- * `discard` one with edits does too, throwing them away (never asked for
- * your own pull request, whose edits are yours to commit).
+ * the user picks (a worktree of its own among them). Never detached. With
+ * `create` one without edits moves up to the pull request's latest push,
+ * and with `discard` one with edits does too, throwing them away (never
+ * asked for your own pull request, whose edits are yours to commit).
+ * Without `create` nothing is checked out or moved: a change made outside
+ * Arnold, or a new push, is only shown (`editBlocked` offers to update).
  */
 async function loadPrWorktree(create: boolean, discard = false) {
   const repo = state.repo;
@@ -1557,7 +1571,7 @@ async function loadPrWorktree(create: boolean, discard = false) {
         // Edits on an earlier push are thrown away only when asked to (`discard`).
         async (placement) => (await check(true, discard ? "discard" : placement))!,
       );
-      worktree = made && { path: made.path, head: made.head, edited: made.edited, branch: made.branch, created: made.created };
+      worktree = made && { path: made.path, head: made.head, edited: made.edited, branch: made.branch, created: made.created, behind: made.behind };
       stashed = made?.stashed ?? false;
       if (!worktree) setCheckoutProblem({ key, error: CANCELLED });
     } else {
@@ -1590,10 +1604,9 @@ export async function makeEditable() {
 async function makeEditableAs(action: EditAction | null | undefined) {
   if (!action) return;
   if (action.kind === "checkOut" && state.source === "branches") {
-    // Tried again on the next refresh.
     setCheckoutProblem(null);
     resetSessions(true);
-    return refresh();
+    return refresh(true);
   }
   if (action.kind === "discard") {
     const sure = await confirm(
@@ -3081,7 +3094,7 @@ export async function startWatching() {
   await ipc.onCheckoutChanged(() => {
     if (state.source === "commit" || !state.comparison?.checkout) return;
     window.clearTimeout(checkoutTimer);
-    checkoutTimer = window.setTimeout(() => void refresh(false), 150);
+    checkoutTimer = window.setTimeout(() => void refresh(), 150);
   });
   // The backend watches the repository's branches: a commit, fetch or new
   // branch updates the branch pickers and the diff.
@@ -3133,7 +3146,7 @@ async function refsChanged() {
   // The opened folder may have left the pull request's commit (checked out elsewhere).
   if (state.source === "pullRequest") await loadPrWorktree(false);
   // Only shown: what was checked out elsewhere is not checked out over again.
-  await refresh(false);
+  await refresh();
 }
 
 /** Asks the host whether the pull request under review has new pushes, and shows them. */
@@ -3150,7 +3163,7 @@ export async function checkPullRequest() {
     const moved = fresh.sourceCommit !== pullRequest.sourceCommit || fresh.targetCommit !== pullRequest.targetCommit;
     setState("pullRequest", { ...fresh, remote: pullRequest.remote });
     if (moved) {
-      // A worktree without edits follows the new push.
+      // Shown, not followed: the checkout stays where it is until the user updates it.
       await loadPrWorktree(false);
       await refresh();
     }

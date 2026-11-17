@@ -788,10 +788,10 @@ function pullRequestCheckout(root: string, commit: string, branch: string, creat
   if (local?.worktreePath && !prTrees.has(local.worktreePath)) {
     // The mock's checkouts share one set of files, at the branch's tip.
     const head = yourPr === "apart" ? "9c2b4e6f8a1d3c5e7f9b0d2a4c6e8f1a3b5d7c9e" : TIP;
-    return { kind: "done", path: local.worktreePath, head, edited: folderChanges() !== null, branch, created: false };
+    return { kind: "done", path: local.worktreePath, head, edited: folderChanges() !== null, branch, created: false, behind: false };
   }
   if (local?.worktreePath) {
-    return { kind: "done", ...pullRequestWorktree(local.worktreePath, branch, commit, placement === "discard"), created: false };
+    return { kind: "done", ...pullRequestWorktree(local.worktreePath, branch, commit, create, placement === "discard"), created: false };
   }
   if (!create) return null;
   let path = `${root}/.arnold/worktrees/${branch.replace(/[^\w.-]/g, "-")}`;
@@ -811,19 +811,19 @@ function pullRequestCheckout(root: string, commit: string, branch: string, creat
   const made = local ?? { ...(repo.branches.find((candidate) => candidate.name === `origin/${branch}`) ?? repo.branches[0]), name: branch, isRemote: false };
   if (!local) repo.branches.push(made);
   made.worktreePath = path;
-  return { kind: "done", ...pullRequestWorktree(path, branch, commit, false), created: true };
+  return { kind: "done", ...pullRequestWorktree(path, branch, commit, true, false), created: true };
 }
 
-function pullRequestWorktree(path: string, branch: string, commit: string, discard: boolean) {
+function pullRequestWorktree(path: string, branch: string, commit: string, moveUp: boolean, discard: boolean) {
   let entry = prTrees.get(path);
   const edited = () => !!entry && diffOf(entry.tip, entry.tree).length > 0;
-  // As git: made, or moved up to the commit when it has no edits (or they are thrown away).
-  if (!entry || (entry.head !== commit && (!edited() || discard)) || discard) {
+  // As git: made, or when asked to (`moveUp`) moved up to the commit when it has no edits (or they are thrown away).
+  if (!entry || (moveUp && ((entry.head !== commit && !edited()) || discard))) {
     const tip = filesAt(commit);
     entry = { tree: new Map(tip), head: commit, tip };
     prTrees.set(path, entry);
   }
-  return { path, head: entry.head, edited: edited(), branch };
+  return { path, head: entry.head, edited: edited(), branch, behind: entry.head !== commit };
 }
 
 // ------------------------------------------------------------- Fantomas

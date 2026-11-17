@@ -205,6 +205,8 @@ export interface Worktree {
   branch: string;
   /** Checked out just now. */
   created: boolean;
+  /** It lags behind the pull request's latest push and can be moved up to it (only done when asked to). */
+  behind: boolean;
 }
 
 /**
@@ -223,9 +225,11 @@ export type CheckedOut<T> = ({ kind: "done" } & T) | { kind: "changes"; files: n
  * Where pull request `id` is checked out to be edited: on its source
  * `branch` (a local branch tracking `remote`'s, made at `commit` when there
  * is none), never detached. Wherever that is checked out already, it is used
- * there, moved up to `commit` when that is a fast-forward and it has no
- * edits (or with `discard`, after throwing them away). Checked out nowhere,
- * `create` checks it out as `placement` says; otherwise that resolves to null.
+ * there; with `create` moved up to `commit` when that is a fast-forward and
+ * it has no edits (or with `discard`, after throwing them away), without
+ * left where it is (`behind` says when it could be moved). Checked out
+ * nowhere, `create` checks it out as `placement` says; otherwise that
+ * resolves to null.
  */
 export const pullRequestCheckout = (
   root: string,

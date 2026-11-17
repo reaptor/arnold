@@ -30,6 +30,9 @@ pub struct Worktree {
     pub branch: String,
     /// Whether it was checked out just now.
     pub created: bool,
+    /// Whether it lags behind the pull request's latest push and can be
+    /// moved up to it (a fast-forward), which happens only when asked to.
+    pub behind: bool,
 }
 
 async fn describe(path: &Path, branch: &str, created: bool) -> Result<Worktree> {
@@ -37,21 +40,22 @@ async fn describe(path: &Path, branch: &str, created: bool) -> Result<Worktree> 
         run_text(path, &["rev-parse", "--verify", "HEAD^{commit}"]),
         run(path, &["status", "--porcelain", "-z", "--untracked-files=normal"]),
     )?;
-    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty(), branch: branch.to_string(), created })
+    Ok(Worktree { path: path.to_path_buf(), head, edited: !status.is_empty(), branch: branch.to_string(), created, behind: false })
 }
 
-/// The pull request's branch checked out at `path`, moved up to `commit`
-/// when that is a fast-forward and it has no uncommitted changes, or with
-/// `discard` after throwing them away (untracked files included). A branch
-/// with commits of its own (not pushed yet) is never moved.
-async fn follow(path: &Path, branch: &str, commit: &str, discard: bool, created: bool) -> Result<Worktree> {
+/// The pull request's branch checked out at `path`; with `move_up` moved up
+/// to `commit` when that is a fast-forward and it has no uncommitted
+/// changes, or with `discard` after throwing them away (untracked files
+/// included). A branch with commits of its own (not pushed yet) is never
+/// moved. Not moved, it says whether it could be (`behind`).
+async fn follow(path: &Path, branch: &str, commit: &str, move_up: bool, discard: bool, created: bool) -> Result<Worktree> {
     let found = describe(path, branch, created).await?;
-    if found.head == commit || (found.edited && !discard) {
+    if found.head == commit {
         return Ok(found);
     }
     let ancestor = run_raw(path, &["merge-base", "--is-ancestor", &found.head, commit]).await?.success;
-    if !ancestor {
-        return Ok(found);
+    if !ancestor || !move_up || (found.edited && !discard) {
+        return Ok(Worktree { behind: ancestor, ..found });
     }
     if found.edited {
         run(path, &["reset", "--hard", "--quiet"]).await?;
@@ -64,9 +68,10 @@ async fn follow(path: &Path, branch: &str, commit: &str, discard: bool, created:
 /// Where pull request `id` is checked out: on its source branch `branch`
 /// (a local branch tracking `remote`'s, made at `commit` when there is
 /// none), never detached. Wherever that is checked out already (the opened
-/// folder, a linked worktree) it is used there, moved to `commit` as
-/// `follow` says (`Placement::Discard` throws its edits away). Checked out
-/// nowhere, it is checked out as `placement` says when `create`, else `None`:
+/// folder, a linked worktree) it is used there; with `create` moved to
+/// `commit` as `follow` says (`Placement::Discard` throws its edits away),
+/// without left where it is (a change made outside Arnold is only shown).
+/// Checked out nowhere, it is checked out as `placement` says when `create`, else `None`:
 /// in the opened folder, or in a worktree of its own in `.arnold/worktrees`.
 pub async fn pull_request_checkout(
     root: &Path,
@@ -91,7 +96,7 @@ pub async fn pull_request_checkout(
     run(root, &["worktree", "prune"]).await?;
     let exists = has_branch(root, branch).await?;
     if let Some(path) = checked_out_at(root, branch, exists).await? {
-        return follow(&path, branch, commit, discard, false).await.map(|found| Some(CheckedOut::Done(found)));
+        return follow(&path, branch, commit, create, discard, false).await.map(|found| Some(CheckedOut::Done(found)));
     }
     if !create {
         return Ok(None);
@@ -112,7 +117,7 @@ pub async fn pull_request_checkout(
     if let (false, Some(remote)) = (exists, remote) {
         track(root, branch, remote).await?;
     }
-    follow(&path, branch, commit, false, true).await.map(|made| Some(CheckedOut::Done(made)))
+    follow(&path, branch, commit, true, false, true).await.map(|made| Some(CheckedOut::Done(made)))
 }
 
 /// Where a branch or pull request checked out nowhere yet is checked out.
