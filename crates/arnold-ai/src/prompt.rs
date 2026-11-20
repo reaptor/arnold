@@ -69,6 +69,28 @@ Answer with one JSON object and nothing else, no Markdown fence:
 "line" is the line number of the first line of "original" in the new version of the
 file. Write "summary" and "why" in the language of the code's comments, else English."#;
 
+/// For suggesting a commit message. Arnold puts the answer in the commit
+/// message box as it is, so the answer is the message and nothing else.
+pub const COMMIT_MESSAGE: &str = "\
+You write commit messages in Arnold, a desktop app where developers commit changes, \
+often changes written by AI coding agents.
+
+You are given the staged changes as a unified diff: exactly what will be committed. \
+You cannot read other files or run anything.
+
+Write a short, concise commit message for these changes:
+- The first line says what changed, in under 72 characters, in the imperative \
+(\"Add\", \"Fix\", \"Remove\"…), without a trailing period.
+- Only when the first line cannot carry it, add a blank line and up to three short \
+lines on why or on what a reader would not see from the first line.
+- Describe what the change does for the code or its users, not the diff line by line. \
+Name files or functions only when that is the clearest way to say it.
+- No Markdown, no code fences, no quotes around the message, no prefixes such as \
+\"feat:\", no preamble or comments.
+- Write in the language of the code's comments, else English.
+
+Answer with the commit message and nothing else.";
+
 /// The message sent for a question: the code it is about, then the question.
 pub fn message(question: &str, context: &[ContextItem]) -> String {
     let mut out = String::new();

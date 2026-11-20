@@ -954,7 +954,7 @@ export interface AskRequest {
   context: ContextItem[];
   cwd: string | null;
   /** What the conversation is for (it keeps the first one): explaining code, or suggesting improvements as JSON. */
-  purpose?: "explain" | "review";
+  purpose?: "explain" | "review" | "commitMessage";
 }
 
 export interface ModelInfo {

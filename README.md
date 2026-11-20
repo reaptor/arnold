@@ -110,7 +110,7 @@ Within a change, lines work one by one: selecting some of a change stages or res
 
 **Merge conflicts.** When a merge stops on conflicts (run in a terminal, say), each file git could not merge is listed in *Unstaged* with a red `!`. Picked, it shows the branch's own text (ours) against the file with its conflicts: the current side's lines are tinted blue, the incoming side's amber, and the first marker line of each conflict has *Accept current*, *Accept incoming* and *Accept both*, edits that undo brings back like any other; the file can also be edited by hand. `S` stages the resolved file (asking first while it still has conflict markers), and *Reset* brings its conflicts back as git first wrote them. While a merge is under way, git's merge message fills an empty commit message, and *Commit* waits until no file has conflicts left.
 
-Write the message at the bottom of *Staged* (drag its top edge to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run.
+Write the message at the bottom of *Staged* (drag its top edge to make it taller) and commit with *Commit* or `Ctrl+Enter` (`⌘Enter`); the repository's hooks run. *Suggest*, left of *Commit*, has GitHub Copilot read the staged changes and write a short message for them into the box, to edit or commit as it is; *Stop* keeps what you had (see [Explaining and improving code with AI](#explaining-and-improving-code-with-ai) for signing in).
 
 When the branch is pushed to Azure DevOps and has required branch policies there (reviewers, a build, linked work items…), a push to it would be refused: such a branch takes changes only through pull requests. With a token set up, Arnold checks this before it commits and, if so, offers to *Create branch and commit*, with a name taken from the commit message, or *Cancel*. The new branch starts from the current one and keeps the staged and unstaged changes. If the policies cannot be read (no token, no network), the commit goes ahead as usual.
 
@@ -336,6 +336,10 @@ Matters of taste, formatting and lines the change did not touch are left alone, 
 Each suggestion shows in the diff as a card under the lines it would replace (framed in blue): why, the lines removed and added, and **Accept** and **Discard**. *Accept* replaces the lines like typing would, in the editor that shows the file or, when none does, in the file on disk in the checkout; the change is then an edit like any other, to review, undo or commit. Accepting needs the diff to be editable (a checkout of the branch or pull request, or Commit mode). A suggestion is placed by its text, not its line number, so edits above it move it along; once its lines are edited, it is no longer shown.
 
 The panel lists the suggestions under a short summary of the changes, as a starting point: a click on one shows its code, and each can be accepted or discarded there too. Suggestions whose lines Copilot got wrong are left out, and counted. Follow-up questions in the panel know what was suggested.
+
+### Suggesting a commit message
+
+*Suggest* beside *Commit* in Commit mode sends the staged changes (exactly what will be committed, up to about 150 KB of diff) and the branch name to Copilot, which writes a short, imperative first line and, only when needed, a few lines on why. The message replaces what was in the box as it is written; stopping or a failure puts the old text back. Signed out, *Suggest* opens the panel to sign in and suggests once Copilot is ready.
 
 **Your organization's Copilot.** Arnold has no AI service or account of its own. It signs in with your GitHub account and uses the [GitHub Copilot](https://github.com/features/copilot/plans) your organization already provides (Copilot Business or Enterprise), or your own plan if you have one (the free plan works too). That makes it as safe as Copilot already is for you:
 

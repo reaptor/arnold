@@ -2112,7 +2112,12 @@ async function fakeAiAsk(request: AskRequest, onEvent: Channel<AiEvent>) {
   if (aiMode === "error") throw "The signed-in GitHub account may have no Copilot plan.";
   onEvent.onmessage({ kind: "reasoning", text: "Reading the changes…" });
   await pause(300);
-  const answer = request.purpose === "review" ? fakeReview(request) : fakeAnswer(request);
+  const answer =
+    request.purpose === "review"
+      ? fakeReview(request)
+      : request.purpose === "commitMessage"
+        ? "Retry failed order submissions with backoff\n\nA submission that times out is retried up to three times before\nthe order is marked as failed."
+        : fakeAnswer(request);
   for (let at = 0; at < answer.length; at += 14) {
     if (aiCancelled.has(request.conversation)) break;
     onEvent.onmessage({ kind: "delta", text: answer.slice(at, at + 14) });

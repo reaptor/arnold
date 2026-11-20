@@ -215,6 +215,7 @@ impl Copilot {
                 .with_content(match request.purpose {
                     Purpose::Explain => prompt::SYSTEM,
                     Purpose::Review => prompt::REVIEW,
+                    Purpose::CommitMessage => prompt::COMMIT_MESSAGE,
                 }),
         );
         let session = Arc::new(
