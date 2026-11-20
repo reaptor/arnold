@@ -3988,6 +3988,10 @@ button[data-working]:not(.busy, .busy:not(.app) *) > * {
   font-size: 12px;
 }
 
+.commit-hint.error {
+  color: var(--removed);
+}
+
 .commit-bar button {
   display: flex;
   align-items: center;

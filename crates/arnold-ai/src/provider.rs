@@ -51,6 +51,8 @@ pub enum Purpose {
     Explain,
     /// Suggesting improvements to the changes, as JSON (`prompt::REVIEW`).
     Review,
+    /// Suggesting a commit message for the staged changes, as plain text (`prompt::COMMIT_MESSAGE`).
+    CommitMessage,
 }
 
 /// Code the question is about.

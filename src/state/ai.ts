@@ -161,8 +161,22 @@ export async function refresh() {
   }
 }
 
+/** Starting Copilot, once at a time. */
+let preparation: Promise<void> | null = null;
+
 /** Downloads (the first time) and starts Copilot, so the first question is answered quickly. */
-async function prepare() {
+function prepare(): Promise<void> {
+  preparation ??= starting().finally(() => (preparation = null));
+  return preparation;
+}
+
+/** Starts Copilot (signed in) unless it runs already; throws why it could not. */
+export async function ensureReady() {
+  if (!ai.ready) await prepare();
+  if (!ai.ready) throw new Error(ai.prepareError ?? "GitHub Copilot did not start.");
+}
+
+async function starting() {
   setAi({ preparing: "Starting GitHub Copilot…", prepareError: null });
   try {
     await ipc.aiPrepare((event) => {

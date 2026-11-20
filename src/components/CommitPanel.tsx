@@ -1,8 +1,9 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { isMac } from "../platform";
 import { answerFormatCheck, answerProtectedBranch, canCommit, commit, conflictedCount, message, setCommitMessage } from "../state/commitMode";
+import { canSuggestMessage, clearSuggestError, suggestError, suggesting, toggleSuggestion } from "../state/commitSuggest";
 import { state } from "../state/review";
-import { BranchIcon, CloseIcon, CommitIcon, FormatIcon } from "./icons";
+import { BranchIcon, CloseIcon, CommitIcon, FormatIcon, SparkleIcon, StopIcon } from "./icons";
 
 const COMMIT_KEY = isMac ? "⌘Enter" : "Ctrl+Enter";
 
@@ -13,6 +14,9 @@ export function CommitBox() {
   const staged = () => state.work?.staged.length ?? 0;
   const hint = () => {
     if (state.committing) return state.committing;
+    if (suggesting()) return "Writing…";
+    const error = suggestError();
+    if (error) return error;
     const conflicted = conflictedCount();
     if (conflicted > 0) return `Resolve the merge conflicts in ${plural(conflicted, "file")} and stage ${conflicted === 1 ? "it" : "them"} to commit.`;
     if (staged() === 0) return "Stage files or lines to commit them.";
@@ -24,7 +28,7 @@ export function CommitBox() {
       class="commit-box"
       onSubmit={(event) => {
         event.preventDefault();
-        void commit();
+        if (!suggesting()) void commit();
       }}
     >
       <textarea
@@ -33,19 +37,34 @@ export function CommitBox() {
         aria-label="Commit message"
         rows={3}
         value={message()}
-        onInput={(event) => setCommitMessage(event.currentTarget.value)}
+        readOnly={suggesting()}
+        onInput={(event) => {
+          clearSuggestError();
+          setCommitMessage(event.currentTarget.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            void commit();
+            if (!suggesting()) void commit();
           }
         }}
       />
       <div class="commit-bar">
-        <span class="commit-hint" title={hint()}>
+        <span class="commit-hint" classList={{ error: !suggesting() && !state.committing && !!suggestError() }} title={hint()}>
           {hint()}
         </span>
-        <button type="submit" class="primary" disabled={!canCommit()} title={`Commit the staged changes (${COMMIT_KEY})`}>
+        <button
+          type="button"
+          disabled={!suggesting() && !canSuggestMessage()}
+          title={suggesting() ? "Stop writing the message" : "Have GitHub Copilot suggest a message for the staged changes"}
+          onClick={() => void toggleSuggestion()}
+        >
+          <Show when={suggesting()} fallback={<SparkleIcon />}>
+            <StopIcon />
+          </Show>
+          <span>{suggesting() ? "Stop" : "Suggest"}</span>
+        </button>
+        <button type="submit" class="primary" disabled={!canCommit() || suggesting()} title={`Commit the staged changes (${COMMIT_KEY})`}>
           <CommitIcon />
           <span>Commit</span>
         </button>
