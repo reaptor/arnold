@@ -7,12 +7,19 @@
 //! serves every conversation; each conversation is one Copilot session, so
 //! follow-up questions see the earlier ones.
 //!
+//! The CLI swaps the GitHub token for short-lived Copilot tokens. When one
+//! has gone stale in a CLI that ran for long (a laptop that slept), the
+//! question fails as unauthorized: Arnold then starts a fresh CLI with the
+//! saved token and asks again, and only asks the user to sign in again when
+//! GitHub itself no longer accepts the token.
+//!
 //! Explaining code needs no tools: sessions get none (the CLI's file, shell
 //! and web tools are all switched off) and any permission request is denied.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as SyncMutex};
 
 use github_copilot_sdk::handler::DenyAllHandler;
@@ -176,6 +183,7 @@ impl Copilot {
             .await
             .map_err(|e| failed(format!("GitHub Copilot could not check the sign-in: {e}"), &stderr))?;
         if !auth.is_authenticated {
+            check_sign_in().await?;
             return Err(
                 "GitHub did not accept the sign-in for Copilot. Sign out and sign in again.".into(),
             );
@@ -235,22 +243,9 @@ impl Copilot {
         Ok(session)
     }
 
-    async fn stderr_tail(&self) -> String {
-        match self.running.lock().await.as_ref() {
-            Some(running) => running.stderr.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n"),
-            None => String::new(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Provider for Copilot {
-    async fn prepare(&self, events: Events) -> Result<(), String> {
-        self.client(&events).await.map(|_| ())
-    }
-
-    async fn ask(&self, request: AskRequest, events: Events) -> Result<(), String> {
-        let session = self.session(&request, &events).await?;
+    /// Asks `request` once, streaming the answer.
+    async fn answer(&self, request: &AskRequest, events: &Events) -> Result<(), String> {
+        let session = self.session(request, events).await?;
         let mut subscription = session.subscribe();
         session
             .send(MessageOptions::new(prompt::message(&request.question, &request.context)))
@@ -282,6 +277,48 @@ impl Provider for Copilot {
                 }
                 _ => {}
             }
+        }
+    }
+
+    async fn stderr_tail(&self) -> String {
+        match self.running.lock().await.as_ref() {
+            Some(running) => running.stderr.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n"),
+            None => String::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Provider for Copilot {
+    async fn prepare(&self, events: Events) -> Result<(), String> {
+        self.client(&events).await.map(|_| ())
+    }
+
+    async fn ask(&self, request: AskRequest, events: Events) -> Result<(), String> {
+        // Asking again is only safe before any of the answer was shown.
+        let answering = Arc::new(AtomicBool::new(false));
+        let tracked: Events = {
+            let (answering, events) = (answering.clone(), events.clone());
+            Arc::new(move |event| {
+                if matches!(event, AiEvent::Delta { .. } | AiEvent::Reasoning { .. }) {
+                    answering.store(true, Ordering::Relaxed);
+                }
+                events(event)
+            })
+        };
+        match self.answer(&request, &tracked).await {
+            Err(error) if is_unauthorized(&error) && !answering.load(Ordering::Relaxed) => {
+                // Most likely the running CLI's Copilot token went stale: a fresh
+                // CLI gets a new one from the saved sign-in. Earlier questions of
+                // the conversation are not seen by the new CLI.
+                self.stop().await;
+                check_sign_in().await?;
+                events(AiEvent::Status {
+                    text: "Reconnecting to GitHub Copilot…".into(),
+                });
+                self.answer(&request, &tracked).await
+            }
+            result => result,
         }
     }
 
@@ -354,6 +391,47 @@ fn describe(message: &str) -> String {
     }
 }
 
+/// Whether GitHub Copilot turned the question down for want of a valid sign-in.
+fn is_unauthorized(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    [
+        "401",
+        "unauthorized",
+        "unauthenticated",
+        "not authenticated",
+        "authentication",
+        "bad credentials",
+        "token expired",
+        "expired token",
+        "token has expired",
+        "invalid token",
+        "did not accept the sign-in",
+    ]
+    .iter()
+    .any(|text| lower.contains(text))
+}
+
+/// Fails with what to do when GitHub no longer accepts the saved token
+/// (expired or revoked); passes when it does, or when GitHub cannot be reached.
+async fn check_sign_in() -> Result<(), String> {
+    let Some((token, source)) = auth::load()? else {
+        return Err("Sign in to GitHub to use Copilot.".into());
+    };
+    let accepted = tokio::task::spawn_blocking(move || auth::login(&token))
+        .await
+        .map_err(|e| e.to_string())?;
+    match (accepted, source) {
+        (Ok(None), auth::TokenSource::Keychain) => Err(SIGN_IN_EXPIRED.into()),
+        (Ok(None), auth::TokenSource::Environment(name)) => {
+            Err(format!("GitHub no longer accepts the token in {name}. Replace it, or sign in from Arnold."))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The error when the saved GitHub sign-in has expired or was revoked.
+pub const SIGN_IN_EXPIRED: &str = "GitHub no longer accepts your sign-in (it expired or was revoked). Sign in again.";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +459,14 @@ mod tests {
         assert!(describe("Request failed: 403").contains("no Copilot plan"));
         assert!(describe("monthly quota exceeded").contains("allowance"));
         assert_eq!(describe("boom"), "boom");
+    }
+
+    #[test]
+    fn recognizes_a_stale_sign_in() {
+        assert!(is_unauthorized("Request failed with status 401"));
+        assert!(is_unauthorized("Unauthorized: token expired"));
+        assert!(is_unauthorized("GitHub did not accept the sign-in for Copilot. Sign out and sign in again."));
+        assert!(!is_unauthorized("monthly quota exceeded"));
+        assert!(!is_unauthorized("Request failed: 403"));
     }
 }

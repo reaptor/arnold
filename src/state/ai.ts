@@ -372,6 +372,11 @@ export async function ask(question: string, context: ContextItem[] = [], chips: 
     } catch (error) {
       failed = true;
       if (ai.conversation === conversation) update((message) => void (message.error = String(error)));
+      // The saved sign-in expired: the panel offers signing in again.
+      if (String(error).includes("Sign in again")) {
+        setAi("ready", false);
+        void refresh();
+      }
     } finally {
       if (frame) cancelAnimationFrame(frame);
       flush();
