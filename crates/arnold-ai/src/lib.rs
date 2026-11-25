@@ -15,7 +15,7 @@ mod copilot;
 mod prompt;
 pub mod provider;
 
-pub use copilot::Copilot;
+pub use copilot::{Copilot, SIGN_IN_EXPIRED};
 pub use provider::{AiEvent, AskRequest, ContextItem, ContextKind, Events, ModelInfo, Provider, Purpose};
 
 pub(crate) fn network_error(url: &str, error: &ureq::Error) -> String {

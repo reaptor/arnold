@@ -162,9 +162,14 @@ pub async fn ai_ask(
 ) -> Result<(), String> {
     let copilot = state.copilot(&app)?;
     // Runs on its own task so the answer is not dropped if the webview's call goes away.
-    tokio::spawn(async move { copilot.ask(request, emitter(on_event)).await })
+    let result = tokio::spawn(async move { copilot.ask(request, emitter(on_event)).await })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if matches!(&result, Err(error) if error == arnold_ai::SIGN_IN_EXPIRED) {
+        // `ai_status` would still report the remembered login.
+        state.logins.lock().await.clear();
+    }
+    result
 }
 
 #[tauri::command]
